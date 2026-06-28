@@ -1,0 +1,7 @@
+[project]
+name = "rondo"
+description = "スマホで遊ぶ、複数のゲームをプラグインとして差し込めるブラウザゲームプラットフォーム"
+
+[stack]
+id = "next-gleam"
+skills_base = "next-gleam"

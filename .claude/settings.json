@@ -1,0 +1,58 @@
+{
+	"$schema": "https://json.schemastore.org/claude-code-settings.json",
+	"permissions": {
+		"allow": [
+			"Bash(ls *)",
+			"Bash(cat *)",
+			"Bash(rg *)",
+			"Bash(grep *)",
+			"Bash(tree *)",
+			"Bash(git status)",
+			"Bash(git diff *)",
+			"Bash(git log *)"
+		],
+		"ask": [
+			"Bash(make *)",
+			"Bash(pnpm *)",
+			"Bash(git commit *)",
+			"Bash(docker *)"
+		],
+		"deny": [
+			"Edit(**/Makefile)",
+			"Edit(**/Makefile.*)",
+			"Edit(**/*.mk)",
+			"Write(**/Makefile)",
+			"Write(**/Makefile.*)",
+			"Edit(.claude/verify.sh)",
+			"Write(.claude/verify.sh)",
+			"Edit(.claude/hooks/**)",
+			"Write(.claude/hooks/**)",
+			"Edit(.claude/settings.json)",
+			"Write(.claude/settings.json)"
+		],
+		"defaultMode": "default"
+	},
+	"hooks": {
+		"PreToolUse": [
+			{
+				"matcher": "Bash",
+				"hooks": [
+					{ "type": "command", "command": ".claude/hooks/block-dangerous.sh" }
+				]
+			},
+			{
+				"matcher": "Read",
+				"hooks": [
+					{ "type": "command", "command": ".claude/hooks/protect-secrets.sh" }
+				]
+			}
+		],
+		"Stop": [
+			{
+				"hooks": [
+					{ "type": "command", "command": ".claude/hooks/run-verify.sh" }
+				]
+			}
+		]
+	}
+}
