@@ -1,3 +1,12 @@
+### Node / pnpm
+node_modules/
+dist/
+.next/
+*.tsbuildinfo
+
+### Gleam
+server/build/
+
 ### macOS
 # Finder metadata
 .DS_Store
@@ -6,7 +15,7 @@
 ._*
 
 # Custom folder icons
-Icon
+Icon
 
 # Volume root files
 .DocumentRevisions-V100

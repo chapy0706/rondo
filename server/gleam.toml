@@ -1,0 +1,9 @@
+name = "rondo_server"
+version = "0.1.0"
+description = "rondo のリアルタイム基盤（Gleam / OTP WebSocket サーバー）"
+
+[dependencies]
+gleam_stdlib = ">= 0.44.0 and < 2.0.0"
+
+[dev-dependencies]
+gleeunit = ">= 1.0.0 and < 2.0.0"

@@ -1,0 +1,17 @@
+{
+	"name": "@rondo/web",
+	"version": "0.0.0",
+	"private": true,
+	"type": "module",
+	"scripts": {
+		"dev": "echo 'web dev placeholder (issue-05 / issue-06)'",
+		"type-check": "tsc --noEmit"
+	},
+	"dependencies": {
+		"@rondo/contracts": "workspace:*",
+		"@rondo/game-sdk": "workspace:*"
+	},
+	"devDependencies": {
+		"typescript": "^5.7.3"
+	}
+}
