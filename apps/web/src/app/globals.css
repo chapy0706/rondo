@@ -1,0 +1,12 @@
+@import "tailwindcss";
+
+:root {
+	color-scheme: dark;
+}
+
+body {
+	margin: 0;
+	background-color: #0f172a;
+	color: #e2e8f0;
+	-webkit-tap-highlight-color: transparent;
+}
