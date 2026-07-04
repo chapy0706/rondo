@@ -1,0 +1,11 @@
+# A1 上の Docker 開発環境（issue-08）。
+#
+# `docker compose up --build` で echo サーバーを起動し、ws://<host>:3000/ws に接続できる。
+# ルーム・接続アクター（issue-09 以降）が載っても、この起動口は変えずに済む。
+
+services:
+  server:
+    build: .
+    ports:
+      - "3000:3000"
+    restart: unless-stopped
