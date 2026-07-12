@@ -1,6 +1,7 @@
 import type { GameManifest } from "@rondo/contracts";
 import type { ComponentType } from "react";
 import { tetrisManifest } from "./tetris/manifest";
+import { tiltMazeManifest } from "./tilt-maze/manifest";
 
 /**
  * 全ゲームのマニフェストの集約点（ADR 0003）。
@@ -10,7 +11,10 @@ import { tetrisManifest } from "./tetris/manifest";
  * 基盤の選択画面・ルーティング・ホストは registry を読むだけで、個々のゲームの中身を
  * 知らない。選択肢を増やしても基盤側のコードは変わらない。
  */
-export const registry: readonly GameManifest[] = [tetrisManifest];
+export const registry: readonly GameManifest[] = [
+	tetrisManifest,
+	tiltMazeManifest,
+];
 
 /** ゲーム本体（React コンポーネント）の遅延ローダ。 */
 export type GameLoader = () => Promise<{ default: ComponentType }>;
@@ -24,6 +28,7 @@ export type GameLoader = () => Promise<{ default: ComponentType }>;
  */
 const gameComponents: Record<string, GameLoader> = {
 	[tetrisManifest.id]: () => import("./tetris/Tetris"),
+	[tiltMazeManifest.id]: () => import("./tilt-maze/TiltMaze"),
 };
 
 /**

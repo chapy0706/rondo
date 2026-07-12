@@ -7,28 +7,72 @@
  * 共通入力（VirtualPad / ADR 0018）を供給する。ここには特定ゲームの記述を持たず、
  * 表を引くだけなので、ゲームを増やしてもこのコードは変わらない。
  *
- * リアルタイム接続（realtime）はソロでは null（ADR 0004）。リアルタイム版ホストは
- * ロビー・アダプタ（issue-11）とゲーム進行（issue-12）の上に issue-14 で載せる。
+ * ソロは realtime を持たない（ADR 0004）。リアルタイムゲームには、単一接続の多重化
+ * （ADR 0007）を担うアダプタで自動的に部屋へ入り、RealTimePort と roomId を渡す。
+ * 既定は Mock（issue-11）なのでサーバーなしでも遊べる。一覧から選ぶ導線（ADR 0016）と
+ * サーバー結果の受け取りは issue-14 で整える。
  */
 
 import type { GameManifest, PlayResult } from "@rondo/contracts";
-import { GameHostProvider, VirtualPadProvider } from "@rondo/game-sdk";
-import type { GameHost } from "@rondo/game-sdk";
+import {
+	type GameHost,
+	GameHostProvider,
+	type RealtimeHost,
+	VirtualPadProvider,
+} from "@rondo/game-sdk";
 import Link from "next/link";
-import { Suspense, lazy, useCallback, useMemo, useState } from "react";
+import {
+	Suspense,
+	lazy,
+	useCallback,
+	useEffect,
+	useMemo,
+	useState,
+} from "react";
 import { findGameLoader } from "../../games/registry";
+import { createLobbyAdapter } from "../../infrastructure/realtime";
+
+/**
+ * リアルタイムゲーム用のホストを用意する。gameType が null（ソロ）なら接続しない。
+ * 部屋に入れるまでは null を返し、呼び出し側は「接続中」を表示する。
+ */
+function useRealtimeHost(gameType: string | null): RealtimeHost | null {
+	const [host, setHost] = useState<RealtimeHost | null>(null);
+
+	useEffect(() => {
+		if (gameType === null) return;
+		const adapter = createLobbyAdapter();
+		const unsubscribe = adapter.subscribe((message) => {
+			if (message.type === "room-joined" && message.gameType === gameType) {
+				setHost({ port: adapter, roomId: message.roomId });
+			}
+		});
+		// 一覧から選ぶ導線（issue-14）が入るまでは、遊べるよう自動で部屋を作る（ADR 0016）。
+		adapter.send({ type: "create-room", gameType });
+		return () => {
+			unsubscribe();
+			adapter.close();
+			setHost(null);
+		};
+	}, [gameType]);
+
+	return host;
+}
 
 export function PlayHost({ manifest }: { manifest: GameManifest }) {
 	const [result, setResult] = useState<PlayResult | null>(null);
 	const [playKey, setPlayKey] = useState(0);
+
+	const isRealtime = manifest.kind === "realtime";
+	const realtime = useRealtimeHost(isRealtime ? manifest.id : null);
 
 	const reportResult = useCallback((value: PlayResult) => {
 		setResult(value);
 	}, []);
 
 	const host = useMemo<GameHost>(
-		() => ({ reportResult, realtime: null }),
-		[reportResult],
+		() => ({ reportResult, realtime }),
+		[reportResult, realtime],
 	);
 
 	const Game = useMemo(() => {
@@ -41,6 +85,8 @@ export function PlayHost({ manifest }: { manifest: GameManifest }) {
 		setPlayKey((key) => key + 1);
 	}, []);
 
+	const connecting = isRealtime && realtime === null;
+
 	return (
 		<GameHostProvider value={host}>
 			<main className="mx-auto flex min-h-dvh max-w-md flex-col items-center gap-8 px-6 py-12">
@@ -51,6 +97,8 @@ export function PlayHost({ manifest }: { manifest: GameManifest }) {
 						<p className="text-slate-400">
 							このゲームはまだ起動できません（本体が未登録）。
 						</p>
+					) : connecting ? (
+						<p className="text-slate-400">ルームに接続中...</p>
 					) : (
 						<Suspense
 							fallback={<p className="text-slate-400">読み込み中...</p>}
