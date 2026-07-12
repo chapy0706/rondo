@@ -1,5 +1,6 @@
 import gleam/erlang/process
 import gleam/list
+import gleam/option.{None}
 import gleeunit/should
 import rondo_server/room/room_actor.{
   type Player, type RoomSpec, AlreadyPlaying, GameAlreadyStarted,
@@ -7,7 +8,7 @@ import rondo_server/room/room_actor.{
 }
 
 fn spec(min: Int, max: Int) -> RoomSpec {
-  RoomSpec(id: RoomId("r"), min_players: min, max_players: max)
+  RoomSpec(id: RoomId("r"), min_players: min, max_players: max, authority: None)
 }
 
 fn player(id: String) -> Player {

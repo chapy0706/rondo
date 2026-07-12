@@ -1,4 +1,5 @@
 import gleam/erlang/process
+import gleam/option.{None}
 import gleeunit/should
 import rondo_server/room/room_actor.{
   type RoomSpec, Player, PlayerId, RoomId, RoomSpec,
@@ -6,7 +7,7 @@ import rondo_server/room/room_actor.{
 import rondo_server/room/room_supervisor
 
 fn spec(id: String) -> RoomSpec {
-  RoomSpec(id: RoomId(id), min_players: 1, max_players: 4)
+  RoomSpec(id: RoomId(id), min_players: 1, max_players: 4, authority: None)
 }
 
 /// 起動直後は監視下のルームが無い。
