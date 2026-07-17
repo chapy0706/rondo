@@ -9,11 +9,17 @@
  *
  * ソロは realtime を持たない（ADR 0004）。リアルタイムゲームには、単一接続の多重化
  * （ADR 0007）を担うアダプタで自動的に部屋へ入り、RealTimePort と roomId を渡す。
- * 既定は Mock（issue-11）なのでサーバーなしでも遊べる。一覧から選ぶ導線（ADR 0016）と
- * サーバー結果の受け取りは issue-14 で整える。
+ * サーバーが確定した game-ended を受け取ったら結果発表（ADR 0017 / 0014）を出し、
+ * 退出でルームの解散へ繋ぐ。既定は Mock（issue-11）なのでサーバーなしでも動く。
  */
 
-import type { GameManifest, PlayResult } from "@rondo/contracts";
+import type {
+	GameManifest,
+	PlayResult,
+	PlayerId,
+	RealtimeResult,
+	RoomId,
+} from "@rondo/contracts";
 import {
 	type GameHost,
 	GameHostProvider,
@@ -21,53 +27,94 @@ import {
 	VirtualPadProvider,
 } from "@rondo/game-sdk";
 import Link from "next/link";
+import { useRouter } from "next/navigation";
 import {
 	Suspense,
 	lazy,
 	useCallback,
 	useEffect,
 	useMemo,
+	useRef,
 	useState,
 } from "react";
 import { findGameLoader } from "../../games/registry";
-import { createLobbyAdapter } from "../../infrastructure/realtime";
+import {
+	type RealtimeAdapter,
+	createLobbyAdapter,
+} from "../../infrastructure/realtime";
+import { ResultScreen } from "../result/ResultScreen";
+
+interface RealtimeSession {
+	readonly realtime: RealtimeHost | null;
+	readonly result: RealtimeResult | null;
+	readonly you: PlayerId | null;
+	readonly leave: () => void;
+}
 
 /**
- * リアルタイムゲーム用のホストを用意する。gameType が null（ソロ）なら接続しない。
- * 部屋に入れるまでは null を返し、呼び出し側は「接続中」を表示する。
+ * リアルタイムゲーム用のセッション。gameType が null（ソロ）なら接続しない。
+ * 部屋に入るまで realtime は null。サーバーの game-ended を受けたら result に確定結果を持つ。
  */
-function useRealtimeHost(gameType: string | null): RealtimeHost | null {
-	const [host, setHost] = useState<RealtimeHost | null>(null);
+function useRealtimeSession(gameType: string | null): RealtimeSession {
+	const [realtime, setRealtime] = useState<RealtimeHost | null>(null);
+	const [result, setResult] = useState<RealtimeResult | null>(null);
+	const [you, setYou] = useState<PlayerId | null>(null);
+	const adapterRef = useRef<RealtimeAdapter | null>(null);
+	const roomRef = useRef<RoomId | null>(null);
 
 	useEffect(() => {
 		if (gameType === null) return;
 		const adapter = createLobbyAdapter();
+		adapterRef.current = adapter;
 		const unsubscribe = adapter.subscribe((message) => {
 			if (message.type === "room-joined" && message.gameType === gameType) {
-				setHost({ port: adapter, roomId: message.roomId });
+				roomRef.current = message.roomId;
+				setYou(message.you);
+				setRealtime({ port: adapter, roomId: message.roomId });
+			} else if (
+				message.type === "game-ended" &&
+				message.gameType === gameType
+			) {
+				setResult(message.result);
 			}
 		});
-		// 一覧から選ぶ導線（issue-14）が入るまでは、遊べるよう自動で部屋を作る（ADR 0016）。
+		// 一覧から選ぶ導線（ADR 0016）が入るまでは、遊べるよう自動で部屋を作る。
 		adapter.send({ type: "create-room", gameType });
 		return () => {
 			unsubscribe();
 			adapter.close();
-			setHost(null);
+			adapterRef.current = null;
+			roomRef.current = null;
+			setRealtime(null);
+			setResult(null);
+			setYou(null);
 		};
 	}, [gameType]);
 
-	return host;
+	const leave = useCallback(() => {
+		const adapter = adapterRef.current;
+		const roomId = roomRef.current;
+		if (adapter !== null && roomId !== null) {
+			// 退出でルームは解散する（ADR 0017）。
+			adapter.send({ type: "leave-room", roomId });
+		}
+	}, []);
+
+	return { realtime, result, you, leave };
 }
 
 export function PlayHost({ manifest }: { manifest: GameManifest }) {
-	const [result, setResult] = useState<PlayResult | null>(null);
+	const router = useRouter();
+	const [soloResult, setSoloResult] = useState<PlayResult | null>(null);
 	const [playKey, setPlayKey] = useState(0);
 
 	const isRealtime = manifest.kind === "realtime";
-	const realtime = useRealtimeHost(isRealtime ? manifest.id : null);
+	const { realtime, result, you, leave } = useRealtimeSession(
+		isRealtime ? manifest.id : null,
+	);
 
 	const reportResult = useCallback((value: PlayResult) => {
-		setResult(value);
+		setSoloResult(value);
 	}, []);
 
 	const host = useMemo<GameHost>(
@@ -81,9 +128,14 @@ export function PlayHost({ manifest }: { manifest: GameManifest }) {
 	}, [manifest.id]);
 
 	const replay = useCallback(() => {
-		setResult(null);
+		setSoloResult(null);
 		setPlayKey((key) => key + 1);
 	}, []);
+
+	const leaveRoom = useCallback(() => {
+		leave();
+		router.push("/select");
+	}, [leave, router]);
 
 	const connecting = isRealtime && realtime === null;
 
@@ -108,16 +160,20 @@ export function PlayHost({ manifest }: { manifest: GameManifest }) {
 					)}
 				</VirtualPadProvider>
 
+				{result !== null && (
+					<ResultScreen result={result} you={you} onLeave={leaveRoom} />
+				)}
+
 				<Link href="/select" className="text-indigo-400 text-sm underline">
 					ゲーム選択へ戻る
 				</Link>
 			</main>
 
-			{result !== null && (
+			{soloResult !== null && (
 				<div className="fixed inset-0 flex items-center justify-center bg-black/70 px-6">
 					<div className="flex w-full max-w-xs flex-col items-center gap-4 rounded-2xl bg-slate-800 p-6">
 						<h2 className="font-bold text-white text-xl">おしまい</h2>
-						<p className="text-slate-300">スコア {result.score}</p>
+						<p className="text-slate-300">スコア {soloResult.score}</p>
 						<button
 							type="button"
 							onClick={replay}

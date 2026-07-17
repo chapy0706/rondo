@@ -3,8 +3,9 @@
  *
  * Gleam サーバーの完成を待たずにフロントを進められるよう、ロビーの最小挙動
  * （一覧・作成・参加・退出 / ADR 0016）をブラウザ内で模す。返信は setTimeout で
- * 非同期にし、実接続に近い順序で購読者へ届ける。ゲーム進行（game-event 等）は
- * このissueの範囲外（issue-12）のため受け流す。
+ * 非同期にし、実接続に近い順序で購読者へ届ける。ゲーム進行は最小限だけ模し、完走の
+ * 合図（type: "finished"）を受けたら結果発表（game-ended）を返す（issue-14）。
+ * 本物の順位確定はサーバー権威（ADR 0008 / issue-13）が担う。
  */
 
 import type {
@@ -34,6 +35,7 @@ interface MockRoom {
 export class MockWebSocketAdapter extends MultiplexingAdapter {
 	private readonly rooms = new Map<RoomId, MockRoom>();
 	private readonly seeded = new Set<GameType>();
+	private readonly endedRooms = new Set<RoomId>();
 	private self: PlayerInfo;
 
 	constructor() {
@@ -63,13 +65,14 @@ export class MockWebSocketAdapter extends MultiplexingAdapter {
 				this.handleReconnect(message.roomId);
 				break;
 			case "game-event":
-				// ゲーム進行は issue-12 の範囲。ロビーモックでは受け流す。
+				this.handleGameEvent(message.gameType, message.roomId, message.payload);
 				break;
 		}
 	}
 
 	close(): void {
 		this.rooms.clear();
+		this.endedRooms.clear();
 	}
 
 	private handleListRooms(gameType: GameType): void {
@@ -133,7 +136,42 @@ export class MockWebSocketAdapter extends MultiplexingAdapter {
 			(player) => player.playerId !== this.self.playerId,
 		);
 		// 誰も残らなければルームは消える（解散 / ADR 0017）。
-		if (room.players.length === 0) this.rooms.delete(roomId);
+		if (room.players.length === 0) {
+			this.rooms.delete(roomId);
+			this.endedRooms.delete(roomId);
+		}
+	}
+
+	/**
+	 * ゲーム内イベントを受ける。順位確定はサーバー本体の権威（ADR 0008 / issue-13）だが、
+	 * モックは最小の合図（type: "finished"）だけを見て結果発表を返す。単一クライアントの
+	 * モックでは自分が唯一の完走者。順位はサーバー受信順の思想に沿う（ADR 0014）。
+	 */
+	private handleGameEvent(
+		gameType: GameType,
+		roomId: RoomId,
+		payload: unknown,
+	): void {
+		if (!this.rooms.has(roomId)) return;
+		if (!isFinishedSignal(payload)) return;
+		if (this.endedRooms.has(roomId)) return;
+		this.endedRooms.add(roomId);
+		this.emit({
+			type: "game-ended",
+			gameType,
+			roomId,
+			result: {
+				order: "lower-is-better",
+				rankings: [
+					{
+						playerId: this.self.playerId,
+						name: this.self.name,
+						rank: 1,
+						result: { score: 1 },
+					},
+				],
+			},
+		});
 	}
 
 	private handleReconnect(roomId: RoomId): void {
@@ -192,4 +230,14 @@ export class MockWebSocketAdapter extends MultiplexingAdapter {
 
 function randomId(): string {
 	return Math.random().toString(36).slice(2, 8);
+}
+
+/** 完走の合図（type: "finished"）か。ゲーム固有の意味づけには踏み込まない。 */
+function isFinishedSignal(payload: unknown): boolean {
+	return (
+		typeof payload === "object" &&
+		payload !== null &&
+		"type" in payload &&
+		(payload as { type: unknown }).type === "finished"
+	);
 }
