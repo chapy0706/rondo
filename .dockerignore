@@ -1,0 +1,14 @@
+# フロント（apps/web）の Docker ビルドコンテキスト（= リポジトリのルート）から除外する。
+# 依存とビルド成果物はイメージ内で作り直すため、ホスト側のものは持ち込まない。
+# Gleam サーバーは別サービス（server/Dockerfile, コンテキスト server/）なので web ビルドには不要。
+
+**/node_modules
+**/.next
+**/build
+server
+.git
+.github
+docs
+tmp
+**/*.log
+.DS_Store

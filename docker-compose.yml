@@ -1,0 +1,30 @@
+# ローカルで本番相当に2サービスを起動する（issue-15 / ADR 0011）。
+#
+# 本番は Coolify が各サービスを個別にビルド・配置し、Cloudflare Tunnel で公開する
+# （docs/deploy.md）。この compose はその2サービス構成を手元で確かめるためのもので、
+# Coolify の設定そのものではない。
+#
+#   docker compose up --build
+#     web    -> http://localhost:8080     （Next.js / standalone）
+#     server -> ws://localhost:3000/ws    （Gleam / mist）
+#
+# web は既定で Mock 動作（サーバー不要）。Gleam に繋ぐ場合は下の build args を有効にする。
+
+services:
+  web:
+    build:
+      context: .
+      dockerfile: apps/web/Dockerfile
+      args:
+        # リアルタイム基盤に繋ぐ場合のみ設定する。未設定なら Mock 動作。
+        NEXT_PUBLIC_RONDO_WS_URL: "${NEXT_PUBLIC_RONDO_WS_URL:-}"
+    ports:
+      - "8080:3000"
+    restart: unless-stopped
+
+  server:
+    build:
+      context: ./server
+    ports:
+      - "3000:3000"
+    restart: unless-stopped
