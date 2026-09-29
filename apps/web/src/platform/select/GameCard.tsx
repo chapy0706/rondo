@@ -1,46 +1,52 @@
 import type { GameManifest } from "@rondo/contracts";
 import Link from "next/link";
-
-/** ソロ / リアルタイムの別を、選ぶ人向けの言葉で表す。 */
-const kindLabel: Record<GameManifest["kind"], string> = {
-	solo: "ひとり",
-	realtime: "みんな",
-};
-
-/** 参加人数を表示用にまとめる。ソロは単一人数、リアルタイムは範囲。 */
-function playerRange(manifest: GameManifest): string {
-	if (manifest.minPlayers === manifest.maxPlayers) {
-		return `${manifest.minPlayers}人`;
-	}
-	return `${manifest.minPlayers}〜${manifest.maxPlayers}人`;
-}
+import type { MouseEvent } from "react";
+import { fallbackInitial } from "./selection";
 
 /**
- * ゲームカード。マニフェスト 1 件を選択肢として描く（ADR 0003）。
+ * シェルフのゲームカード。マニフェスト 1 件を選択肢として描く（ADR 0003 / 0029）。
  *
  * このコンポーネントは特定のゲームを知らず、マニフェストの自己記述だけを読む。
- * サムネイルは背景画像として参照し、未配置でもフォールバック色で崩れない。
- * カードを押すとゲームホスト（/play/<id>）へ遷移する。
+ * 頭文字のフォールバックを下に敷き、その上にサムネイルを背景画像として重ねるので、
+ * 画像が未配置でも頭文字のタイルとして違和感なく並ぶ。
+ * 選択中のカードは拡大・強調する。押したときの振る舞い（起動か、中央へ寄せるか）は
+ * シェルフが onClick で決める。
  */
-export function GameCard({ manifest }: { manifest: GameManifest }) {
+export function GameCard({
+	manifest,
+	selected,
+	onClick,
+	onFocus,
+}: {
+	manifest: GameManifest;
+	selected: boolean;
+	onClick: (event: MouseEvent<HTMLAnchorElement>) => void;
+	onFocus: () => void;
+}) {
 	return (
 		<Link
 			href={`/play/${manifest.id}`}
-			className="flex flex-col overflow-hidden rounded-2xl bg-slate-800 transition-transform active:scale-[0.98]"
+			aria-label={manifest.title}
+			aria-current={selected ? "true" : undefined}
+			onClick={onClick}
+			onFocus={onFocus}
+			className={`relative block aspect-square w-40 overflow-hidden rounded-3xl bg-surface outline-none ring-inset motion-safe:transition-[transform,opacity,box-shadow] motion-safe:duration-300 focus-visible:outline-2 focus-visible:outline-sub focus-visible:outline-offset-4 ${
+				selected
+					? "scale-110 opacity-100 shadow-[0_12px_32px_-8px] shadow-accent/40 ring-2 ring-accent"
+					: "scale-90 opacity-50 ring-1 ring-line"
+			}`}
 		>
-			<div
-				className="aspect-video bg-slate-700 bg-center bg-cover"
+			<span
+				aria-hidden="true"
+				className="absolute inset-0 flex items-center justify-center font-bold text-7xl text-fg-muted"
+			>
+				{fallbackInitial(manifest)}
+			</span>
+			<span
+				aria-hidden="true"
+				className="absolute inset-0 bg-center bg-cover"
 				style={{ backgroundImage: `url(${manifest.thumbnail})` }}
 			/>
-			<div className="flex flex-col gap-2 p-4">
-				<div className="flex items-center justify-between gap-2">
-					<h2 className="font-semibold text-lg text-white">{manifest.title}</h2>
-					<span className="shrink-0 rounded-full bg-slate-700 px-2.5 py-0.5 font-medium text-slate-300 text-xs">
-						{kindLabel[manifest.kind]} {playerRange(manifest)}
-					</span>
-				</div>
-				<p className="text-slate-400 text-sm">{manifest.description}</p>
-			</div>
 		</Link>
 	);
 }
