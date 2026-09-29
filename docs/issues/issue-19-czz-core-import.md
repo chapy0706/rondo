@@ -1,7 +1,7 @@
 ---
-status: closed
+status: open
 created_at: 2026-09-27
-closed_at: 2026-09-28
+closed_at:
 ---
 
 # issue-19: czz 採点エンジンとお題データの取り込み
