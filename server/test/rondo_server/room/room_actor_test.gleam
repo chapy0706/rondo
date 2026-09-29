@@ -14,6 +14,8 @@ fn spec(min: Int, max: Int) -> RoomSpec {
     min_players: min,
     max_players: max,
     authority: None,
+    driver: None,
+    member_info: None,
   )
 }
 

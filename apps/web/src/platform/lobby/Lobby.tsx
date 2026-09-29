@@ -8,13 +8,23 @@
  * 作成を確かめられる。参加後のゲーム描画・進行は issue-12 で差し込む。
  */
 
-import type { GameType } from "@rondo/contracts";
+import type { GameType, RoomOption } from "@rondo/contracts";
 import Link from "next/link";
+import { useState } from "react";
+import { chooseOption, initialSettings } from "./roomOptions";
 import { useRealtimeLobby } from "./useRealtimeLobby";
 
-export function Lobby({ gameType }: { gameType: GameType }) {
+export function Lobby({
+	gameType,
+	roomOptions = [],
+}: {
+	gameType: GameType;
+	/** ルーム作成時に選ぶ設定（マニフェストの宣言）。一覧には出さない（ADR 0024）。 */
+	roomOptions?: readonly RoomOption[];
+}) {
 	const { rooms, joined, error, createRoom, joinRoom, leaveRoom, refresh } =
 		useRealtimeLobby(gameType);
+	const [settings, setSettings] = useState(() => initialSettings(roomOptions));
 
 	return (
 		<main className="mx-auto flex min-h-dvh max-w-md flex-col gap-6 px-6 py-16">
@@ -99,9 +109,35 @@ export function Lobby({ gameType }: { gameType: GameType }) {
 						</ul>
 					)}
 
+					{roomOptions.map((option) => (
+						<label
+							key={option.key}
+							className="flex items-center justify-between gap-3 text-slate-300 text-sm"
+						>
+							{option.label}
+							<select
+								value={settings[option.key] ?? option.default}
+								onChange={(event) =>
+									setSettings((current) =>
+										chooseOption(current, option, event.target.value),
+									)
+								}
+								className="min-h-11 rounded-xl bg-slate-800 px-3 text-base text-white"
+							>
+								{option.choices.map((choice) => (
+									<option key={choice} value={choice}>
+										{choice}
+									</option>
+								))}
+							</select>
+						</label>
+					))}
+
 					<button
 						type="button"
-						onClick={createRoom}
+						onClick={() =>
+							createRoom(roomOptions.length > 0 ? settings : undefined)
+						}
 						className="rounded-xl bg-indigo-600 px-4 py-3 font-semibold text-white transition-transform active:scale-[0.98]"
 					>
 						新しいルームを作る

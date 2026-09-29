@@ -19,6 +19,8 @@ fn open_room(ids: List(String)) -> Subject(Message) {
       min_players: 1,
       max_players: 8,
       authority: None,
+      driver: None,
+      member_info: None,
     )
   let assert Ok(started) = room_actor.start(spec)
   let room = started.data

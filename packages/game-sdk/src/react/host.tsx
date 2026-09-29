@@ -6,7 +6,12 @@
  * ホストの実装は基盤側（issue-11 / issue-14）で与える。
  */
 
-import type { PlayResult, RealTimePort, RoomId } from "@rondo/contracts";
+import type {
+	PlayResult,
+	PlayerId,
+	RealTimePort,
+	RoomId,
+} from "@rondo/contracts";
 import { createContext, useContext } from "react";
 
 /** リアルタイムゲームがルームと話すためのホスト情報。ソロでは提供されない。 */
@@ -15,6 +20,8 @@ export interface RealtimeHost {
 	readonly port: RealTimePort;
 	/** 現在参加しているルーム。 */
 	readonly roomId: RoomId;
+	/** このルームでの自分のプレイヤー ID（room-joined の you）。役割の判定などに使う。 */
+	readonly you: PlayerId;
 }
 
 /** 基盤がゲームに提供するホスト。 */

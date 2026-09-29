@@ -4,8 +4,9 @@ import gleam/erlang/process.{type Subject}
 import gleam/list
 import gleam/option.{type Option, None, Some}
 import gleam/otp/actor
-import rondo_server/protocol/message.{type ServerMessage, GameStateTo}
+import rondo_server/protocol/message.{type ServerMessage, GameState, GameStateTo}
 import rondo_server/room/authority.{type Authority, type Outcome}
+import rondo_server/room/driver.{type Driver, type Effect}
 
 /// ルームを一意に識別するID。ロビーがルーム一覧で扱う単位（ADR 0016）。
 pub type RoomId {
@@ -28,6 +29,12 @@ pub type Player {
 pub type AuthorityFactory =
   fn(List(PlayerId)) -> Authority(PlayerId)
 
+/// ゲーム進行の差し込み口（room/driver）を作る関数。開始時に参加者を渡し、
+/// 箱と最初の指示（タイマー・配信）を受け取る。時間経過や離脱で勝敗が決まる
+/// ゲーム（veryare 等）が使う。使わないゲームは None。
+pub type DriverFactory =
+  fn(List(PlayerId)) -> #(Driver(PlayerId), List(Effect(PlayerId)))
+
 /// ルーム生成時の設定。room_supervisor がこの値を引数にルームを起こす。
 pub type RoomSpec {
   RoomSpec(
@@ -37,6 +44,11 @@ pub type RoomSpec {
     min_players: Int,
     max_players: Int,
     authority: Option(AuthorityFactory),
+    /// ゲーム進行の差し込み口。Some のゲームでは、進行中の離脱の扱いもゲームに委ねる。
+    driver: Option(DriverFactory),
+    /// 入室後に初めて分かる案内（探索時間など / ADR 0024）。参加者が送信先を登録した
+    /// ときにだけ送り、ルーム一覧には出さない。
+    member_info: Option(Dynamic),
   )
 }
 
@@ -78,6 +90,8 @@ pub type RoomState {
     max_players: Int,
     /// 確定した結果。Finished のときだけ Some（ADR 0014）。
     result: Option(Outcome(PlayerId)),
+    /// ルームを作ったプレイヤー（最初の参加者）。抜けてもルームは続く（ADR 0030）。
+    host: Option(PlayerId),
   )
 }
 
@@ -101,10 +115,14 @@ pub type Message {
   Snapshot(reply: Subject(RoomState))
   /// ルームを明示的に解散する。
   Dissolve
+  /// ゲームが WakeAfter で頼んだタイマーの満了（内部用）。
+  Wake(token: Int)
 }
 
 type State {
   State(
+    /// 自分自身への Subject。ゲームが頼んだタイマーの送り先に使う。
+    self: Subject(Message),
     spec: RoomSpec,
     status: Status,
     players: Dict(PlayerId, Player),
@@ -114,20 +132,32 @@ type State {
     authority: Option(Authority(PlayerId)),
     /// 確定した結果。
     result: Option(Outcome(PlayerId)),
+    /// 進行中のゲーム進行の箱。開始時に spec.driver から作る。
+    driver: Option(Driver(PlayerId)),
+    /// ルームを作ったプレイヤー（最初の参加者）。
+    host: Option(PlayerId),
   )
 }
 
 /// ルームアクターを起動する。room_supervisor の子テンプレートとして呼ばれる。
 /// 戻り値の Started.data がこのルームへ送るための Subject。
 pub fn start(spec: RoomSpec) -> actor.StartResult(Subject(Message)) {
-  actor.new(State(
-    spec:,
-    status: Open,
-    players: dict.new(),
-    outboxes: dict.new(),
-    authority: None,
-    result: None,
-  ))
+  actor.new_with_initialiser(1000, fn(self) {
+    State(
+      self:,
+      spec:,
+      status: Open,
+      players: dict.new(),
+      outboxes: dict.new(),
+      authority: None,
+      result: None,
+      driver: None,
+      host: None,
+    )
+    |> actor.initialised
+    |> actor.returning(self)
+    |> Ok
+  })
   |> actor.on_message(handle)
   |> actor.start
 }
@@ -201,6 +231,12 @@ fn handle(state: State, message: Message) -> actor.Next(State, Message) {
       actor.continue(state)
     }
 
+    Wake(token) ->
+      case state.status, state.driver {
+        Playing, Some(current) -> run_driver(state, driver.wake(current, token))
+        _, _ -> actor.continue(state)
+      }
+
     Snapshot(reply) -> {
       process.send(reply, to_state(state))
       actor.continue(state)
@@ -221,8 +257,16 @@ fn handle_join(
   case state.status, already_joined, full {
     Open, False, False -> {
       process.send(reply, Ok(Nil))
+      let host = case state.host {
+        None -> Some(player.id)
+        some -> some
+      }
       actor.continue(
-        State(..state, players: dict.insert(state.players, player.id, player)),
+        State(
+          ..state,
+          players: dict.insert(state.players, player.id, player),
+          host:,
+        ),
       )
     }
     Open, True, _ -> {
@@ -252,7 +296,11 @@ fn handle_start_game(
         Some(factory) -> Some(factory(dict.keys(state.players)))
         None -> None
       }
-      actor.continue(State(..state, status: Playing, authority:))
+      let state = State(..state, status: Playing, authority:)
+      case state.spec.driver {
+        Some(factory) -> run_driver(state, factory(dict.keys(state.players)))
+        None -> actor.continue(state)
+      }
     }
     Open, False -> {
       process.send(reply, Error(NotEnoughPlayers))
@@ -273,8 +321,10 @@ fn handle_game_event(
   player: PlayerId,
   payload: Dynamic,
 ) -> actor.Next(State, Message) {
-  case state.status, state.authority {
-    Playing, Some(current) -> {
+  case state.status, state.driver, state.authority {
+    Playing, Some(current), _ ->
+      run_driver(state, driver.event(current, player, payload))
+    Playing, None, Some(current) -> {
       let updated = authority.record(current, player, payload)
       case authority.is_over(updated) {
         True ->
@@ -290,7 +340,7 @@ fn handle_game_event(
       }
     }
     // 開始前・終了後・権威なしは無視する。
-    _, _ -> actor.continue(state)
+    _, _, _ -> actor.continue(state)
   }
 }
 
@@ -300,10 +350,15 @@ fn handle_subscribe(
   outbox: Subject(ServerMessage),
 ) -> actor.Next(State, Message) {
   case dict.has_key(state.players, player) {
-    True ->
+    True -> {
+      case state.spec.member_info {
+        Some(info) -> process.send(outbox, game_state(state, info))
+        None -> Nil
+      }
       actor.continue(
         State(..state, outboxes: dict.insert(state.outboxes, player, outbox)),
       )
+    }
     // 参加者でない接続には送信先を持たせない（情報が漏れる経路を作らない）。
     False -> actor.continue(state)
   }
@@ -335,13 +390,18 @@ fn handle_leave(state: State, player: PlayerId) -> actor.Next(State, Message) {
   let remaining = dict.size(players)
   let below_min = remaining < state.spec.min_players
 
-  case remaining, state.status, below_min {
+  let state = State(..state, players:, outboxes:)
+
+  case remaining, state.status, below_min, state.driver {
     // 誰も残らなければ解散する。
-    0, _, _ -> actor.stop()
+    0, _, _, _ -> actor.stop()
+    // ゲーム進行の差し込み口があるゲームは、進行中の離脱の扱い（勝敗）をゲームに委ねる。
+    _, Playing, _, Some(current) ->
+      run_driver(state, driver.leave(current, player))
     // 進行中に最小人数を下回ったらゲームを終了し、ルームを解散する（ADR 0013 / 0017）。
-    _, Playing, True -> actor.stop()
+    _, Playing, True, None -> actor.stop()
     // それ以外は在室のまま続ける（開始前・終了後は最小人数を下回っていてよい）。
-    _, _, _ -> actor.continue(State(..state, players:, outboxes:))
+    _, _, _, _ -> actor.continue(state)
   }
 }
 
@@ -353,5 +413,39 @@ fn to_state(state: State) -> RoomState {
     min_players: state.spec.min_players,
     max_players: state.spec.max_players,
     result: state.result,
+    host: state.host,
   )
+}
+
+/// ゲーム進行の箱を差し替え、指示を実行する。ゲームが終われば Finished に移る。
+fn run_driver(
+  state: State,
+  step: #(Driver(PlayerId), List(Effect(PlayerId))),
+) -> actor.Next(State, Message) {
+  let #(next, effects) = step
+  list.each(effects, fn(effect) { apply(state, effect) })
+  let status = case driver.is_over(next) {
+    True -> Finished
+    False -> state.status
+  }
+  actor.continue(State(..state, driver: Some(next), status:))
+}
+
+fn apply(state: State, effect: Effect(PlayerId)) -> Nil {
+  case effect {
+    driver.Broadcast(payload) ->
+      dict.each(state.outboxes, fn(_player, outbox) {
+        process.send(outbox, game_state(state, payload))
+      })
+    driver.Deliver(targets, payload) -> deliver_to(state, targets, payload)
+    driver.WakeAfter(ms, token) -> {
+      let _ = process.send_after(state.self, ms, Wake(token))
+      Nil
+    }
+  }
+}
+
+fn game_state(state: State, payload: Dynamic) -> ServerMessage {
+  let RoomId(room_id) = state.spec.id
+  GameState(game_type: state.spec.game_type, room_id:, payload:)
 }

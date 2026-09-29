@@ -3,6 +3,7 @@ import type { ComponentType } from "react";
 import { czzManifest } from "./czz/manifest";
 import { tetrisManifest } from "./tetris/manifest";
 import { tiltMazeManifest } from "./tilt-maze/manifest";
+import { veryareManifest } from "./veryare/manifest";
 
 /**
  * 全ゲームのマニフェストの集約点（ADR 0003）。
@@ -16,6 +17,7 @@ export const registry: readonly GameManifest[] = [
 	tetrisManifest,
 	tiltMazeManifest,
 	czzManifest,
+	veryareManifest,
 ];
 
 /** ゲーム本体（React コンポーネント）の遅延ローダ。 */
@@ -32,6 +34,7 @@ const gameComponents: Record<string, GameLoader> = {
 	[tetrisManifest.id]: () => import("./tetris/Tetris"),
 	[tiltMazeManifest.id]: () => import("./tilt-maze/TiltMaze"),
 	[czzManifest.id]: () => import("./czz/Czz"),
+	[veryareManifest.id]: () => import("./veryare/Veryare"),
 };
 
 /**

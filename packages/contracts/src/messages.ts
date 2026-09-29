@@ -53,7 +53,15 @@ export type ClientMessage =
 			readonly name: string;
 	  }
 	| { readonly type: "list-rooms"; readonly gameType: GameType }
-	| { readonly type: "create-room"; readonly gameType: GameType }
+	| {
+			readonly type: "create-room";
+			readonly gameType: GameType;
+			/**
+			 * マニフェストの roomOptions で選んだ値（key -> 値）。省略時はゲームの既定値。
+			 * サーバーはゲームごとに検証する（境界での unknown 検証）。
+			 */
+			readonly settings?: Readonly<Record<string, number>>;
+	  }
 	| {
 			readonly type: "join-room";
 			readonly gameType: GameType;

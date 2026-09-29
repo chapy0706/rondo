@@ -1,4 +1,4 @@
-import type { GameManifest } from "@rondo/contracts";
+import type { GameManifest, PlayerId } from "@rondo/contracts";
 import { useCallback, useEffect, useRef } from "react";
 import {
 	type GamePayload,
@@ -13,6 +13,8 @@ export interface RealtimeGameApi {
 	send: (payload: GamePayload) => void;
 	/** 指定 type のサーバーペイロードを購読する。購読解除の関数を返す。 */
 	on: (type: string, handler: (payload: GamePayload) => void) => () => void;
+	/** このルームでの自分のプレイヤー ID。ルームに入る前は null。 */
+	you: PlayerId | null;
 }
 
 /**
@@ -69,5 +71,5 @@ export function useRealtimeGame(manifest: GameManifest): RealtimeGameApi {
 		[],
 	);
 
-	return { send, on };
+	return { send, on, you: realtime?.you ?? null };
 }

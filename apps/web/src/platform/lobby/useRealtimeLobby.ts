@@ -34,7 +34,8 @@ export interface LobbyApi {
 	readonly rooms: readonly RoomSummary[];
 	readonly joined: JoinedRoom | null;
 	readonly error: string | null;
-	readonly createRoom: () => void;
+	/** ルームを作る。settings はマニフェストの roomOptions で選んだ値。 */
+	readonly createRoom: (settings?: Readonly<Record<string, number>>) => void;
 	readonly joinRoom: (roomId: RoomId) => void;
 	readonly leaveRoom: () => void;
 	readonly refresh: () => void;
@@ -106,9 +107,16 @@ export function useRealtimeLobby(gameType: GameType): LobbyApi {
 		adapterRef.current?.send({ type: "list-rooms", gameType });
 	}, [gameType]);
 
-	const createRoom = useCallback(() => {
-		adapterRef.current?.send({ type: "create-room", gameType });
-	}, [gameType]);
+	const createRoom = useCallback(
+		(settings?: Readonly<Record<string, number>>) => {
+			adapterRef.current?.send(
+				settings === undefined
+					? { type: "create-room", gameType }
+					: { type: "create-room", gameType, settings },
+			);
+		},
+		[gameType],
+	);
 
 	const joinRoom = useCallback(
 		(roomId: RoomId) => {

@@ -13,6 +13,8 @@ fn spec(id: String) -> RoomSpec {
     min_players: 1,
     max_players: 4,
     authority: None,
+    driver: None,
+    member_info: None,
   )
 }
 

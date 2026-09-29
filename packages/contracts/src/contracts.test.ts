@@ -51,6 +51,36 @@ describe("contracts", () => {
 		expect(message.to).toBe("p2");
 	});
 
+	it("manifest can declare room options chosen at room creation", () => {
+		const manifest: GameManifest = {
+			id: "veryare",
+			title: "veryare",
+			kind: "realtime",
+			minPlayers: 2,
+			maxPlayers: 5,
+			thumbnail: "/games/veryare.png",
+			description: "",
+			roomOptions: [
+				{
+					key: "explorationSeconds",
+					label: "探索時間",
+					choices: [40, 60, 80, 100, 120],
+					default: 40,
+				},
+			],
+		};
+		expect(manifest.roomOptions?.[0]?.default).toBe(40);
+	});
+
+	it("create-room can carry the chosen room settings", () => {
+		const message: ClientMessage = {
+			type: "create-room",
+			gameType: "veryare",
+			settings: { explorationSeconds: 60 },
+		};
+		expect(message.settings).toEqual({ explorationSeconds: 60 });
+	});
+
 	it("SoloGame has no realtime port while RealtimeGame connects", () => {
 		const manifest: GameManifest = {
 			id: "tilt-maze",

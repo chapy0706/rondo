@@ -29,4 +29,22 @@ export interface GameManifest {
 	readonly thumbnail: string;
 	/** 選択画面に表示する短い説明。 */
 	readonly description: string;
+	/**
+	 * ルーム作成時に作成者が選ぶ設定（リアルタイムゲームのみ）。ロビーはこの宣言から
+	 * プルダウンを組み立てるだけで、個々のゲームを知らない（ADR 0003）。
+	 * 選んだ値はルーム一覧には出さない（入室後に初めて分かる / ADR 0024）。
+	 */
+	readonly roomOptions?: readonly RoomOption[];
+}
+
+/** ルーム作成時に選ぶ設定1つ。数値の選択肢から1つを選ぶ。 */
+export interface RoomOption {
+	/** create-room の settings に載せるキー。 */
+	readonly key: string;
+	/** プルダウンの見出し。 */
+	readonly label: string;
+	/** 選べる値。 */
+	readonly choices: readonly number[];
+	/** 既定値。choices のいずれか。 */
+	readonly default: number;
 }

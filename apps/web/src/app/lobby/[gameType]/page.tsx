@@ -1,3 +1,4 @@
+import { findManifest } from "../../../games/registry";
 import { Lobby } from "../../../platform/lobby/Lobby";
 
 /**
@@ -12,5 +13,11 @@ export default async function LobbyPage({
 	params: Promise<{ gameType: string }>;
 }) {
 	const { gameType } = await params;
-	return <Lobby gameType={gameType} />;
+	// ルーム作成時の選択肢はマニフェストの宣言から渡す（ロビーはゲームを知らない）。
+	return (
+		<Lobby
+			gameType={gameType}
+			roomOptions={findManifest(gameType)?.roomOptions ?? []}
+		/>
+	);
 }

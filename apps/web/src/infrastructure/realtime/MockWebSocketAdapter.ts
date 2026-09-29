@@ -6,6 +6,7 @@
  * 非同期にし、実接続に近い順序で購読者へ届ける。ゲーム進行は最小限だけ模し、完走の
  * 合図（type: "finished"）を受けたら結果発表（game-ended）を返す（issue-14）。
  * 本物の順位確定はサーバー権威（ADR 0008 / issue-13）が担う。
+ * veryare は mockVeryare の台本どおりに、時間でフェーズ通知を流す（issue-24）。
  */
 
 import type {
@@ -18,6 +19,13 @@ import type {
 	ServerMessage,
 } from "@rondo/contracts";
 import { MultiplexingAdapter } from "./MultiplexingAdapter";
+import {
+	MOCK_BOTS,
+	VERYARE,
+	explorationSecondsOf,
+	nextSelfIsOni,
+	veryareScript,
+} from "./mockVeryare";
 
 /** 返信までの擬似遅延（ミリ秒）。実接続の非同期性を最小限まねる。 */
 const LATENCY_MS = 40;
@@ -36,6 +44,11 @@ export class MockWebSocketAdapter extends MultiplexingAdapter {
 	private readonly rooms = new Map<RoomId, MockRoom>();
 	private readonly seeded = new Set<GameType>();
 	private readonly endedRooms = new Set<RoomId>();
+	/** veryare の台本のタイマー。閉じる・退出するときに止める。 */
+	private readonly scriptTimers = new Map<
+		RoomId,
+		ReturnType<typeof setTimeout>[]
+	>();
 	private self: PlayerInfo;
 
 	constructor() {
@@ -50,7 +63,11 @@ export class MockWebSocketAdapter extends MultiplexingAdapter {
 				this.handleListRooms(message.gameType);
 				break;
 			case "create-room":
-				this.handleCreateRoom(message.gameType);
+				if (message.gameType === VERYARE) {
+					this.handleCreateVeryareRoom(message.settings);
+				} else {
+					this.handleCreateRoom(message.gameType);
+				}
 				break;
 			case "join-room":
 				this.handleJoinRoom(message.gameType, message.roomId);
@@ -71,8 +88,51 @@ export class MockWebSocketAdapter extends MultiplexingAdapter {
 	}
 
 	close(): void {
+		for (const roomId of this.scriptTimers.keys()) this.stopScript(roomId);
 		this.rooms.clear();
 		this.endedRooms.clear();
+	}
+
+	/**
+	 * veryare のルームを作り、仮のプレイヤーを固定で参加させて、台本を流し始める。
+	 * フェーズ判定はしない。台本の時刻どおりに通知を送るだけ。
+	 */
+	private handleCreateVeryareRoom(
+		settings: Readonly<Record<string, number>> | undefined,
+	): void {
+		const room: MockRoom = {
+			roomId: `room-${randomId()}`,
+			gameType: VERYARE,
+			players: [this.self, ...MOCK_BOTS],
+			status: "playing",
+		};
+		this.rooms.set(room.roomId, room);
+		this.emit({
+			type: "room-joined",
+			gameType: VERYARE,
+			roomId: room.roomId,
+			you: this.self.playerId,
+			players: [...room.players],
+		});
+
+		const script = veryareScript({
+			roomId: room.roomId,
+			self: this.self.playerId,
+			selfIsOni: nextSelfIsOni(),
+			explorationSeconds: explorationSecondsOf(settings),
+		});
+		this.scriptTimers.set(
+			room.roomId,
+			script.map(({ afterMs, message }) =>
+				setTimeout(() => this.dispatch(message), LATENCY_MS * 2 + afterMs),
+			),
+		);
+	}
+
+	private stopScript(roomId: RoomId): void {
+		for (const timer of this.scriptTimers.get(roomId) ?? [])
+			clearTimeout(timer);
+		this.scriptTimers.delete(roomId);
 	}
 
 	private handleListRooms(gameType: GameType): void {
@@ -130,6 +190,7 @@ export class MockWebSocketAdapter extends MultiplexingAdapter {
 	}
 
 	private handleLeaveRoom(roomId: RoomId): void {
+		this.stopScript(roomId);
 		const room = this.rooms.get(roomId);
 		if (room === undefined) return;
 		room.players = room.players.filter(

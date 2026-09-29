@@ -70,7 +70,11 @@ function useRealtimeSession(gameType: string | null): RealtimeSession {
 			if (message.type === "room-joined" && message.gameType === gameType) {
 				roomRef.current = message.roomId;
 				setYou(message.you);
-				setRealtime({ port: adapter, roomId: message.roomId });
+				setRealtime({
+					port: adapter,
+					roomId: message.roomId,
+					you: message.you,
+				});
 			} else if (
 				message.type === "game-ended" &&
 				message.gameType === gameType
