@@ -1,12 +1,61 @@
 @import "tailwindcss";
 
+/*
+ * rondo のテーマ（issue-05 / ADR 0029）。
+ *
+ * 特定の製品の配色・フォントには寄せず、rondo 独自の「夜の紺 + アンバー」で統一する。
+ * 選択画面（issue-06）や各ゲームの UI は、ここで定めたトークンを
+ * bg-surface / text-fg-muted / bg-accent のような Tailwind ユーティリティとして参照する。
+ *
+ *   ink       地（画面の背景）
+ *   surface   面（カード・ボタンの地）
+ *   line      線（枠・区切り）
+ *   fg        文字
+ *   fg-muted  弱い文字（補足・説明）
+ *   accent    アクセント（主要な導線・選択中）
+ *   accent-fg アクセントの上に載せる文字
+ *   sub       副アクセント（補助の強調）
+ *
+ * フォントは各端末の標準フォントを使い、Web フォントは読み込まない（起動を軽く保つ）。
+ * 名称「rondo」はフォントではなく SVG のロゴ（platform/brand）で描く。
+ */
+@theme {
+	--color-ink: #13111f;
+	--color-surface: #1e1b2e;
+	--color-line: #2e2a45;
+	--color-fg: #ece8f5;
+	--color-fg-muted: #9d97b8;
+	--color-accent: #f5b841;
+	--color-accent-fg: #13111f;
+	--color-sub: #5fd3c4;
+
+	--font-sans: system-ui, -apple-system, "Hiragino Sans",
+		"Hiragino Kaku Gothic ProN", "Noto Sans JP", "Yu Gothic UI", "Meiryo",
+		sans-serif;
+
+	/* 起動時の短い登場。動きを減らす設定では motion-safe: で止める */
+	--animate-rise: rise 480ms cubic-bezier(0.2, 0.8, 0.2, 1) both;
+
+	@keyframes rise {
+		from {
+			opacity: 0;
+			transform: translateY(8px);
+		}
+		to {
+			opacity: 1;
+			transform: translateY(0);
+		}
+	}
+}
+
 :root {
 	color-scheme: dark;
 }
 
 body {
 	margin: 0;
-	background-color: #0f172a;
-	color: #e2e8f0;
+	background-color: var(--color-ink);
+	color: var(--color-fg);
+	font-family: var(--font-sans);
 	-webkit-tap-highlight-color: transparent;
 }
