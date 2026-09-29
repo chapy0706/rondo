@@ -37,15 +37,44 @@ export function toGameEvent(
 }
 
 /**
- * サーバーメッセージから、自分のゲーム・ルーム宛の game-state ペイロードを取り出す。
+ * サーバーメッセージから、自分のゲーム・ルーム宛の状態ペイロードを取り出す。
  * 宛先が違う、または形式が不正なら null を返す。順位等の決定はサーバー権威（ADR 0014）。
+ *
+ * 全員宛て（game-state）と限定配信（game-state-to / ADR 0021）を同じ形で返し、
+ * ゲームコードに違いを意識させない。限定配信は宛先の接続にしか届かない（サーバーが
+ * 宛先でない接続には送らない）ため、ここで to を見て捨てることはしない。
  */
 export function readGameState(
 	message: ServerMessage,
 	gameType: GameType,
 	roomId: RoomId,
 ): GamePayload | null {
-	if (message.type !== "game-state") return null;
+	if (message.type !== "game-state" && message.type !== "game-state-to") {
+		return null;
+	}
 	if (message.gameType !== gameType || message.roomId !== roomId) return null;
 	return isGamePayload(message.payload) ? message.payload : null;
+}
+
+/** ペイロードの type ごとの購読ハンドラ。 */
+export type GameStateHandlers = ReadonlyMap<
+	string,
+	ReadonlySet<(payload: GamePayload) => void>
+>;
+
+/**
+ * 受信したサーバーメッセージを、ペイロードの type で購読ハンドラへ振り分ける。
+ * useRealtimeGame の on はこれを通して受け取る。
+ */
+export function dispatchGameState(
+	message: ServerMessage,
+	gameType: GameType,
+	roomId: RoomId,
+	handlers: GameStateHandlers,
+): void {
+	const payload = readGameState(message, gameType, roomId);
+	if (payload === null) return;
+	for (const handler of handlers.get(payload.type) ?? []) {
+		handler(payload);
+	}
 }

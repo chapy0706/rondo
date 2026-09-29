@@ -1,7 +1,7 @@
 ---
-status: open
+status: closed
 created_at: 2026-09-27
-closed_at:
+closed_at: 2026-09-29
 ---
 
 # issue-23: プレイヤー限定メッセージの実装

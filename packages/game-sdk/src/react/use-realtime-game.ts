@@ -2,7 +2,7 @@ import type { GameManifest } from "@rondo/contracts";
 import { useCallback, useEffect, useRef } from "react";
 import {
 	type GamePayload,
-	readGameState,
+	dispatchGameState,
 	toGameEvent,
 } from "../realtime/protocol";
 import { useGameHost } from "./host";
@@ -47,15 +47,10 @@ export function useRealtimeGame(manifest: GameManifest): RealtimeGameApi {
 		if (realtime === null) return;
 		const { port, roomId } = realtime;
 		const handlers = handlersRef.current;
-		return port.subscribe((message) => {
-			const payload = readGameState(message, gameType, roomId);
-			if (payload === null) return;
-			const set = handlers.get(payload.type);
-			if (set === undefined) return;
-			for (const handler of set) {
-				handler(payload);
-			}
-		});
+		// 全員宛て（game-state）も限定配信（game-state-to）も同じ on に届く（ADR 0021）。
+		return port.subscribe((message) =>
+			dispatchGameState(message, gameType, roomId, handlers),
+		);
 	}, [realtime, gameType]);
 
 	const on = useCallback(

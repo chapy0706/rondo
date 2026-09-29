@@ -1,8 +1,10 @@
 import gleam/dict.{type Dict}
 import gleam/dynamic.{type Dynamic}
 import gleam/erlang/process.{type Subject}
+import gleam/list
 import gleam/option.{type Option, None, Some}
 import gleam/otp/actor
+import rondo_server/protocol/message.{type ServerMessage, GameStateTo}
 import rondo_server/room/authority.{type Authority, type Outcome}
 
 /// ルームを一意に識別するID。ロビーがルーム一覧で扱う単位（ADR 0016）。
@@ -30,6 +32,8 @@ pub type AuthorityFactory =
 pub type RoomSpec {
   RoomSpec(
     id: RoomId,
+    /// ゲーム種別。マニフェストの id と対応し、電文の gameType になる（ADR 0007）。
+    game_type: String,
     min_players: Int,
     max_players: Int,
     authority: Option(AuthorityFactory),
@@ -87,6 +91,12 @@ pub type Message {
   StartGame(reply: Subject(Result(Nil, StartGameError)))
   /// ゲーム内イベント（ゴール到達等）。権威が受信順に処理する（ADR 0008 / 0014）。
   GameEvent(player: PlayerId, payload: Dynamic)
+  /// 参加者の送信先（接続への出口）を登録する。参加者でなければ無視する。
+  /// 登録し直すと置き換わる（再接続 / ADR 0013）。
+  Subscribe(player: PlayerId, outbox: Subject(ServerMessage))
+  /// 宛先のプレイヤーにだけ限定配信を送る（ADR 0021）。宛先でない接続には送らない。
+  /// 誰に送るかの判断は呼び出し側（ゲームごとのサーバー権威 / ADR 0008）が持つ。
+  SendTo(targets: List(PlayerId), payload: Dynamic)
   /// 現在の状態を問い合わせる（監視・テスト用）。
   Snapshot(reply: Subject(RoomState))
   /// ルームを明示的に解散する。
@@ -98,6 +108,8 @@ type State {
     spec: RoomSpec,
     status: Status,
     players: Dict(PlayerId, Player),
+    /// 参加者ごとの送信先。限定配信はここに登録された宛先にだけ送る。
+    outboxes: Dict(PlayerId, Subject(ServerMessage)),
     /// 進行中のゲーム権威。開始時に spec.authority から作る。
     authority: Option(Authority(PlayerId)),
     /// 確定した結果。
@@ -112,6 +124,7 @@ pub fn start(spec: RoomSpec) -> actor.StartResult(Subject(Message)) {
     spec:,
     status: Open,
     players: dict.new(),
+    outboxes: dict.new(),
     authority: None,
     result: None,
   ))
@@ -143,6 +156,24 @@ pub fn game_event(
   process.send(room, GameEvent(player, payload))
 }
 
+/// 参加者の送信先を登録する。参加者でなければ無視される。
+pub fn subscribe(
+  room: Subject(Message),
+  player: PlayerId,
+  outbox: Subject(ServerMessage),
+) -> Nil {
+  process.send(room, Subscribe(player, outbox))
+}
+
+/// 宛先のプレイヤーにだけ限定配信を送る（ADR 0021）。
+pub fn send_to(
+  room: Subject(Message),
+  targets: List(PlayerId),
+  payload: Dynamic,
+) -> Nil {
+  process.send(room, SendTo(targets, payload))
+}
+
 /// 現在の状態を問い合わせる。
 pub fn snapshot(room: Subject(Message)) -> RoomState {
   process.call(room, 1000, Snapshot)
@@ -162,6 +193,13 @@ fn handle(state: State, message: Message) -> actor.Next(State, Message) {
     StartGame(reply) -> handle_start_game(state, reply)
 
     GameEvent(player, payload) -> handle_game_event(state, player, payload)
+
+    Subscribe(player, outbox) -> handle_subscribe(state, player, outbox)
+
+    SendTo(targets, payload) -> {
+      deliver_to(state, targets, payload)
+      actor.continue(state)
+    }
 
     Snapshot(reply) -> {
       process.send(reply, to_state(state))
@@ -256,8 +294,44 @@ fn handle_game_event(
   }
 }
 
+fn handle_subscribe(
+  state: State,
+  player: PlayerId,
+  outbox: Subject(ServerMessage),
+) -> actor.Next(State, Message) {
+  case dict.has_key(state.players, player) {
+    True ->
+      actor.continue(
+        State(..state, outboxes: dict.insert(state.outboxes, player, outbox)),
+      )
+    // 参加者でない接続には送信先を持たせない（情報が漏れる経路を作らない）。
+    False -> actor.continue(state)
+  }
+}
+
+/// 宛先ごとに1通ずつ送る。to には受け取る本人の ID だけを載せ、他の宛先を漏らさない。
+/// 宛先でない接続・送信先が未登録の宛先には何も送らない。
+fn deliver_to(state: State, targets: List(PlayerId), payload: Dynamic) -> Nil {
+  let RoomId(room_id) = state.spec.id
+  targets
+  |> list.unique
+  |> list.each(fn(target) {
+    case dict.get(state.outboxes, target) {
+      Ok(outbox) -> {
+        let PlayerId(to) = target
+        process.send(
+          outbox,
+          GameStateTo(game_type: state.spec.game_type, room_id:, to:, payload:),
+        )
+      }
+      Error(Nil) -> Nil
+    }
+  })
+}
+
 fn handle_leave(state: State, player: PlayerId) -> actor.Next(State, Message) {
   let players = dict.delete(state.players, player)
+  let outboxes = dict.delete(state.outboxes, player)
   let remaining = dict.size(players)
   let below_min = remaining < state.spec.min_players
 
@@ -267,7 +341,7 @@ fn handle_leave(state: State, player: PlayerId) -> actor.Next(State, Message) {
     // 進行中に最小人数を下回ったらゲームを終了し、ルームを解散する（ADR 0013 / 0017）。
     _, Playing, True -> actor.stop()
     // それ以外は在室のまま続ける（開始前・終了後は最小人数を下回っていてよい）。
-    _, _, _ -> actor.continue(State(..state, players:))
+    _, _, _ -> actor.continue(State(..state, players:, outboxes:))
   }
 }
 

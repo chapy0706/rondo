@@ -7,7 +7,13 @@ import rondo_server/room/room_actor.{
 import rondo_server/room/room_supervisor
 
 fn spec(id: String) -> RoomSpec {
-  RoomSpec(id: RoomId(id), min_players: 1, max_players: 4, authority: None)
+  RoomSpec(
+    id: RoomId(id),
+    game_type: "test",
+    min_players: 1,
+    max_players: 4,
+    authority: None,
+  )
 }
 
 /// 起動直後は監視下のルームが無い。

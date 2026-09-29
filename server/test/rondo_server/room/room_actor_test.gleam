@@ -8,7 +8,13 @@ import rondo_server/room/room_actor.{
 }
 
 fn spec(min: Int, max: Int) -> RoomSpec {
-  RoomSpec(id: RoomId("r"), min_players: min, max_players: max, authority: None)
+  RoomSpec(
+    id: RoomId("r"),
+    game_type: "test",
+    min_players: min,
+    max_players: max,
+    authority: None,
+  )
 }
 
 fn player(id: String) -> Player {

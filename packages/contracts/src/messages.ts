@@ -75,8 +75,12 @@ export type ClientMessage =
 /**
  * サーバー -> クライアント メッセージ。
  *
- * game-state はサーバー権威の状態配信（ADR 0014）。game-ended はルーム解散時の
- * 最終結果（ADR 0017）。payload はゲーム固有のため unknown とし、受信側で検証する。
+ * game-state はサーバー権威の状態配信で、ルームの全員に同じ内容を送る（ADR 0014）。
+ * game-state-to は特定のプレイヤーだけに宛てた状態配信（ADR 0021）。サーバーは宛先の
+ * 接続にだけ送り、宛先でない接続には送らない（隠すべき情報をネットワークに流さない）。
+ * 複数人に送るときも宛先ごとに1通ずつ送るため、to は受け取った本人の ID だけになる。
+ * game-ended はルーム解散時の最終結果（ADR 0017）。payload はゲーム固有のため unknown
+ * とし、受信側で検証する。
  */
 export type ServerMessage =
 	| {
@@ -110,6 +114,13 @@ export type ServerMessage =
 			readonly type: "game-state";
 			readonly gameType: GameType;
 			readonly roomId: RoomId;
+			readonly payload: unknown;
+	  }
+	| {
+			readonly type: "game-state-to";
+			readonly gameType: GameType;
+			readonly roomId: RoomId;
+			readonly to: PlayerId;
 			readonly payload: unknown;
 	  }
 	| {

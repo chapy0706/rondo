@@ -20,6 +20,7 @@ pub fn room_ranks_goals_in_receive_order_test() {
   let spec =
     RoomSpec(
       id: RoomId("r"),
+      game_type: "test",
       min_players: 2,
       max_players: 4,
       authority: Some(tilt_maze.create),
@@ -49,6 +50,7 @@ pub fn room_stays_playing_until_all_finish_test() {
   let spec =
     RoomSpec(
       id: RoomId("r2"),
+      game_type: "test",
       min_players: 2,
       max_players: 4,
       authority: Some(tilt_maze.create),

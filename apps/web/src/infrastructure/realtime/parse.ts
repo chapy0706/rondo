@@ -146,6 +146,14 @@ export function parseServerMessage(value: unknown): ServerMessage | null {
 			// payload はゲーム固有のため unknown のまま渡し、ゲーム側の境界で検証する。
 			return { type, gameType, roomId, payload: value.payload };
 		}
+		case "game-state-to": {
+			// 限定配信（ADR 0021）。サーバーは宛先の接続にしか送らないため、to は自分の ID。
+			const { gameType, roomId, to } = value;
+			if (!isString(gameType) || !isString(roomId) || !isString(to)) {
+				return null;
+			}
+			return { type, gameType, roomId, to, payload: value.payload };
+		}
 		case "game-ended": {
 			const { gameType, roomId } = value;
 			if (!isString(gameType) || !isString(roomId)) return null;

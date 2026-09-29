@@ -39,6 +39,18 @@ describe("contracts", () => {
 		expect(message.result.rankings).toHaveLength(0);
 	});
 
+	it("game-state-to carries the single recipient alongside multiplexing keys", () => {
+		const message: ServerMessage = {
+			type: "game-state-to",
+			gameType: "chameleon",
+			roomId: "room-1",
+			to: "p2",
+			payload: { type: "positions", seen: [] },
+		};
+		expect(message.type).toBe("game-state-to");
+		expect(message.to).toBe("p2");
+	});
+
 	it("SoloGame has no realtime port while RealtimeGame connects", () => {
 		const manifest: GameManifest = {
 			id: "tilt-maze",
