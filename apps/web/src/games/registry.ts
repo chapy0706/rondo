@@ -1,5 +1,6 @@
 import type { GameManifest } from "@rondo/contracts";
 import type { ComponentType } from "react";
+import { czzManifest } from "./czz/manifest";
 import { tetrisManifest } from "./tetris/manifest";
 import { tiltMazeManifest } from "./tilt-maze/manifest";
 
@@ -14,6 +15,7 @@ import { tiltMazeManifest } from "./tilt-maze/manifest";
 export const registry: readonly GameManifest[] = [
 	tetrisManifest,
 	tiltMazeManifest,
+	czzManifest,
 ];
 
 /** ゲーム本体（React コンポーネント）の遅延ローダ。 */
@@ -29,6 +31,7 @@ export type GameLoader = () => Promise<{ default: ComponentType }>;
 const gameComponents: Record<string, GameLoader> = {
 	[tetrisManifest.id]: () => import("./tetris/Tetris"),
 	[tiltMazeManifest.id]: () => import("./tilt-maze/TiltMaze"),
+	[czzManifest.id]: () => import("./czz/Czz"),
 };
 
 /**
