@@ -7,6 +7,9 @@
  * 持たずにここで切り替える。結果画面の「おわる」で useSoloGame の reportResult を呼び、
  * 基盤の結果表示へ繋ぐ。本家の BGM・効果音・マスコットは初心者モードで出し、設定は
  * メモリ上だけで持つ（ADR 0019）。通信・DB・認証は持たない。
+ *
+ * 発表会（IT 初心者が大半）に合わせ、モードは初心者モードに固定し、切り替えの UI は
+ * 置かない（issue-21）。モードによる出し分け（配色・マスコット・音）は残している。
  */
 
 import type { PlayResult } from "@rondo/contracts";
@@ -29,6 +32,9 @@ import { SessionResult } from "./ui/SessionResult";
 import { type AudioSettings, TitleScreen } from "./ui/TitleScreen";
 import { T, themeStyle } from "./ui/theme";
 
+/** 表示モード。初心者モードに固定する（切り替えの UI は持たない）。 */
+const MODE: UiMode = "beginner";
+
 /** マニュアルの URL は環境変数から受け取る（未設定・不正ならリンクを出さない）。 */
 const MANUAL_URL = pickManualUrl(process.env.NEXT_PUBLIC_CZZ_MANUAL_URL);
 
@@ -36,8 +42,7 @@ export default function Czz() {
 	const { reportResult } = useSoloGame(czzManifest);
 
 	const [screen, setScreen] = useState<Screen>("title");
-	// 発表会の想定（IT 初心者が大半）に合わせ、初心者モードで始める。
-	const [mode, setMode] = useState<UiMode>("beginner");
+	const mode = MODE;
 	const [audio, setAudio] = useState<AudioSettings>({
 		bgmEnabled: true,
 		sfxEnabled: true,
@@ -84,7 +89,6 @@ export default function Czz() {
 					mode={mode}
 					audio={audio}
 					manualUrl={MANUAL_URL}
-					onModeChange={setMode}
 					onAudioChange={setAudio}
 					onStart={start}
 					onCredits={() => setScreen("credits")}

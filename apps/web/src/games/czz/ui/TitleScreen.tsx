@@ -2,8 +2,10 @@
  * czz の起動画面（本家のトップページ app/page.tsx の再現 / issue-21）。
  *
  * 初心者モードでは「指示厨ゲーム」のポップなタイトル、通常モードでは「Command Liner」と
- * 説明文を出す。スタート・初心者モードの切り替え・BGM/効果音のスイッチ・クレジット・
- * マニュアル（設定されていれば）を置く。設定はメモリ上だけで持つ（ADR 0019）。
+ * 説明文を出す。スタート・BGM/効果音のスイッチ・クレジット・マニュアル（設定されて
+ * いれば）を置く。設定はメモリ上だけで持つ（ADR 0019）。
+ * 本家にあった初心者モード⇔通常モードの切り替えは置かない。発表会（IT 初心者が大半）に
+ * 合わせてモードは Czz 側で初心者モードに固定する（issue-21）。
  */
 
 import type { UiMode } from "../presentation";
@@ -20,7 +22,6 @@ export function TitleScreen({
 	mode,
 	audio,
 	manualUrl,
-	onModeChange,
 	onAudioChange,
 	onStart,
 	onCredits,
@@ -28,7 +29,6 @@ export function TitleScreen({
 	mode: UiMode;
 	audio: AudioSettings;
 	manualUrl: string | null;
-	onModeChange: (mode: UiMode) => void;
 	onAudioChange: (audio: AudioSettings) => void;
 	onStart: () => void;
 	onCredits: () => void;
@@ -60,20 +60,6 @@ export function TitleScreen({
 			>
 				スタート
 			</button>
-
-			<div className="flex items-center gap-2 text-left">
-				<Switch
-					checked={isBeginner}
-					onChange={(next) => onModeChange(next ? "beginner" : "advanced")}
-					label="初心者モード切り替え"
-				/>
-				<div className="leading-tight">
-					<div className="font-medium text-sm">初心者モード</div>
-					<div className={`text-xs ${T.muted}`}>
-						最初はここで流れを理解しよう
-					</div>
-				</div>
-			</div>
 
 			<section
 				aria-label="初心者モード 操作パネル"

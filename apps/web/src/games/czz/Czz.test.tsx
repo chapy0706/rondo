@@ -20,9 +20,21 @@ describe("czz の起動画面（launchScreen: custom）", () => {
 	it("開くとまず czz 自身の起動画面が出て、出題はまだ始まらない", () => {
 		const html = render();
 		expect(html).toContain("スタート");
-		expect(html).toContain("初心者モード");
 		expect(html).toContain("クレジット");
 		expect(html).not.toContain("採点");
+	});
+
+	it("初心者モード⇔通常モードの切り替えトグルは出さない（初心者モード固定）", () => {
+		const html = render();
+		expect(html).not.toContain("初心者モード切り替え");
+		expect(html).not.toContain("最初はここで流れを理解しよう");
+		expect(html).toContain('data-czz-mode="beginner"');
+	});
+
+	it("BGM・効果音のオン/オフスイッチは残す", () => {
+		const html = render();
+		expect(html).toContain("BGMをオフにする");
+		expect(html).toContain("SFXをオフにする");
 	});
 
 	it("初心者モードで始まり、タイトルは「指示厨ゲーム」を1文字ずつ出す", () => {
