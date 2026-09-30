@@ -14,4 +14,11 @@ export const tetrisManifest: GameManifest = {
 	maxPlayers: 1,
 	thumbnail: "/games/tetris.png",
 	description: "落ちてくるブロックを積んで、揃った行を消す定番パズル。",
+	launchScreen: "shared",
+	tagline: "積んで、揃えて、消す。",
+	howToPlay: [
+		"パッドの左右でブロックを動かす",
+		"パッドの上で回転、下で速く落とす",
+		"横一列が揃うと消えて得点になる",
+	],
 };

@@ -9,6 +9,14 @@
 export type GameKind = "solo" | "realtime";
 
 /**
+ * 起動画面の持ち方（issue-30）。
+ *
+ * - shared: 基盤共通の起動画面（ロゴ・タイトル・タグライン・遊び方・「はじめる」）を通る
+ * - custom: 起動画面をゲーム自身が持つ。基盤は共通画面を挟まず、そのままゲームに委ねる
+ */
+export type LaunchScreen = "shared" | "custom";
+
+/**
  * 選択画面の自動生成に使うゲームの自己記述。
  *
  * ソロゲームは kind を "solo" とし、minPlayers / maxPlayers は 1 を宣言する。
@@ -29,6 +37,17 @@ export interface GameManifest {
 	readonly thumbnail: string;
 	/** 選択画面に表示する短い説明。 */
 	readonly description: string;
+	/** 起動画面を基盤共通にするか、ゲーム自身が持つか。 */
+	readonly launchScreen: LaunchScreen;
+	/** 起動画面に出すキャッチコピー的な一文。 */
+	readonly tagline?: string;
+	/** 起動画面に出す遊び方の要点（箇条書き）。 */
+	readonly howToPlay?: readonly string[];
+	/**
+	 * 起動画面用のビジュアル（thumbnail より高解像度な想定）。画像の実体が無くても、
+	 * 共通起動画面はフォールバック表示で崩れない。
+	 */
+	readonly titleScreenImage?: string;
 	/**
 	 * ルーム作成時に作成者が選ぶ設定（リアルタイムゲームのみ）。ロビーはこの宣言から
 	 * プルダウンを組み立てるだけで、個々のゲームを知らない（ADR 0003）。

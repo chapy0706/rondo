@@ -1,7 +1,7 @@
 ---
-status: open
+status: closed
 created_at: 2026-09-30
-closed_at:
+closed_at: 2026-09-30
 ---
 
 # issue-30: GameManifest の起動画面拡張と基盤共通の起動画面

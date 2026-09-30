@@ -6,7 +6,12 @@
  */
 
 export type { Game, RealTimePort, RealtimeGame, SoloGame } from "./game";
-export type { GameKind, GameManifest, RoomOption } from "./manifest";
+export type {
+	GameKind,
+	GameManifest,
+	LaunchScreen,
+	RoomOption,
+} from "./manifest";
 export type {
 	ClientMessage,
 	GameType,

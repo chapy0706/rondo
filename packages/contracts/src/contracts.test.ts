@@ -13,6 +13,7 @@ describe("contracts", () => {
 			maxPlayers: 1,
 			thumbnail: "/games/tetris.png",
 			description: "一人で黙々と遊ぶ",
+			launchScreen: "shared",
 		};
 		expect(manifest.kind).toBe("solo");
 		expect(manifest.minPlayers).toBe(1);
@@ -51,6 +52,29 @@ describe("contracts", () => {
 		expect(message.to).toBe("p2");
 	});
 
+	it("manifest declares its launch screen and optional title-screen details", () => {
+		const shared: GameManifest = {
+			id: "tetris",
+			title: "テトリス",
+			kind: "solo",
+			minPlayers: 1,
+			maxPlayers: 1,
+			thumbnail: "/games/tetris.png",
+			description: "",
+			launchScreen: "shared",
+			tagline: "積んで、消す。",
+			howToPlay: ["左右で移動", "上で回転"],
+			titleScreenImage: "/games/tetris-title.png",
+		};
+		const custom: GameManifest = {
+			...shared,
+			id: "czz",
+			launchScreen: "custom",
+		};
+		expect(shared.launchScreen).toBe("shared");
+		expect(custom.launchScreen).toBe("custom");
+	});
+
 	it("manifest can declare room options chosen at room creation", () => {
 		const manifest: GameManifest = {
 			id: "veryare",
@@ -60,6 +84,7 @@ describe("contracts", () => {
 			maxPlayers: 5,
 			thumbnail: "/games/veryare.png",
 			description: "",
+			launchScreen: "shared",
 			roomOptions: [
 				{
 					key: "explorationSeconds",
@@ -90,6 +115,7 @@ describe("contracts", () => {
 			maxPlayers: 4,
 			thumbnail: "/games/tilt-maze.png",
 			description: "傾けて転がす",
+			launchScreen: "shared",
 		};
 		const solo: SoloGame = {
 			kind: "solo",

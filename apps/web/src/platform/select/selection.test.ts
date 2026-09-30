@@ -10,6 +10,7 @@ const base: GameManifest = {
 	maxPlayers: 1,
 	thumbnail: "/games/x.png",
 	description: "",
+	launchScreen: "shared",
 };
 
 describe("nearestIndex - 中央に最も近いカードを選択中とする", () => {

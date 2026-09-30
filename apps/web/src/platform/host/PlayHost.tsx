@@ -42,6 +42,8 @@ import {
 	type RealtimeAdapter,
 	createLobbyAdapter,
 } from "../../infrastructure/realtime";
+import { LaunchGate } from "../launch/LaunchGate";
+import { needsLaunchScreen } from "../launch/launch";
 import { ResultScreen } from "../result/ResultScreen";
 
 interface RealtimeSession {
@@ -112,9 +114,15 @@ export function PlayHost({ manifest }: { manifest: GameManifest }) {
 	const [soloResult, setSoloResult] = useState<PlayResult | null>(null);
 	const [playKey, setPlayKey] = useState(0);
 
+	// 共通起動画面（issue-30）を挟むゲームは、「はじめる」を押すまで本編を出さない。
+	// custom のゲームは最初から起動済みとし、ゲーム自身の起動画面に委ねる。
+	const [launched, setLaunched] = useState(() => !needsLaunchScreen(manifest));
+	const start = useCallback(() => setLaunched(true), []);
+
 	const isRealtime = manifest.kind === "realtime";
+	// ルームへの接続は起動してから始める（起動画面で待つ間に部屋を作らない）。
 	const { realtime, result, you, leave } = useRealtimeSession(
-		isRealtime ? manifest.id : null,
+		isRealtime && launched ? manifest.id : null,
 	);
 
 	const reportResult = useCallback((value: PlayResult) => {
@@ -146,22 +154,26 @@ export function PlayHost({ manifest }: { manifest: GameManifest }) {
 	return (
 		<GameHostProvider value={host}>
 			<main className="mx-auto flex min-h-dvh max-w-md flex-col items-center gap-8 px-6 py-12">
-				<h1 className="font-bold text-2xl text-white">{manifest.title}</h1>
+				{launched && (
+					<h1 className="font-bold text-2xl text-white">{manifest.title}</h1>
+				)}
 
 				<VirtualPadProvider>
-					{Game === null ? (
-						<p className="text-slate-400">
-							このゲームはまだ起動できません（本体が未登録）。
-						</p>
-					) : connecting ? (
-						<p className="text-slate-400">ルームに接続中...</p>
-					) : (
-						<Suspense
-							fallback={<p className="text-slate-400">読み込み中...</p>}
-						>
-							<Game key={playKey} />
-						</Suspense>
-					)}
+					<LaunchGate manifest={manifest} launched={launched} onStart={start}>
+						{Game === null ? (
+							<p className="text-slate-400">
+								このゲームはまだ起動できません（本体が未登録）。
+							</p>
+						) : connecting ? (
+							<p className="text-slate-400">ルームに接続中...</p>
+						) : (
+							<Suspense
+								fallback={<p className="text-slate-400">読み込み中...</p>}
+							>
+								<Game key={playKey} />
+							</Suspense>
+						)}
+					</LaunchGate>
 				</VirtualPadProvider>
 
 				{result !== null && (

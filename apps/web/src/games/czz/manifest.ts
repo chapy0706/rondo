@@ -14,4 +14,6 @@ export const czzManifest: GameManifest = {
 	maxPlayers: 1,
 	thumbnail: "/games/czz.png",
 	description: "命令を並べて数の列を加工し、お題の出力を作るパズル。",
+	// 起動画面は czz 自身が持つ（issue-21）。それまでは選択後すぐ本編に入る。
+	launchScreen: "custom",
 };

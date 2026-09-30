@@ -15,6 +15,8 @@ export const veryareManifest: GameManifest = {
 	maxPlayers: 5,
 	thumbnail: "/games/veryare.png",
 	description: "見た目を塗って景色に溶け込む、鬼1人のかくれんぼ。",
+	// 起動画面（サーバーを探す / 作る）は veryare 自身が持つ（issue-29）。
+	launchScreen: "custom",
 	roomOptions: [
 		{
 			key: "explorationSeconds",
