@@ -1,0 +1,43 @@
+/* 本家 globals.css の czzDropBounce（タイトルの文字が弾みながら落ちてくる演出）。 */
+@keyframes dropBounce {
+	0% {
+		opacity: 0;
+		transform: translate3d(
+				var(--czz-tx, 0px),
+				calc(var(--czz-ty, 0px) - 24px),
+				0
+			)
+			rotate(var(--czz-rot, 0deg));
+	}
+	60% {
+		opacity: 1;
+		transform: translate3d(var(--czz-tx, 0px), var(--czz-ty, 0px), 0)
+			rotate(var(--czz-rot, 0deg));
+	}
+	80% {
+		transform: translate3d(
+				var(--czz-tx, 0px),
+				calc(var(--czz-ty, 0px) - 6px),
+				0
+			)
+			rotate(var(--czz-rot, 0deg));
+	}
+	100% {
+		transform: translate3d(var(--czz-tx, 0px), var(--czz-ty, 0px), 0)
+			rotate(var(--czz-rot, 0deg));
+	}
+}
+
+.dropBounce {
+	animation-name: dropBounce;
+	animation-duration: 600ms;
+	animation-timing-function: ease-out;
+	animation-fill-mode: both;
+	animation-delay: var(--czz-delay, 0ms);
+}
+
+@media (prefers-reduced-motion: reduce) {
+	.dropBounce {
+		animation: none;
+	}
+}
