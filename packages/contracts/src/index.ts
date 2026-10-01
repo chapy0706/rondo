@@ -6,6 +6,10 @@
  */
 
 export type { Game, RealTimePort, RealtimeGame, SoloGame } from "./game";
+export {
+	CLIENT_MESSAGE_TYPES,
+	SERVER_MESSAGE_TYPES,
+} from "./messageTypes";
 export type {
 	GameKind,
 	GameManifest,

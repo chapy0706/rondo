@@ -5,27 +5,36 @@ import gleam/http/response.{type Response}
 import gleam/int
 import gleam/io
 import mist.{type Connection, type ResponseData}
-import rondo_server/echo_ws
+import rondo_server/connection/session.{type Deps, Deps}
+import rondo_server/connection/websocket
+import rondo_server/games/catalog
+import rondo_server/room/room_directory
+import rondo_server/room/room_supervisor
 
-/// echo サーバーが待ち受けるポート。デプロイ時はここを変える（値の直書きを避けた命名）。
+/// サーバーが待ち受けるポート。デプロイ時はここを変える（値の直書きを避けた命名）。
 const port = 3000
 
 /// HTTP パスの振り分け先。純粋な判定として切り出し、テスト対象にする。
 pub type Route {
-  /// WebSocket の echo エンドポイント。
-  EchoWs
+  /// リアルタイムの WebSocket エンドポイント（issue-31）。
+  RealtimeWs
   /// それ以外。稼働確認用の索引を返す。
   Index
 }
 
 /// rondo リアルタイム基盤のエントリーポイント。
 ///
-/// mist で WebSocket サーバーを起動し、/ws で echo を返す（ADR 0005）。
+/// ルームの監視（room_supervisor）と台帳（room_directory）を起動し、mist で
+/// WebSocket サーバーを起動する（ADR 0005）。/ws が実接続の入口（issue-31）。
 /// Docker から到達できるよう全インターフェースで待ち受ける。
-/// ルームアクター・接続アクターは issue-09 以降で載せる。
 pub fn main() {
+  let assert Ok(supervisor) = room_supervisor.start()
+  let assert Ok(directory) =
+    room_directory.start(supervisor.data, catalog.room_limits())
+  let deps = Deps(directory: directory.data)
+
   let assert Ok(_) =
-    handle
+    fn(req) { handle(req, deps) }
     |> mist.new
     |> mist.bind("0.0.0.0")
     |> mist.port(port)
@@ -38,15 +47,15 @@ pub fn main() {
 /// パスセグメントから振り分け先を決める純粋な関数。
 pub fn route(path_segments: List(String)) -> Route {
   case path_segments {
-    ["ws"] -> EchoWs
+    ["ws"] -> RealtimeWs
     _ -> Index
   }
 }
 
 /// 受け取ったリクエストを振り分け先に応じて処理する。
-fn handle(req: Request(Connection)) -> Response(ResponseData) {
+fn handle(req: Request(Connection), deps: Deps) -> Response(ResponseData) {
   case route(request.path_segments(req)) {
-    EchoWs -> echo_ws.handle(req)
+    RealtimeWs -> websocket.handle(req, deps)
     Index -> index()
   }
 }

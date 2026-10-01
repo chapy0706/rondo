@@ -116,8 +116,8 @@ pub fn broadcast_reaches_all_and_deliver_reaches_target_only_test() {
   room_actor.game_event(room, PlayerId("b"), text("secret"))
   settle(room)
 
-  process.receive(a, 0) |> should.equal(Ok(broadcast("hello")))
-  process.receive(b, 0) |> should.equal(Ok(broadcast("hello")))
+  next_game(a) |> should.equal(Ok(broadcast("hello")))
+  next_game(b) |> should.equal(Ok(broadcast("hello")))
   process.receive(b, 0)
   |> should.equal(
     Ok(GameStateTo(
@@ -137,7 +137,7 @@ pub fn wake_after_calls_back_the_game_test() {
   let assert Ok(_) = process.receive(a, 100)
 
   let assert Ok(Nil) = room_actor.start_game(room)
-  process.receive(a, 200) |> should.equal(Ok(broadcast("woke")))
+  next_game_within(a, 200) |> should.equal(Ok(broadcast("woke")))
 }
 
 /// ゲームが終われば Finished になる。
@@ -160,7 +160,7 @@ pub fn leave_below_min_is_delegated_to_the_game_test() {
   settle(room)
 
   process.is_alive(pid) |> should.be_true
-  process.receive(b, 0) |> should.equal(Ok(broadcast("left")))
+  next_game(b) |> should.equal(Ok(broadcast("left")))
   room_actor.snapshot(room).status |> should.equal(Finished)
 }
 
@@ -221,4 +221,21 @@ pub fn driver_game_rejects_join_when_game_refuses_test() {
   room_actor.game_event(room, PlayerId("a"), text("end"))
   room_actor.join(room, Player(PlayerId("c"), "c"))
   |> should.equal(Error(room_actor.GameAlreadyStarted))
+}
+
+/// 次に届くゲームの配信（参加・離脱・開始の知らせは読み飛ばす）。
+fn next_game(outbox: Subject(ServerMessage)) -> Result(ServerMessage, Nil) {
+  next_game_within(outbox, 0)
+}
+
+fn next_game_within(
+  outbox: Subject(ServerMessage),
+  timeout: Int,
+) -> Result(ServerMessage, Nil) {
+  case process.receive(outbox, timeout) {
+    Ok(message.GameStarted(..))
+    | Ok(message.PlayerJoined(..))
+    | Ok(message.PlayerLeft(..)) -> next_game_within(outbox, timeout)
+    other -> other
+  }
 }

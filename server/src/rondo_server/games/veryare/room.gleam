@@ -123,7 +123,9 @@ fn wrap(state: Game(PlayerId), pick: fn(Int) -> Int) -> Driver(PlayerId) {
     },
     on_leave: fn(player) { step(state, game.leave(state, player), pick) },
     on_wake: fn(token) { step(state, game.advance(state, token, pick), pick) },
-    on_join: fn(player) { step(state, game.join(state, player), pick) },
+    on_join: fn(player) {
+      joined(state, game.join(state, player), player, pick)
+    },
     accepts_join: fn() { game.accepts_join(state) },
     is_over: fn() {
       case state.phase {
@@ -150,6 +152,20 @@ fn step(
       }
   }
   #(wrap(after, pick), effects)
+}
+
+/// 途中参加。全員への通知が出なかったとき（エリアの色が変わらない等）は、参加した
+/// 本人にだけ今の状態を送る。途中から入った人も、今のフェーズとエリアの色が分かる。
+fn joined(
+  before: Game(PlayerId),
+  after: Game(PlayerId),
+  player: PlayerId,
+  pick: fn(Int) -> Int,
+) -> #(Driver(PlayerId), List(Effect(PlayerId))) {
+  case step(before, after, pick) {
+    #(next, []) -> #(next, [driver.Deliver([player], phase_payload(after))])
+    stepped -> stepped
+  }
 }
 
 /// 全員へ知らせる中身。これが変わったときだけ通知する（隠れ側の位置は含めない）。

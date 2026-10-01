@@ -137,4 +137,14 @@ export type ServerMessage =
 			readonly roomId: RoomId;
 			readonly result: RealtimeResult;
 	  }
-	| { readonly type: "error"; readonly code: string; readonly message: string };
+	| { readonly type: "error"; readonly code: string; readonly message: string }
+	| {
+			/**
+			 * 接続直後に、その接続にだけ送る（issue-31）。playerId はこの接続のプレイヤー
+			 * 識別子（ルームの他の人にも見える）。resumeToken は再接続で同じプレイヤーに
+			 * 復帰するための秘密の値で、本人以外には一切送らない。
+			 */
+			readonly type: "session";
+			readonly playerId: PlayerId;
+			readonly resumeToken: string;
+	  };

@@ -1,16 +1,16 @@
 import gleeunit
 import gleeunit/should
-import rondo_server.{EchoWs, Index}
+import rondo_server.{Index, RealtimeWs}
 
 pub fn main() {
   gleeunit.main()
 }
 
-/// /ws は echo エンドポイントに振り分ける。
+/// /ws はリアルタイムの WebSocket エンドポイントに振り分ける。
 pub fn route_ws_test() {
   ["ws"]
   |> rondo_server.route
-  |> should.equal(EchoWs)
+  |> should.equal(RealtimeWs)
 }
 
 /// それ以外のパスは索引に振り分ける。

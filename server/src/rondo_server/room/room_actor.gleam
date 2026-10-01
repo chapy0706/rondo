@@ -4,7 +4,10 @@ import gleam/erlang/process.{type Subject}
 import gleam/list
 import gleam/option.{type Option, None, Some}
 import gleam/otp/actor
-import rondo_server/protocol/message.{type ServerMessage, GameState, GameStateTo}
+import rondo_server/protocol/message.{
+  type ServerMessage, GameStarted, GameState, GameStateTo, PlayerInfo,
+  PlayerJoined, PlayerLeft,
+}
 import rondo_server/room/authority.{type Authority, type Outcome}
 import rondo_server/room/driver.{type Driver, type Effect}
 
@@ -92,6 +95,11 @@ pub type RoomState {
     result: Option(Outcome(PlayerId)),
     /// ルームを作ったプレイヤー（最初の参加者）。抜けてもルームは続く（ADR 0030）。
     host: Option(PlayerId),
+    /// ゲーム種別。
+    game_type: String,
+    /// 今参加できるか。開始前か、ゲームが参加を受け付けている間（veryare の鬼選出中）。
+    /// ルーム一覧の waiting / playing に使う。定員は別に見る。
+    joinable: Bool,
   )
 }
 
@@ -100,6 +108,13 @@ pub type Message {
   /// 参加する。定員・重複・開始済みを判定して可否を返す。差し込み口を持つゲームは、
   /// ゲームが受け付ける間（veryare の鬼選出中）は進行中でも参加できる。
   Join(player: Player, reply: Subject(Result(Nil, JoinError)))
+  /// 参加と同時に送信先を登録する（実接続 / issue-31）。参加で起きる配信（ゲームの通知）を
+  /// 本人も受け取れるよう、ゲームに参加を伝える前に送信先を登録する。
+  JoinAndSubscribe(
+    player: Player,
+    outbox: Subject(ServerMessage),
+    reply: Subject(Result(Nil, JoinError)),
+  )
   /// 離脱を確定する。再接続猶予を過ぎた離脱としてルームが受ける（ADR 0013）。
   Leave(player: PlayerId)
   /// ゲームを開始する。最小人数を満たしていれば Playing へ移り、権威を初期化する。
@@ -164,6 +179,15 @@ pub fn start(spec: RoomSpec) -> actor.StartResult(Subject(Message)) {
 }
 
 /// 参加する。
+/// 参加して、同時に送信先を登録する。
+pub fn join_and_subscribe(
+  room: Subject(Message),
+  player: Player,
+  outbox: Subject(ServerMessage),
+) -> Result(Nil, JoinError) {
+  process.call(room, 1000, JoinAndSubscribe(player, outbox, _))
+}
+
 pub fn join(room: Subject(Message), player: Player) -> Result(Nil, JoinError) {
   process.call(room, 1000, Join(player, _))
 }
@@ -217,7 +241,10 @@ pub fn dissolve(room: Subject(Message)) -> Nil {
 
 fn handle(state: State, message: Message) -> actor.Next(State, Message) {
   case message {
-    Join(player, reply) -> handle_join(state, player, reply)
+    Join(player, reply) -> handle_join(state, player, None, reply)
+
+    JoinAndSubscribe(player, outbox, reply) ->
+      handle_join(state, player, Some(outbox), reply)
 
     Leave(player) -> handle_leave(state, player)
 
@@ -250,6 +277,7 @@ fn handle(state: State, message: Message) -> actor.Next(State, Message) {
 fn handle_join(
   state: State,
   player: Player,
+  outbox: Option(Subject(ServerMessage)),
   reply: Subject(Result(Nil, JoinError)),
 ) -> actor.Next(State, Message) {
   let already_joined = dict.has_key(state.players, player.id)
@@ -263,11 +291,12 @@ fn handle_join(
   case state.status, already_joined, full {
     Playing, False, False if driver_accepts -> {
       process.send(reply, Ok(Nil))
+      notify_joined(state, player)
       let assert Some(current) = state.driver
-      run_driver(
-        State(..state, players: dict.insert(state.players, player.id, player)),
-        driver.join(current, player.id),
-      )
+      let state =
+        State(..state, players: dict.insert(state.players, player.id, player))
+        |> register(player.id, outbox)
+      run_driver(state, driver.join(current, player.id))
     }
     Playing, True, _ if driver_accepts -> {
       process.send(reply, Error(AlreadyJoined))
@@ -279,6 +308,7 @@ fn handle_join(
     }
     Open, False, False -> {
       process.send(reply, Ok(Nil))
+      notify_joined(state, player)
       let host = case state.host {
         None -> Some(player.id)
         some -> some
@@ -288,7 +318,8 @@ fn handle_join(
           ..state,
           players: dict.insert(state.players, player.id, player),
           host:,
-        ),
+        )
+        |> register(player.id, outbox),
       )
     }
     Open, True, _ -> {
@@ -324,6 +355,7 @@ fn handle_start_game(
         None -> None
       }
       let state = State(..state, status: Playing, authority:)
+      broadcast(state, GameStarted(state.spec.game_type, room_id_of(state)))
       case state.spec.driver {
         Some(factory) -> run_driver(state, factory(dict.keys(state.players)))
         None -> actor.continue(state)
@@ -371,6 +403,24 @@ fn handle_game_event(
   }
 }
 
+/// 参加者の送信先を登録し、入室後の案内を送る（JoinAndSubscribe 用）。
+fn register(
+  state: State,
+  player: PlayerId,
+  outbox: Option(Subject(ServerMessage)),
+) -> State {
+  case outbox {
+    Some(outbox) -> {
+      case state.spec.member_info {
+        Some(info) -> process.send(outbox, game_state(state, info))
+        None -> Nil
+      }
+      State(..state, outboxes: dict.insert(state.outboxes, player, outbox))
+    }
+    None -> state
+  }
+}
+
 fn handle_subscribe(
   state: State,
   player: PlayerId,
@@ -412,12 +462,20 @@ fn deliver_to(state: State, targets: List(PlayerId), payload: Dynamic) -> Nil {
 }
 
 fn handle_leave(state: State, player: PlayerId) -> actor.Next(State, Message) {
+  let was_member = dict.has_key(state.players, player)
   let players = dict.delete(state.players, player)
   let outboxes = dict.delete(state.outboxes, player)
   let remaining = dict.size(players)
   let below_min = remaining < state.spec.min_players
 
   let state = State(..state, players:, outboxes:)
+  case was_member {
+    True -> {
+      let PlayerId(id) = player
+      broadcast(state, PlayerLeft(room_id_of(state), id))
+    }
+    False -> Nil
+  }
 
   case remaining, state.status, below_min, state.driver {
     // 誰も残らなければ解散する。
@@ -441,6 +499,36 @@ fn to_state(state: State) -> RoomState {
     max_players: state.spec.max_players,
     result: state.result,
     host: state.host,
+    game_type: state.spec.game_type,
+    joinable: case state.status, state.driver {
+      Open, _ -> True
+      Playing, Some(current) -> driver.accepts_join(current)
+      _, _ -> False
+    },
+  )
+}
+
+fn room_id_of(state: State) -> String {
+  let RoomId(id) = state.spec.id
+  id
+}
+
+/// 購読中の全員に送る（参加・離脱・開始の知らせ）。
+fn broadcast(state: State, message: ServerMessage) -> Nil {
+  dict.each(state.outboxes, fn(_player, outbox) {
+    process.send(outbox, message)
+  })
+}
+
+/// 参加を、すでにいる人に知らせる（参加した本人はまだ購読していない）。
+fn notify_joined(state: State, player: Player) -> Nil {
+  let PlayerId(id) = player.id
+  broadcast(
+    state,
+    PlayerJoined(
+      room_id_of(state),
+      PlayerInfo(player_id: id, name: player.name),
+    ),
   )
 }
 

@@ -3,6 +3,7 @@ import gleam/dynamic/decode
 import gleam/erlang/process.{type Subject}
 import gleam/list
 import gleam/option.{None, Some}
+import gleam/string
 import gleeunit/should
 import rondo_server/games/veryare/game
 import rondo_server/games/veryare/room.{Settings} as veryare
@@ -54,11 +55,15 @@ fn field(payload: Dynamic, name: String, decoder: decode.Decoder(a)) -> a {
   value
 }
 
-/// 次に届く game-state の payload を取り出す。
+/// 次に届く game-state の payload を取り出す（参加・開始の知らせは読み飛ばす）。
 fn next_state(outbox: Subject(ServerMessage)) -> Dynamic {
-  let assert Ok(GameState(game_type: "veryare", room_id: "v", payload:)) =
-    process.receive(outbox, 500)
-  payload
+  case process.receive(outbox, 500) {
+    Ok(GameState(game_type: "veryare", room_id: "v", payload:)) -> payload
+    Ok(message.GameStarted(..))
+    | Ok(message.PlayerJoined(..))
+    | Ok(message.PlayerLeft(..)) -> next_state(outbox)
+    other -> panic as { "unexpected: " <> string.inspect(other) }
+  }
 }
 
 /// 次に届くフェーズ通知の phase 名。
