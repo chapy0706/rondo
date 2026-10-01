@@ -1,11 +1,13 @@
 import gleam/dict
+import gleam/float
 import gleam/list
 import gleam/option.{None, Some}
 import gleam/set
 import gleeunit/should
 import rondo_server/games/veryare/game.{
-  type Game, Ended, Exploration, HidersWin, NotEnoughPlayers, OniSelection,
-  OniWins, Painting, Position, Preparation, Stage, WaitingRoom,
+  type Game, AreaCounting, AreaReady, AreaWaiting, Ended, Exploration, HidersWin,
+  NotEnoughPlayers, OniSelection, OniWins, Painting, Position, Preparation,
+  Reveal, Stage, WaitingRoom,
 }
 import rondo_server/games/veryare/stage
 
@@ -13,8 +15,12 @@ import rondo_server/games/veryare/stage
 
 const players = ["a", "b", "c", "d"]
 
+fn new_game(ids: List(String)) -> Game(String) {
+  game.new(ids, game.durations(exploration_ms: 40_000), stage.generate(0))
+}
+
 fn start() -> Game(String) {
-  game.new(players, game.durations(exploration_ms: 40_000), stage.generate(0))
+  new_game(players)
 }
 
 /// 乱数の代わりに、常に同じ位置を返す。
@@ -27,10 +33,15 @@ fn expire(g: Game(String), pick: fn(Int) -> Int) -> Game(String) {
   game.advance(g, g.step, pick)
 }
 
-/// 鬼選出を終え、a が鬼の準備移動フェーズにする。
+/// 鬼希望エリアに触れる（中心へ動く）。
+fn touch_area(g: Game(String), id: String) -> Game(String) {
+  game.move(g, id, 0.0, 0.0)
+}
+
+/// a がエリアに触れてカウントを始め、満了させて a を鬼にする（準備移動フェーズ）。
 fn preparation_with_oni_a() -> Game(String) {
   start()
-  |> game.move("a", 0.0, 0.0)
+  |> touch_area("a")
   |> expire(always(0))
 }
 
@@ -46,23 +57,149 @@ fn position(g: Game(String), id: String) {
   p
 }
 
-// --- フェーズ遷移（段階 2 / 5） -------------------------------------------
+// --- 鬼選出: トリガー式のカウントダウン ------------------------------------------
 
-/// 開始時は鬼選出で、全員が待機ルームにいる。鬼選出は10秒。
-pub fn starts_in_oni_selection_in_waiting_room_test() {
+/// 開始時は鬼選出で、全員が待機ルームにいる。誰も触れていない間はカウントしない。
+pub fn starts_in_oni_selection_without_countdown_test() {
   let g = start()
   g.phase |> should.equal(OniSelection)
   g.oni |> should.equal(None)
-  game.phase_duration(g) |> should.equal(Some(10_000))
+  game.phase_duration(g) |> should.equal(None)
   list.each(players, fn(id) {
     position(g, id).space |> should.equal(WaitingRoom)
   })
 }
 
-/// 鬼選出 → 準備移動(20秒) → ペイント(20秒) → 探索（設定値）の順に、時間経過で進む。
+/// 2人以上いれば緑（開始）、2人未満なら赤（待機）。
+pub fn area_is_ready_with_two_or_more_and_waiting_otherwise_test() {
+  game.area_state(start()) |> should.equal(AreaReady)
+  game.area_state(new_game(["a", "b"])) |> should.equal(AreaReady)
+  game.area_state(new_game(["a"])) |> should.equal(AreaWaiting)
+}
+
+/// 最初に触れた瞬間に10秒のカウントを始め、触れた本人が立候補者になる（青）。
+pub fn first_touch_starts_ten_second_countdown_test() {
+  let g = start() |> touch_area("b")
+  game.area_state(g) |> should.equal(AreaCounting)
+  g.candidates |> should.equal(set.from_list(["b"]))
+  game.phase_duration(g) |> should.equal(Some(10_000))
+  g.phase |> should.equal(OniSelection)
+}
+
+/// 触れずにエリアの外を動いても、カウントは始まらない。
+pub fn moving_outside_area_does_not_start_countdown_test() {
+  let g = start() |> game.move("b", 1.0, 1.0)
+  game.area_state(g) |> should.equal(AreaReady)
+  game.phase_duration(g) |> should.equal(None)
+}
+
+/// 2人未満（赤）のときは、触れても始まらない。
+pub fn touch_while_waiting_does_nothing_test() {
+  let g = new_game(["a"]) |> touch_area("a")
+  game.area_state(g) |> should.equal(AreaWaiting)
+  g.candidates |> should.equal(set.new())
+  game.phase_duration(g) |> should.equal(None)
+}
+
+/// カウント中に別の人が触れたら、立候補者に加わる。エリアに留まり続ける必要はない。
+pub fn later_touches_join_candidates_even_if_they_walk_away_test() {
+  let g =
+    start()
+    |> touch_area("b")
+    |> touch_area("d")
+    |> game.move("d", 1.5, 0.0)
+  g.candidates |> should.equal(set.from_list(["b", "d"]))
+}
+
+/// カウント中に触れ直しても、カウントは延びない（step が変わらない）。
+pub fn touching_again_does_not_restart_countdown_test() {
+  let first = start() |> touch_area("b")
+  let again = first |> touch_area("c")
+  again.step |> should.equal(first.step)
+}
+
+/// カウントの満了で、立候補者の中から鬼を選ぶ（乱数には立候補者の人数が渡る）。
+pub fn oni_is_picked_from_candidates_test() {
+  let g = start() |> touch_area("b") |> touch_area("d")
+  let picked =
+    game.advance(g, g.step, fn(size) {
+      size |> should.equal(2)
+      1
+    })
+  picked.oni |> should.equal(Some("d"))
+  picked.phase |> should.equal(Preparation)
+}
+
+/// 立候補者が全員抜けていたら、残った全員から選ぶ。
+pub fn oni_is_picked_from_everyone_when_candidates_left_test() {
+  let g =
+    start()
+    |> touch_area("b")
+    |> game.leave("b")
+  let picked =
+    game.advance(g, g.step, fn(size) {
+      size |> should.equal(3)
+      2
+    })
+  picked.oni |> should.equal(Some("d"))
+}
+
+/// カウント中に2人未満になってもカウントは続き、満了時に2人未満なら不成立（ADR 0024）。
+pub fn countdown_continues_and_fails_if_below_minimum_at_end_test() {
+  let counting = new_game(["a", "b"]) |> touch_area("a") |> game.leave("b")
+  game.area_state(counting) |> should.equal(AreaCounting)
+  game.phase_duration(counting) |> should.equal(Some(10_000))
+  expire(counting, always(0)).phase |> should.equal(Ended(NotEnoughPlayers))
+}
+
+/// 鬼選出中は入室できる。人数がそろえば赤から緑になる。
+pub fn joining_during_selection_turns_waiting_into_ready_test() {
+  let g = new_game(["a"])
+  game.accepts_join(g) |> should.be_true
+  let joined = game.join(g, "b")
+  joined.players |> should.equal(["a", "b"])
+  position(joined, "b").space |> should.equal(WaitingRoom)
+  game.area_state(joined) |> should.equal(AreaReady)
+}
+
+/// カウント中の入室も許す（青の間は入退室を許容）。
+pub fn joining_during_countdown_is_allowed_test() {
+  let g = new_game(["a", "b"]) |> touch_area("a")
+  game.accepts_join(g) |> should.be_true
+  game.join(g, "c").players |> should.equal(["a", "b", "c"])
+}
+
+/// 鬼選出が終わったら入室できない。
+pub fn joining_after_selection_is_rejected_test() {
+  let g = preparation_with_oni_a()
+  game.accepts_join(g) |> should.be_false
+  game.join(g, "e") |> should.equal(g)
+}
+
+/// 同じ人が二重に入室しても増えない。
+pub fn joining_twice_does_not_duplicate_test() {
+  new_game(["a"])
+  |> game.join("b")
+  |> game.join("b")
+  |> fn(g: Game(String)) { g.players }
+  |> should.equal(["a", "b"])
+}
+
+/// カウント前のタイマーや、前のフェーズのタイマーが遅れて届いても進まない。
+pub fn stale_timer_is_ignored_test() {
+  let idle = start()
+  game.advance(idle, idle.step, always(0)) |> should.equal(idle)
+
+  let counting = idle |> touch_area("a")
+  let prepared = expire(counting, always(0))
+  game.advance(prepared, counting.step, always(0)) |> should.equal(prepared)
+}
+
+// --- フェーズ遷移 ---------------------------------------------------------------
+
+/// 鬼選出 → 準備移動(20秒) → ペイント(20秒) → 探索（設定値）→ 答え合わせ(20秒) → 終了。
 pub fn phases_advance_in_order_by_timer_test() {
-  let g0 = start()
-  let g1 = expire(g0, always(0))
+  let g1 = preparation_with_oni_a()
   g1.phase |> should.equal(Preparation)
   game.phase_duration(g1) |> should.equal(Some(20_000))
 
@@ -73,58 +210,28 @@ pub fn phases_advance_in_order_by_timer_test() {
   let g3 = expire(g2, always(0))
   g3.phase |> should.equal(Exploration)
   game.phase_duration(g3) |> should.equal(Some(40_000))
+
+  let g4 = expire(g3, always(0))
+  g4.phase |> should.equal(Reveal(HidersWin))
+  game.phase_duration(g4) |> should.equal(Some(20_000))
+
+  let g5 = expire(g4, always(0))
+  g5.phase |> should.equal(Ended(HidersWin))
+  game.phase_duration(g5) |> should.equal(None)
 }
 
 /// 探索フェーズの長さは作成時の設定に従う。
 pub fn exploration_uses_configured_duration_test() {
   let g =
     game.new(players, game.durations(exploration_ms: 80_000), stage.generate(0))
+    |> touch_area("a")
     |> expire(always(0))
     |> expire(always(0))
     |> expire(always(0))
   game.phase_duration(g) |> should.equal(Some(80_000))
 }
 
-/// 前のフェーズのタイマー（古い step）が遅れて届いても、進まない。
-pub fn stale_timer_is_ignored_test() {
-  let g0 = start()
-  let g1 = expire(g0, always(0))
-  game.advance(g1, g0.step, always(0)) |> should.equal(g1)
-}
-
-// --- 鬼選出（段階 3 / 4） ------------------------------------------------
-
-/// 最初は誰も鬼希望エリアにいない（立ち位置はエリアの外）。
-pub fn nobody_is_candidate_at_start_test() {
-  game.candidates(start()) |> should.equal([])
-}
-
-/// 鬼希望エリアに入ったプレイヤーが立候補者になり、その中から選ばれる。
-pub fn oni_is_picked_from_candidates_test() {
-  let g =
-    start()
-    |> game.move("b", 0.1, 0.0)
-    |> game.move("d", 0.0, -0.2)
-  game.candidates(g) |> should.equal(["b", "d"])
-
-  // 乱数には立候補者の人数が渡り、返った位置の立候補者が鬼になる。
-  let picked =
-    game.advance(g, g.step, fn(size) {
-      size |> should.equal(2)
-      1
-    })
-  picked.oni |> should.equal(Some("d"))
-}
-
-/// 立候補者がいなければ、全員の中から選ばれる。
-pub fn oni_is_picked_from_everyone_without_candidates_test() {
-  let g =
-    game.advance(start(), 0, fn(size) {
-      size |> should.equal(4)
-      2
-    })
-  g.oni |> should.equal(Some("c"))
-}
+// --- 空間（待機ルームは円柱形） -------------------------------------------------
 
 /// 鬼が決まると、隠れ側はステージへ移り、鬼は待機ルームに残る。
 pub fn hiders_move_to_stage_and_oni_stays_test() {
@@ -145,31 +252,29 @@ pub fn oni_moves_to_stage_when_exploration_starts_test() {
   position(exploring, "a").space |> should.equal(Stage)
 }
 
-/// 鬼選出の時点で2人未満なら、ゲームは成立しない。
-pub fn selection_with_single_player_does_not_start_test() {
-  let g =
-    game.new(
-      ["a", "b"],
-      game.durations(exploration_ms: 40_000),
-      stage.generate(0),
-    )
-    |> game.leave("b")
-    |> expire(always(0))
-  g.phase |> should.equal(Ended(NotEnoughPlayers))
+/// 待機ルームは半径2mの円。外へ出ようとすると円の縁に丸める。
+pub fn movement_is_clamped_to_circular_waiting_room_test() {
+  game.waiting_room_radius |> should.equal(2.0)
+  let p = start() |> game.move("a", 9.0, 0.0) |> position("a")
+  p.space |> should.equal(WaitingRoom)
+  { float.absolute_value(p.x -. 2.0) <. 0.0001 } |> should.be_true
+  { float.absolute_value(p.z) <. 0.0001 } |> should.be_true
+
+  // 斜めでも中心からの距離は半径以内
+  let q = start() |> game.move("a", 3.0, 3.0) |> position("a")
+  let distance = q.x *. q.x +. q.z *. q.z
+  { distance <. 4.0001 } |> should.be_true
 }
 
-// --- 移動（段階 10 のサーバー側） -----------------------------------------
-
-/// 待機ルームの外へは出られない（部屋の範囲に丸める）。
-pub fn movement_is_clamped_to_waiting_room_test() {
-  let p = start() |> game.move("a", 9.0, -9.0) |> position("a")
-  p
-  |> should.equal(Position(
-    WaitingRoom,
-    game.waiting_room_half,
-    0.0 -. game.waiting_room_half,
-  ))
+/// 円の内側なら、そのままの位置に動ける。
+pub fn movement_inside_waiting_room_is_kept_test() {
+  start()
+  |> game.move("a", 1.0, -1.0)
+  |> position("a")
+  |> should.equal(Position(WaitingRoom, 1.0, -1.0))
 }
+
+// --- 移動の制限 -----------------------------------------------------------------
 
 /// 準備中、隠れ側はステージの中を動ける。
 pub fn hider_moves_on_stage_during_preparation_test() {
@@ -177,11 +282,28 @@ pub fn hider_moves_on_stage_during_preparation_test() {
   p |> should.equal(Position(Stage, 1.0, 2.0))
 }
 
-/// 探索フェーズ中、隠れ側の移動入力は無視され、位置が変わらない。
+/// 準備移動が終わったら、ペイント中も隠れ側は動けない。
+pub fn hider_movement_is_ignored_during_painting_test() {
+  let g = preparation_with_oni_a() |> expire(always(0))
+  g.phase |> should.equal(Painting)
+  let before = position(g, "b")
+  g |> game.move("b", 4.0, 4.0) |> position("b") |> should.equal(before)
+}
+
+/// 探索フェーズ中も、隠れ側の移動入力は無視される。
 pub fn hider_movement_is_ignored_during_exploration_test() {
   let g = exploration_with_oni_a()
   let before = position(g, "b")
   g |> game.move("b", 4.0, 4.0) |> position("b") |> should.equal(before)
+}
+
+/// ペイント中の鬼は待機ルームで動ける（暇つぶしペイントのため）。
+pub fn oni_moves_in_waiting_room_during_painting_test() {
+  preparation_with_oni_a()
+  |> expire(always(0))
+  |> game.move("a", 0.5, 0.5)
+  |> position("a")
+  |> should.equal(Position(WaitingRoom, 0.5, 0.5))
 }
 
 /// 探索フェーズ中も鬼は動ける。
@@ -192,7 +314,7 @@ pub fn oni_moves_during_exploration_test() {
   |> should.equal(Position(Stage, 1.0, 1.0))
 }
 
-// --- まだ隠れている集合と勝敗（段階 7 / 8） -----------------------------------
+// --- まだ隠れている集合と勝敗 ----------------------------------------------------
 
 /// 発見と切断は同じ処理を通り、結果の状態が完全に一致する（個別の分岐がない）。
 pub fn found_and_left_are_handled_identically_test() {
@@ -200,7 +322,7 @@ pub fn found_and_left_are_handled_identically_test() {
   game.found(g, "b") |> should.equal(game.leave(g, "b"))
 }
 
-/// 最後の1人が発見でも切断でも、同じく鬼の勝利になる。
+/// 最後の1人が発見でも切断でも、同じく鬼の勝利（答え合わせを経て終了）。
 pub fn last_hider_found_or_left_gives_oni_the_win_test() {
   let g =
     exploration_with_oni_a()
@@ -210,39 +332,31 @@ pub fn last_hider_found_or_left_gives_oni_the_win_test() {
   let by_found = game.found(g, "d")
   let by_leave = game.leave(g, "d")
   by_found |> should.equal(by_leave)
-  by_found.phase |> should.equal(Ended(OniWins))
+  by_found.phase |> should.equal(Reveal(OniWins))
+  expire(by_found, always(0)).phase |> should.equal(Ended(OniWins))
 }
 
-/// 準備中に隠れ側が全員切断しても、集合が0人になった時点で鬼の勝利。
+/// 準備中に隠れ側が全員切断しても鬼の勝利。答え合わせを挟む。
 pub fn all_hiders_leaving_before_exploration_gives_oni_the_win_test() {
   let g =
     preparation_with_oni_a()
     |> game.leave("b")
     |> game.leave("c")
     |> game.leave("d")
-  g.phase |> should.equal(Ended(OniWins))
+  g.phase |> should.equal(Reveal(OniWins))
 }
 
-/// 探索の時間切れで1人以上残っていれば、隠れ側の勝利。
-pub fn exploration_timeout_with_hiders_left_gives_hiders_the_win_test() {
-  let g =
-    exploration_with_oni_a()
-    |> game.found("b")
-    |> expire(always(0))
-  g.phase |> should.equal(Ended(HidersWin))
-}
-
-/// 鬼が猶予を過ぎて離脱（Leave が届く）すれば、即座に隠れ側の勝利。
+/// 鬼が猶予を過ぎて離脱すれば、即座に隠れ側の勝利（答え合わせを挟む）。
 pub fn oni_leaving_gives_hiders_the_win_immediately_test() {
   preparation_with_oni_a()
   |> game.leave("a")
   |> fn(g: Game(String)) { g.phase }
-  |> should.equal(Ended(HidersWin))
+  |> should.equal(Reveal(HidersWin))
 
   exploration_with_oni_a()
   |> game.leave("a")
   |> fn(g: Game(String)) { g.phase }
-  |> should.equal(Ended(HidersWin))
+  |> should.equal(Reveal(HidersWin))
 }
 
 /// 発見は探索フェーズ中だけ有効（準備中の「発見」は無視する）。
@@ -258,12 +372,27 @@ pub fn leaving_during_selection_just_removes_player_test() {
   g.players |> should.equal(["a", "c", "d"])
 }
 
+/// 答え合わせの間は、勝敗が変わらず、移動・発見・離脱を受け付けない。
+pub fn reveal_keeps_the_outcome_test() {
+  let g = exploration_with_oni_a() |> expire(always(0))
+  g.phase |> should.equal(Reveal(HidersWin))
+  g |> game.move("a", 1.0, 1.0) |> should.equal(g)
+  g |> game.found("b") |> should.equal(g)
+  g |> game.leave("b") |> should.equal(g)
+  g |> game.leave("a") |> should.equal(g)
+}
+
 /// 終了後は何を受けても変わらない。
 pub fn ended_game_ignores_everything_test() {
-  let g = exploration_with_oni_a() |> game.leave("a")
+  let g =
+    exploration_with_oni_a()
+    |> game.leave("a")
+    |> expire(always(0))
+  g.phase |> should.equal(Ended(HidersWin))
   g |> game.move("b", 1.0, 1.0) |> should.equal(g)
   g |> game.found("b") |> should.equal(g)
   g |> game.leave("b") |> should.equal(g)
+  g |> game.join("e") |> should.equal(g)
   g |> expire(always(0)) |> should.equal(g)
   game.phase_duration(g) |> should.equal(None)
 }
@@ -287,7 +416,7 @@ pub fn overlapping_hiders_are_disqualified_when_preparation_ends_test() {
   g.still_hiding |> should.equal(set.from_list(["d"]))
 }
 
-/// 3人以上がほぼ同じ座標にいれば全員失格。全員いなくなれば鬼の勝ち。
+/// 3人以上がほぼ同じ座標にいれば全員失格。全員いなくなれば鬼の勝ち（答え合わせへ）。
 pub fn three_hiders_on_the_same_spot_are_all_disqualified_test() {
   let g =
     preparation_with_oni_a()
@@ -296,7 +425,7 @@ pub fn three_hiders_on_the_same_spot_are_all_disqualified_test() {
     |> game.move("d", 2.0, 1.95)
     |> expire(always(0))
   g.still_hiding |> should.equal(set.new())
-  g.phase |> should.equal(Ended(OniWins))
+  g.phase |> should.equal(Reveal(OniWins))
 }
 
 /// 失格は発見・切断と同じ処理を通る。重なった人が切断してから進んだ場合と同じ状態になる。
@@ -317,7 +446,7 @@ pub fn disqualification_uses_the_same_path_as_leaving_test() {
   by_overlap.phase |> should.equal(by_leaving.phase)
 }
 
-/// 被り判定は準備移動の終わりだけ。ペイント中に重なっても失格にしない。
+/// 被り判定は準備移動の終わりだけ。ペイント中に重なろうとしても動けず、失格にもならない。
 pub fn overlap_is_checked_only_at_the_end_of_preparation_test() {
   let g =
     preparation_with_oni_a()
@@ -327,4 +456,23 @@ pub fn overlap_is_checked_only_at_the_end_of_preparation_test() {
     |> expire(always(0))
   g.phase |> should.equal(Exploration)
   g.still_hiding |> should.equal(set.from_list(["b", "c", "d"]))
+}
+
+/// ペイント中の移動禁止は、被り判定に使った座標をそのまま保つ（判定の前提が崩れない）。
+pub fn positions_judged_for_overlap_stay_fixed_through_painting_test() {
+  let prepared =
+    preparation_with_oni_a()
+    |> game.move("b", 1.0, 1.0)
+    |> game.move("c", 3.0, 3.0)
+    |> game.move("d", -3.0, 3.0)
+  let painting = expire(prepared, always(0))
+  let after_attempts =
+    painting
+    |> game.move("b", 3.0, 3.0)
+    |> game.move("c", -3.0, 3.0)
+    |> game.move("d", 1.0, 1.0)
+  list.each(["b", "c", "d"], fn(id) {
+    position(after_attempts, id) |> should.equal(position(prepared, id))
+  })
+  after_attempts.still_hiding |> should.equal(set.from_list(["b", "c", "d"]))
 }

@@ -22,6 +22,8 @@ pub opaque type Driver(id) {
     on_event: fn(id, Dynamic) -> #(Driver(id), List(Effect(id))),
     on_leave: fn(id) -> #(Driver(id), List(Effect(id))),
     on_wake: fn(Int) -> #(Driver(id), List(Effect(id))),
+    on_join: fn(id) -> #(Driver(id), List(Effect(id))),
+    accepts: fn() -> Bool,
     over: fn() -> Bool,
   )
 }
@@ -31,9 +33,18 @@ pub fn new(
   on_event on_event: fn(id, Dynamic) -> #(Driver(id), List(Effect(id))),
   on_leave on_leave: fn(id) -> #(Driver(id), List(Effect(id))),
   on_wake on_wake: fn(Int) -> #(Driver(id), List(Effect(id))),
+  on_join on_join: fn(id) -> #(Driver(id), List(Effect(id))),
+  accepts_join accepts_join: fn() -> Bool,
   is_over is_over: fn() -> Bool,
 ) -> Driver(id) {
-  Driver(on_event:, on_leave:, on_wake:, over: is_over)
+  Driver(
+    on_event:,
+    on_leave:,
+    on_wake:,
+    on_join:,
+    accepts: accepts_join,
+    over: is_over,
+  )
 }
 
 /// プレイヤーからのゲーム内イベント。
@@ -56,6 +67,16 @@ pub fn leave(
 /// WakeAfter で頼んだタイマーの満了。
 pub fn wake(driver: Driver(id), token: Int) -> #(Driver(id), List(Effect(id))) {
   driver.on_wake(token)
+}
+
+/// 進行中の入室。accepts_join が True のときだけルームが呼ぶ。
+pub fn join(driver: Driver(id), player: id) -> #(Driver(id), List(Effect(id))) {
+  driver.on_join(player)
+}
+
+/// 進行中に入室を受け付けるか（veryare は鬼選出中だけ）。
+pub fn accepts_join(driver: Driver(id)) -> Bool {
+  driver.accepts()
 }
 
 /// ゲームが終わったか。

@@ -8,6 +8,8 @@
  * シーンの中で、その空間のグループだけを表示する。入力は game-sdk の VirtualPad を
  * 名前付きで2本使う（"move" で移動、"look" で視点 / ADR 0020）。
  * 鬼の待機中ペイントはアバターの色を変えるだけのローカル状態で、送らず保存もしない。
+ * 鬼選出中は、鬼希望エリアの色（赤・待機 / 緑・開始 / 青・鬼希望）を通知のとおりに出す。
+ * 探索の後は答え合わせタイム（20秒）を挟んで終了する（襖や位置の公開の演出は issue-29）。
  */
 
 import { VirtualPad, useRealtimeGame, useVirtualPad } from "@rondo/game-sdk";
@@ -19,9 +21,9 @@ import {
 	type PhaseNotice,
 	type Point,
 	type Role,
+	areaLook,
 	canMove,
 	canPaintWhileWaiting,
-	halfWidthOf,
 	moveReport,
 	parsePhaseNotice,
 	parseRoomInfo,
@@ -55,6 +57,7 @@ const PHASE_LABELS: Record<Phase, string> = {
 	preparation: "準備移動",
 	painting: "ペイント",
 	exploration: "探索",
+	reveal: "答え合わせ",
 	ended: "終了",
 };
 
@@ -129,8 +132,18 @@ export default function Veryare() {
 				);
 
 	// 描画ループが最新の値を読むための参照。
-	const latest = useRef({ move, look, movable, space, avatarColor, send });
-	latest.current = { move, look, movable, space, avatarColor, send };
+	// 鬼希望エリアは鬼選出中だけ見せる。
+	const area = phase === "oni-selection" ? (notice?.area ?? null) : null;
+	const latest = useRef({
+		move,
+		look,
+		movable,
+		space,
+		avatarColor,
+		area,
+		send,
+	});
+	latest.current = { move, look, movable, space, avatarColor, area, send };
 
 	const canvasRef = useRef<HTMLCanvasElement | null>(null);
 	const fadeRef = useRef<HTMLDivElement | null>(null);
@@ -174,7 +187,7 @@ export default function Veryare() {
 						yaw,
 						WALK_SPEED,
 						dt,
-						halfWidthOf(current.space),
+						current.space,
 					);
 					// 位置はクライアントが報告し、サーバーが制限する（動いたときだけ間引いて送る）。
 					const position = positionRef.current;
@@ -190,6 +203,7 @@ export default function Veryare() {
 				}
 
 				scene.setSpace(current.space);
+				scene.setArea(current.area);
 				scene.setAvatar(positionRef.current, current.avatarColor);
 				scene.setCamera(yaw, pitch);
 				scene.render();
@@ -239,10 +253,32 @@ export default function Veryare() {
 				{ROLE_LABELS[role]}
 				{space === "waiting-room" ? "（待機ルーム）" : "（ステージ）"}
 				{phase === "oni-selection" ? " ・鬼になりたい人は中央の円へ" : ""}
-				{phase === "exploration" && role === "hider"
-					? " ・探索中は動けません"
+				{(phase === "painting" || phase === "exploration") && role === "hider"
+					? " ・その場から動けません"
 					: ""}
 			</p>
+			{area !== null ? (
+				<p className="text-sm">
+					<span
+						className={`mr-2 inline-block size-3 rounded-full align-middle ${
+							{
+								red: "bg-red-500",
+								green: "bg-green-500",
+								blue: "bg-blue-500",
+							}[areaLook(area).color]
+						}`}
+						aria-hidden="true"
+					/>
+					<span className="font-semibold text-fg">{areaLook(area).label}</span>
+					<span className="text-fg-muted">
+						{area === "waiting"
+							? " ・あと1人そろうと始められます"
+							: area === "ready"
+								? " ・中央の円に触れると10秒のカウントが始まります"
+								: " ・今触れると鬼の立候補になります"}
+					</span>
+				</p>
+			) : null}
 
 			<div className="relative aspect-[3/4] w-full overflow-hidden rounded-2xl">
 				<canvas ref={canvasRef} className="block size-full" />
@@ -251,7 +287,15 @@ export default function Veryare() {
 					aria-hidden="true"
 					className="pointer-events-none absolute inset-0 bg-ink opacity-0"
 				/>
-				{notice?.outcome != null ? (
+				{notice?.outcome != null && phase === "reveal" ? (
+					// 答え合わせの間は景色を見せるため、勝敗は上の帯にだけ出す。
+					<div className="absolute inset-x-0 top-0 bg-ink/70 px-4 py-2 text-center">
+						<p className="font-semibold text-fg">
+							答え合わせ ・{outcomeText(notice.outcome, role)}
+						</p>
+					</div>
+				) : null}
+				{notice?.outcome != null && phase === "ended" ? (
 					<div className="absolute inset-0 flex items-center justify-center bg-ink/70 p-6 text-center">
 						<p className="font-semibold text-fg text-xl">
 							{outcomeText(notice.outcome, role)}

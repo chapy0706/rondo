@@ -3,10 +3,11 @@ import {
 	ONI_AREA_RADIUS,
 	type Phase,
 	STAGE_HALF,
-	WAITING_ROOM_HALF,
+	WAITING_ROOM_RADIUS,
+	areaLook,
 	canMove,
 	canPaintWhileWaiting,
-	halfWidthOf,
+	clampToSpace,
 	parsePhaseNotice,
 	parseRoomInfo,
 	roleOf,
@@ -20,53 +21,83 @@ const phases: readonly Phase[] = [
 	"preparation",
 	"painting",
 	"exploration",
+	"reveal",
 	"ended",
 ];
+
+const notice = {
+	type: "phase",
+	phase: "painting",
+	durationMs: 1,
+	oni: null,
+	outcome: null,
+	area: null,
+};
 
 describe("parsePhaseNotice - サーバー（room.gleam）のフェーズ通知を検証して読む", () => {
 	it("正しい通知を読む", () => {
 		expect(
 			parsePhaseNotice({
-				type: "phase",
+				...notice,
 				phase: "preparation",
 				durationMs: 20000,
 				oni: "p1",
-				outcome: null,
 			}),
 		).toEqual({
 			phase: "preparation",
 			durationMs: 20000,
 			oni: "p1",
 			outcome: null,
+			area: null,
 		});
 	});
 
-	it("終了の通知は勝敗を持つ", () => {
+	it("鬼選出中はエリアの色（waiting / ready / counting）を持つ", () => {
+		for (const area of ["waiting", "ready", "counting"] as const) {
+			expect(
+				parsePhaseNotice({
+					...notice,
+					phase: "oni-selection",
+					durationMs: null,
+					area,
+				})?.area,
+			).toBe(area);
+		}
+	});
+
+	it("答え合わせと終了の通知は勝敗を持つ", () => {
 		expect(
 			parsePhaseNotice({
-				type: "phase",
+				...notice,
+				phase: "reveal",
+				durationMs: 20000,
+				oni: "p1",
+				outcome: "hiders-win",
+			}),
+		).toMatchObject({ phase: "reveal", outcome: "hiders-win" });
+		expect(
+			parsePhaseNotice({
+				...notice,
 				phase: "ended",
 				durationMs: null,
-				oni: "p1",
 				outcome: "oni-wins",
 			})?.outcome,
 		).toBe("oni-wins");
 	});
 
 	it("知らないフェーズ・形の違う値は捨てる", () => {
-		const base = {
-			type: "phase",
-			phase: "painting",
-			durationMs: 1,
-			oni: null,
-			outcome: null,
-		};
-		expect(parsePhaseNotice({ ...base, phase: "dance" })).toBeNull();
-		expect(parsePhaseNotice({ ...base, durationMs: "1" })).toBeNull();
-		expect(parsePhaseNotice({ ...base, oni: 1 })).toBeNull();
-		expect(parsePhaseNotice({ ...base, outcome: "draw" })).toBeNull();
-		expect(parsePhaseNotice({ ...base, type: "room-info" })).toBeNull();
+		expect(parsePhaseNotice({ ...notice, phase: "dance" })).toBeNull();
+		expect(parsePhaseNotice({ ...notice, durationMs: "1" })).toBeNull();
+		expect(parsePhaseNotice({ ...notice, oni: 1 })).toBeNull();
+		expect(parsePhaseNotice({ ...notice, outcome: "draw" })).toBeNull();
+		expect(parsePhaseNotice({ ...notice, area: "purple" })).toBeNull();
+		expect(parsePhaseNotice({ ...notice, type: "room-info" })).toBeNull();
 		expect(parsePhaseNotice(null)).toBeNull();
+	});
+
+	it("area が無い古い形の通知は、エリアなしとして読む", () => {
+		const { area: _area, ...old } = notice;
+		expect(parsePhaseNotice(old)?.area).toBeNull();
 	});
 });
 
@@ -82,6 +113,14 @@ describe("parseRoomInfo - 入室後の案内（探索時間）", () => {
 			parseRoomInfo({ type: "room-info", explorationSeconds: "60" }),
 		).toBeNull();
 		expect(parseRoomInfo({ type: "phase" })).toBeNull();
+	});
+});
+
+describe("areaLook - 鬼希望エリアの見た目（ADR 0024）", () => {
+	it("赤・待機 / 緑・開始 / 青・鬼希望", () => {
+		expect(areaLook("waiting")).toEqual({ color: "red", label: "待機" });
+		expect(areaLook("ready")).toEqual({ color: "green", label: "開始" });
+		expect(areaLook("counting")).toEqual({ color: "blue", label: "鬼希望" });
 	});
 });
 
@@ -106,9 +145,11 @@ describe("spaceOf - 自分がいる空間（ADR 0024）", () => {
 		}
 	});
 
-	it("探索開始で鬼もステージへ移る", () => {
-		expect(spaceOf("exploration", "oni")).toBe("stage");
-		expect(spaceOf("exploration", "hider")).toBe("stage");
+	it("探索開始で鬼もステージへ移り、答え合わせ・終了もステージ", () => {
+		for (const phase of ["exploration", "reveal", "ended"] as const) {
+			expect(spaceOf(phase, "oni")).toBe("stage");
+			expect(spaceOf(phase, "hider")).toBe("stage");
+		}
 	});
 
 	it("鬼が決まらないまま終わったら待機ルームのまま", () => {
@@ -117,18 +158,22 @@ describe("spaceOf - 自分がいる空間（ADR 0024）", () => {
 });
 
 describe("canMove - 移動入力を受け付けるか", () => {
-	it("探索フェーズ中、隠れ側は動けない（クライアント側でも無視する）", () => {
-		expect(canMove("exploration", "hider")).toBe(false);
-		expect(canMove("exploration", "oni")).toBe(true);
+	it("準備移動の後（ペイント・探索）、隠れ側は動けない（クライアント側でも無視する）", () => {
+		for (const phase of ["painting", "exploration"] as const) {
+			expect(canMove(phase, "hider")).toBe(false);
+			expect(canMove(phase, "oni")).toBe(true);
+		}
 	});
 
-	it("終了後は誰も動けない", () => {
-		expect(canMove("ended", "oni")).toBe(false);
-		expect(canMove("ended", "hider")).toBe(false);
+	it("答え合わせ・終了後は誰も動けない", () => {
+		for (const phase of ["reveal", "ended"] as const) {
+			expect(canMove(phase, "oni")).toBe(false);
+			expect(canMove(phase, "hider")).toBe(false);
+		}
 	});
 
-	it("それ以外のフェーズでは動ける", () => {
-		for (const phase of ["oni-selection", "preparation", "painting"] as const) {
+	it("鬼選出・準備移動では動ける", () => {
+		for (const phase of ["oni-selection", "preparation"] as const) {
 			expect(canMove(phase, "hider")).toBe(true);
 			expect(canMove(phase, "oni")).toBe(true);
 		}
@@ -146,10 +191,42 @@ describe("canPaintWhileWaiting - 鬼の待機中ペイント", () => {
 	});
 });
 
+describe("clampToSpace - 空間の範囲（待機ルームは円柱形）", () => {
+	it("待機ルームは半径2mの円。外に出ると円の縁へ寄せる", () => {
+		expect(WAITING_ROOM_RADIUS).toBe(2);
+		const p = clampToSpace("waiting-room", { x: 6, z: 0 });
+		expect(p.x).toBeCloseTo(2);
+		expect(p.z).toBeCloseTo(0);
+		const q = clampToSpace("waiting-room", { x: 3, z: 3 });
+		expect(Math.hypot(q.x, q.z)).toBeCloseTo(2);
+	});
+
+	it("円の内側ならそのまま", () => {
+		expect(clampToSpace("waiting-room", { x: 1, z: -1 })).toEqual({
+			x: 1,
+			z: -1,
+		});
+	});
+
+	it("ステージは仮の四角（issue-29 まで）", () => {
+		expect(clampToSpace("stage", { x: 9, z: -9 })).toEqual({
+			x: STAGE_HALF,
+			z: -STAGE_HALF,
+		});
+	});
+});
+
 describe("stepPosition - 移動の計算", () => {
 	it("パッドの上（y < 0）でカメラの向いている方へ進む", () => {
 		// yaw 0 のカメラは -z 方向を向く。
-		const next = stepPosition({ x: 0, z: 0 }, { x: 0, y: -1 }, 0, 2, 0.5, 5);
+		const next = stepPosition(
+			{ x: 0, z: 0 },
+			{ x: 0, y: -1 },
+			0,
+			2,
+			0.5,
+			"stage",
+		);
 		expect(next.x).toBeCloseTo(0);
 		expect(next.z).toBeCloseTo(-1);
 	});
@@ -161,37 +238,29 @@ describe("stepPosition - 移動の計算", () => {
 			-Math.PI / 2,
 			2,
 			0.5,
-			5,
+			"stage",
 		);
 		expect(next.x).toBeCloseTo(1);
 		expect(next.z).toBeCloseTo(0);
 	});
 
-	it("空間の範囲の外へは出ない", () => {
-		expect(
-			stepPosition(
-				{ x: 1.7, z: 0 },
-				{ x: 1, y: 0 },
-				0,
-				10,
-				1,
-				WAITING_ROOM_HALF,
-			),
-		).toEqual({ x: WAITING_ROOM_HALF, z: 0 });
+	it("待機ルームの円の外へは出ない", () => {
+		const next = stepPosition(
+			{ x: 1.9, z: 0 },
+			{ x: 1, y: 0 },
+			0,
+			10,
+			1,
+			"waiting-room",
+		);
+		expect(Math.hypot(next.x, next.z)).toBeCloseTo(WAITING_ROOM_RADIUS);
 	});
 });
 
-describe("空間の大きさと初期位置", () => {
-	it("待機ルームは約3.6m四方、ステージは仮に10m四方", () => {
-		expect(halfWidthOf("waiting-room")).toBe(WAITING_ROOM_HALF);
-		expect(halfWidthOf("stage")).toBe(STAGE_HALF);
-		expect(WAITING_ROOM_HALF * 2).toBeCloseTo(3.6);
-	});
-
-	it("待機ルームの初期位置は鬼希望エリアの外（入らなければ立候補にならない）", () => {
+describe("初期位置", () => {
+	it("待機ルームの初期位置は鬼希望エリアの外で、円の内側（入らなければ立候補にならない）", () => {
 		const { x, z } = spawnOf("waiting-room");
 		expect(Math.hypot(x, z)).toBeGreaterThan(ONI_AREA_RADIUS);
-		expect(Math.abs(x)).toBeLessThanOrEqual(WAITING_ROOM_HALF);
-		expect(Math.abs(z)).toBeLessThanOrEqual(WAITING_ROOM_HALF);
+		expect(Math.hypot(x, z)).toBeLessThan(WAITING_ROOM_RADIUS);
 	});
 });

@@ -10,8 +10,9 @@ import gleam/int
 import gleam/list
 import gleam/option.{type Option, None, Some}
 import rondo_server/games/veryare/game.{
-  type Game, type Outcome, type Phase, Ended, Exploration, HidersWin,
-  NotEnoughPlayers, OniSelection, OniWins, Painting, Preparation,
+  type AreaState, type Game, type Outcome, type Phase, AreaCounting, AreaReady,
+  AreaWaiting, Ended, Exploration, HidersWin, NotEnoughPlayers, OniSelection,
+  OniWins, Painting, Preparation, Reveal,
 }
 import rondo_server/games/veryare/stage
 import rondo_server/room/driver.{type Driver, type Effect}
@@ -122,6 +123,8 @@ fn wrap(state: Game(PlayerId), pick: fn(Int) -> Int) -> Driver(PlayerId) {
     },
     on_leave: fn(player) { step(state, game.leave(state, player), pick) },
     on_wake: fn(token) { step(state, game.advance(state, token, pick), pick) },
+    on_join: fn(player) { step(state, game.join(state, player), pick) },
+    accepts_join: fn() { game.accepts_join(state) },
     is_over: fn() {
       case state.phase {
         Ended(_) -> True
@@ -131,17 +134,49 @@ fn wrap(state: Game(PlayerId), pick: fn(Int) -> Int) -> Driver(PlayerId) {
   )
 }
 
-/// フェーズが変わったときだけ、全員へ通知し、次のタイマーを張る。
+/// 通知の中身（フェーズ・鬼・エリアの色）が変わったときだけ全員へ通知する。
+/// タイマーは step が進んだとき（フェーズの切り替えと、鬼選出のカウント開始）だけ張る。
 fn step(
   before: Game(PlayerId),
   after: Game(PlayerId),
   pick: fn(Int) -> Int,
 ) -> #(Driver(PlayerId), List(Effect(PlayerId))) {
   let effects = case after.step == before.step {
-    True -> []
     False -> phase_effects(after)
+    True ->
+      case notice_of(after) == notice_of(before) {
+        True -> []
+        False -> [driver.Broadcast(phase_payload(after))]
+      }
   }
   #(wrap(after, pick), effects)
+}
+
+/// 全員へ知らせる中身。これが変わったときだけ通知する（隠れ側の位置は含めない）。
+type Notice {
+  Notice(
+    phase: Phase,
+    step: Int,
+    oni: Option(PlayerId),
+    area: Option(AreaState),
+  )
+}
+
+fn notice_of(state: Game(PlayerId)) -> Notice {
+  Notice(
+    phase: state.phase,
+    step: state.step,
+    oni: state.oni,
+    area: area_of(state),
+  )
+}
+
+/// 鬼希望エリアの色。鬼選出中だけ意味を持つ。
+fn area_of(state: Game(PlayerId)) -> Option(AreaState) {
+  case state.phase {
+    OniSelection -> Some(game.area_state(state))
+    _ -> None
+  }
 }
 
 fn phase_effects(state: Game(PlayerId)) -> List(Effect(PlayerId)) {
@@ -181,6 +216,7 @@ fn room_info(settings: Settings) -> Dynamic {
 }
 
 /// フェーズの通知。全員に同じ内容を送るため、隠れ側の位置は載せない。
+/// area は鬼希望エリアの色（waiting 赤 / ready 緑 / counting 青）で、鬼選出中だけ載せる。
 fn phase_payload(state: Game(PlayerId)) -> Dynamic {
   let oni = case state.oni {
     Some(PlayerId(id)) -> dynamic.string(id)
@@ -191,13 +227,20 @@ fn phase_payload(state: Game(PlayerId)) -> Dynamic {
     None -> dynamic.nil()
   }
   let outcome = case state.phase {
-    Ended(result) -> dynamic.string(outcome_name(result))
+    Reveal(result) | Ended(result) -> dynamic.string(outcome_name(result))
     _ -> dynamic.nil()
+  }
+  let area = case area_of(state) {
+    Some(AreaWaiting) -> dynamic.string("waiting")
+    Some(AreaReady) -> dynamic.string("ready")
+    Some(AreaCounting) -> dynamic.string("counting")
+    None -> dynamic.nil()
   }
   dynamic.properties([
     #(dynamic.string("type"), dynamic.string("phase")),
     #(dynamic.string("phase"), dynamic.string(phase_name(state.phase))),
     #(dynamic.string("durationMs"), duration),
+    #(dynamic.string("area"), area),
     #(dynamic.string("oni"), oni),
     #(dynamic.string("outcome"), outcome),
   ])
@@ -209,6 +252,7 @@ fn phase_name(phase: Phase) -> String {
     Preparation -> "preparation"
     Painting -> "painting"
     Exploration -> "exploration"
+    Reveal(_) -> "reveal"
     Ended(_) -> "ended"
   }
 }

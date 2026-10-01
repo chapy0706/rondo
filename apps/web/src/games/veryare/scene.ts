@@ -2,18 +2,20 @@
  * veryare の 3D シーン（three.js）。
  *
  * 1つのシーンの中に、待機ルームとステージを別々のグループとして持ち、自分がいる空間の
- * グループだけを表示する（ADR 0024）。待機ルームは約3.6m四方の簡素な部屋で、中央に
- * 鬼希望エリアの円を置く。ステージは issue-29 で作り込むまでの仮の床と箱である。
+ * グループだけを表示する（ADR 0024）。待機ルームは半径2mの円柱形の部屋で、中央に
+ * 同心円の鬼希望エリアを置く。エリアの色は赤（待機）/ 緑（開始）/ 青（鬼希望）。ステージは issue-29 で作り込むまでの仮の床と箱である。
  * 判定は持たない。何を表示するかは rules.ts とサーバーの通知が決める。
  */
 
 import * as THREE from "three";
 import {
+	type AreaState,
 	ONI_AREA_RADIUS,
 	type Point,
 	STAGE_HALF,
 	type Space,
-	WAITING_ROOM_HALF,
+	WAITING_ROOM_RADIUS,
+	areaLook,
 } from "./rules";
 
 /** テーマの色（globals.css のトークンと揃える）。 */
@@ -23,6 +25,13 @@ const COLORS = {
 	line: 0x2e2a45,
 	accent: 0xf5b841,
 	sub: 0x5fd3c4,
+} as const;
+
+/** 鬼希望エリアの色（ADR 0024）。 */
+const AREA_COLORS = {
+	red: 0xef4444,
+	green: 0x22c55e,
+	blue: 0x3b82f6,
 } as const;
 
 const WALL_HEIGHT = 1.2;
@@ -35,6 +44,8 @@ const CAMERA_DISTANCE = 2.6;
 export interface VeryareScene {
 	/** 表示する空間を切り替える。もう一方のグループは描かない。 */
 	setSpace(space: Space): void;
+	/** 鬼希望エリアの状態（鬼選出中だけ。null ならエリアを隠す）。 */
+	setArea(area: AreaState | null): void;
 	/** 自分のアバターの位置と色。 */
 	setAvatar(position: Point, color: string): void;
 	/** 三人称カメラの向き（yaw: Y 軸まわり、pitch: 見下ろす角度）。 */
@@ -72,30 +83,66 @@ function walls(half: number, color: number): THREE.Group {
 	return group;
 }
 
-function waitingRoom(): THREE.Group {
-	const group = new THREE.Group();
-	group.add(floor(WAITING_ROOM_HALF * 2, COLORS.line));
-	group.add(walls(WAITING_ROOM_HALF, COLORS.surface));
+interface WaitingRoom {
+	readonly group: THREE.Group;
+	/** 鬼希望エリア（円と縁）。色を状態に合わせて変える。 */
+	readonly area: THREE.Group;
+	readonly areaFill: THREE.MeshBasicMaterial;
+	readonly areaRim: THREE.MeshBasicMaterial;
+}
 
-	// 鬼希望エリア（単一の円）。床の少し上に置いてちらつきを避ける。
-	const area = new THREE.Mesh(
-		new THREE.CircleGeometry(ONI_AREA_RADIUS, 48),
-		new THREE.MeshBasicMaterial({
-			color: COLORS.accent,
-			transparent: true,
-			opacity: 0.18,
+/** 円柱形の待機ルーム。円い床と、内側から見える円筒の壁。 */
+function waitingRoom(): WaitingRoom {
+	const group = new THREE.Group();
+
+	const floorDisc = new THREE.Mesh(
+		new THREE.CircleGeometry(WAITING_ROOM_RADIUS, 64),
+		new THREE.MeshStandardMaterial({ color: COLORS.line }),
+	);
+	floorDisc.rotation.x = -Math.PI / 2;
+	group.add(floorDisc);
+
+	const wall = new THREE.Mesh(
+		new THREE.CylinderGeometry(
+			WAITING_ROOM_RADIUS,
+			WAITING_ROOM_RADIUS,
+			WALL_HEIGHT,
+			64,
+			1,
+			true,
+		),
+		new THREE.MeshStandardMaterial({
+			color: COLORS.surface,
+			side: THREE.BackSide,
 		}),
 	);
-	area.rotation.x = -Math.PI / 2;
-	area.position.y = 0.005;
+	wall.position.y = WALL_HEIGHT / 2;
+	group.add(wall);
+
+	// 鬼希望エリア（同心円）。床の少し上に置いてちらつきを避ける。
+	const area = new THREE.Group();
+	const areaFill = new THREE.MeshBasicMaterial({
+		color: AREA_COLORS.green,
+		transparent: true,
+		opacity: 0.25,
+	});
+	const fill = new THREE.Mesh(
+		new THREE.CircleGeometry(ONI_AREA_RADIUS, 48),
+		areaFill,
+	);
+	fill.rotation.x = -Math.PI / 2;
+	fill.position.y = 0.005;
+	const areaRim = new THREE.MeshBasicMaterial({ color: AREA_COLORS.green });
 	const rim = new THREE.Mesh(
-		new THREE.RingGeometry(ONI_AREA_RADIUS - 0.04, ONI_AREA_RADIUS, 48),
-		new THREE.MeshBasicMaterial({ color: COLORS.accent }),
+		new THREE.RingGeometry(ONI_AREA_RADIUS - 0.05, ONI_AREA_RADIUS, 48),
+		areaRim,
 	);
 	rim.rotation.x = -Math.PI / 2;
 	rim.position.y = 0.006;
-	group.add(area, rim);
-	return group;
+	area.add(fill, rim);
+	group.add(area);
+
+	return { group, area, areaFill, areaRim };
 }
 
 function stage(): THREE.Group {
@@ -136,8 +183,9 @@ export function createScene(canvas: HTMLCanvasElement): VeryareScene {
 	sun.position.set(3, 6, 2);
 	scene.add(sun);
 
+	const room = waitingRoom();
 	const spaces: Record<Space, THREE.Group> = {
-		"waiting-room": waitingRoom(),
+		"waiting-room": room.group,
 		stage: stage(),
 	};
 	scene.add(spaces["waiting-room"], spaces.stage);
@@ -174,6 +222,13 @@ export function createScene(canvas: HTMLCanvasElement): VeryareScene {
 		setSpace(space) {
 			spaces["waiting-room"].visible = space === "waiting-room";
 			spaces.stage.visible = space === "stage";
+		},
+		setArea(area) {
+			room.area.visible = area !== null;
+			if (area === null) return;
+			const color = AREA_COLORS[areaLook(area).color];
+			room.areaFill.color.setHex(color);
+			room.areaRim.color.setHex(color);
 		},
 		setAvatar(position, color) {
 			avatar.position.x = position.x;

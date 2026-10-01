@@ -30,6 +30,11 @@ fn echo_driver(over: Bool) -> Driver(PlayerId) {
     on_leave: fn(_player) {
       #(echo_driver(True), [driver.Broadcast(text("left"))])
     },
+    on_join: fn(_player) {
+      #(echo_driver(over), [driver.Broadcast(text("joined"))])
+    },
+    // 終わるまでは入室を受け付ける。
+    accepts_join: fn() { !over },
     on_wake: fn(token) {
       case token {
         7 -> #(echo_driver(over), [driver.Broadcast(text("woke"))])
@@ -173,4 +178,47 @@ pub fn host_leaving_keeps_room_usable_test() {
   let assert Ok(Nil) = room_actor.join(room, Player(PlayerId("c"), "c"))
   room_actor.start_game(room) |> should.equal(Ok(Nil))
   room_actor.snapshot(room).status |> should.equal(Playing)
+}
+
+/// 差し込み口を持つゲームは、最小人数に満たなくても開始できる（人数の扱いはゲームに委ねる）。
+pub fn driver_game_can_start_below_minimum_test() {
+  let #(room, _) = open_room(2, ["a"])
+  room_actor.start_game(room) |> should.equal(Ok(Nil))
+  room_actor.snapshot(room).status |> should.equal(Playing)
+}
+
+/// ゲームが受け付ける間は、進行中でも入室でき、ゲームに伝わる。
+pub fn driver_game_accepts_join_while_playing_test() {
+  let #(room, _) = open_room(2, ["a", "b"])
+  let a = subscribe(room, "a")
+  let assert Ok(Nil) = room_actor.start_game(room)
+  settle(room)
+  let _ = process.receive(a, 0)
+
+  room_actor.join(room, Player(PlayerId("c"), "c")) |> should.equal(Ok(Nil))
+  settle(room)
+  // タイマーの通知（woke）と前後してもよいので、届いた中に joined があることを確かめる。
+  received_within(a, 200, broadcast("joined")) |> should.be_true
+  room_actor.snapshot(room).players |> list.length |> should.equal(3)
+}
+
+fn received_within(
+  outbox: Subject(ServerMessage),
+  timeout: Int,
+  expected: ServerMessage,
+) -> Bool {
+  case process.receive(outbox, timeout) {
+    Ok(message) if message == expected -> True
+    Ok(_) -> received_within(outbox, timeout, expected)
+    Error(Nil) -> False
+  }
+}
+
+/// ゲームが受け付けなくなったら（終了後）、入室は断られる。
+pub fn driver_game_rejects_join_when_game_refuses_test() {
+  let #(room, _) = open_room(2, ["a", "b"])
+  let assert Ok(Nil) = room_actor.start_game(room)
+  room_actor.game_event(room, PlayerId("a"), text("end"))
+  room_actor.join(room, Player(PlayerId("c"), "c"))
+  |> should.equal(Error(room_actor.GameAlreadyStarted))
 }

@@ -26,28 +26,51 @@ describe("veryareScript - 時間で進む簡易な台本", () => {
 		});
 	});
 
-	it("鬼選出 → 準備 → ペイント → 探索 → 終了 を、決まった時刻に通知する", () => {
+	it("鬼選出（赤 → 緑 → 青）→ 準備 → ペイント → 探索 → 答え合わせ → 終了 を、決まった時刻に通知する", () => {
 		const phases = script(true)
 			.slice(1)
-			.map(({ afterMs, message }) => [afterMs, payloadOf(message).phase]);
+			.map(({ afterMs, message }) => {
+				const payload = payloadOf(message);
+				return [afterMs, payload.phase, payload.area];
+			});
 		expect(phases).toEqual([
-			[0, "oni-selection"],
-			[10_000, "preparation"],
-			[30_000, "painting"],
-			[50_000, "exploration"],
-			[110_000, "ended"],
+			[0, "oni-selection", "waiting"],
+			[3_000, "oni-selection", "ready"],
+			[6_000, "oni-selection", "counting"],
+			[16_000, "preparation", null],
+			[36_000, "painting", null],
+			[56_000, "exploration", null],
+			[116_000, "reveal", null],
+			[136_000, "ended", null],
 		]);
+	});
+
+	it("青（カウント中）の通知は10秒の残り時間を持つ", () => {
+		const counting = script(true)
+			.map(({ message }) => payloadOf(message))
+			.find((payload) => payload.area === "counting");
+		expect(counting?.durationMs).toBe(10_000);
 	});
 
 	it("自分が鬼の回と、仮のプレイヤーが鬼の回を作れる", () => {
 		const oniOf = (selfIsOni: boolean) =>
-			payloadOf((script(selfIsOni)[2] as { message: ServerMessage }).message)
-				.oni;
+			script(selfIsOni)
+				.map(({ message }) => payloadOf(message))
+				.find((payload) => payload.phase === "preparation")?.oni;
 		expect(oniOf(true)).toBe("me");
 		expect(oniOf(false)).toBe(MOCK_BOTS[0]?.playerId);
 	});
 
-	it("通知の形はサーバーと同じ（type / phase / durationMs / oni / outcome）", () => {
+	it("通知の形はサーバーと同じ（type / phase / durationMs / oni / outcome / area）", () => {
+		const reveal = script(true).at(-2);
+		expect(payloadOf(reveal?.message as ServerMessage)).toEqual({
+			type: "phase",
+			phase: "reveal",
+			durationMs: 20_000,
+			oni: "me",
+			outcome: "hiders-win",
+			area: null,
+		});
 		const ended = script(true).at(-1);
 		expect(payloadOf(ended?.message as ServerMessage)).toEqual({
 			type: "phase",
@@ -55,6 +78,7 @@ describe("veryareScript - 時間で進む簡易な台本", () => {
 			durationMs: null,
 			oni: "me",
 			outcome: "hiders-win",
+			area: null,
 		});
 	});
 });
@@ -88,7 +112,7 @@ describe("MockWebSocketAdapter - veryare の模擬", () => {
 		vi.useFakeTimers();
 
 		const first = play();
-		vi.advanceTimersByTime(10_100);
+		vi.advanceTimersByTime(16_100);
 		const joined = first.received.find((m) => m.type === "room-joined");
 		if (joined?.type !== "room-joined") throw new Error("not joined");
 		expect(joined.players.map((p) => p.playerId)).toEqual([
@@ -99,7 +123,7 @@ describe("MockWebSocketAdapter - veryare の模擬", () => {
 		first.adapter.close();
 
 		const second = play();
-		vi.advanceTimersByTime(10_100);
+		vi.advanceTimersByTime(16_100);
 		expect(oniAfterSelection(second.received)).toBe(MOCK_BOTS[0]?.playerId);
 		second.adapter.close();
 	});

@@ -97,7 +97,8 @@ pub type RoomState {
 
 /// ルームアクターが受け取るメッセージ。
 pub type Message {
-  /// 参加する。定員・重複・開始済みを判定して可否を返す。
+  /// 参加する。定員・重複・開始済みを判定して可否を返す。差し込み口を持つゲームは、
+  /// ゲームが受け付ける間（veryare の鬼選出中）は進行中でも参加できる。
   Join(player: Player, reply: Subject(Result(Nil, JoinError)))
   /// 離脱を確定する。再接続猶予を過ぎた離脱としてルームが受ける（ADR 0013）。
   Leave(player: PlayerId)
@@ -254,7 +255,28 @@ fn handle_join(
   let already_joined = dict.has_key(state.players, player.id)
   let full = dict.size(state.players) >= state.spec.max_players
 
+  let driver_accepts = case state.status, state.driver {
+    Playing, Some(current) -> driver.accepts_join(current)
+    _, _ -> False
+  }
+
   case state.status, already_joined, full {
+    Playing, False, False if driver_accepts -> {
+      process.send(reply, Ok(Nil))
+      let assert Some(current) = state.driver
+      run_driver(
+        State(..state, players: dict.insert(state.players, player.id, player)),
+        driver.join(current, player.id),
+      )
+    }
+    Playing, True, _ if driver_accepts -> {
+      process.send(reply, Error(AlreadyJoined))
+      actor.continue(state)
+    }
+    Playing, False, True if driver_accepts -> {
+      process.send(reply, Error(RoomFull))
+      actor.continue(state)
+    }
     Open, False, False -> {
       process.send(reply, Ok(Nil))
       let host = case state.host {
@@ -289,7 +311,12 @@ fn handle_start_game(
   state: State,
   reply: Subject(Result(Nil, StartGameError)),
 ) -> actor.Next(State, Message) {
-  case state.status, dict.size(state.players) >= state.spec.min_players {
+  // 差し込み口を持つゲームは人数の扱い（開始・成立の判定）をゲームに委ね、1人から始められる。
+  let enough = case state.spec.driver {
+    Some(_) -> dict.size(state.players) >= 1
+    None -> dict.size(state.players) >= state.spec.min_players
+  }
+  case state.status, enough {
     Open, True -> {
       process.send(reply, Ok(Nil))
       let authority = case state.spec.authority {

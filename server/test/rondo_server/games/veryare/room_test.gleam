@@ -20,6 +20,7 @@ fn quick(exploration_ms: Int) -> game.Durations {
     preparation_ms: 30,
     painting_ms: 30,
     exploration_ms:,
+    reveal_ms: 30,
   )
 }
 
@@ -136,49 +137,91 @@ pub fn room_capacity_is_five_test() {
   state.min_players |> should.equal(2)
 }
 
-// --- フェーズの自動進行（段階 2 / 5） -----------------------------------------
+// --- フェーズの自動進行 ------------------------------------------------------
 
-/// 鬼選出 → 準備移動 → ペイント → 探索 → 終了 が、時間経過だけで順に進む。
+/// エリアに触れるとカウントが始まり、鬼選出 → 準備移動 → ペイント → 探索 →
+/// 答え合わせ → 終了 が、時間経過だけで順に進む。
 pub fn phases_advance_automatically_with_time_test() {
   let #(room, _) = open_room(["a", "b"], quick(30))
   let a = subscribe(room, "a")
   let _info = next_state(a)
 
   let assert Ok(Nil) = room_actor.start_game(room)
-  next_phase(a) |> should.equal("oni-selection")
+  let selection = next_state(a)
+  field(selection, "phase", decode.string) |> should.equal("oni-selection")
+  field(selection, "area", decode.string) |> should.equal("ready")
+
+  // 誰も触れない間はカウントしない。a が触れた瞬間に青（カウント中）になる。
+  room_actor.game_event(room, PlayerId("a"), move(0.0, 0.0))
+  let counting = next_state(a)
+  field(counting, "area", decode.string) |> should.equal("counting")
+  field(counting, "durationMs", decode.int) |> should.equal(30)
+
   next_phase(a) |> should.equal("preparation")
   next_phase(a) |> should.equal("painting")
   next_phase(a) |> should.equal("exploration")
 
-  // 誰も見つからないまま探索が時間切れ -> 隠れ側の勝利。
+  // 誰も見つからないまま探索が時間切れ -> 答え合わせ（隠れ側の勝利）-> 終了。
+  let reveal = next_state(a)
+  field(reveal, "phase", decode.string) |> should.equal("reveal")
+  field(reveal, "outcome", decode.string) |> should.equal("hiders-win")
+  room_actor.snapshot(room).status |> should.equal(room_actor.Playing)
+
   let ended = next_state(a)
   field(ended, "phase", decode.string) |> should.equal("ended")
   field(ended, "outcome", decode.string) |> should.equal("hiders-win")
   room_actor.snapshot(room).status |> should.equal(room_actor.Finished)
 }
 
-// --- 鬼選出（段階 3） --------------------------------------------------------
+// --- 鬼選出 -------------------------------------------------------------------
+
+/// 1人でも始められ、そのときエリアは赤（待機）。鬼選出中に2人目が入ると緑（開始）になる。
+pub fn joining_during_selection_turns_area_from_waiting_to_ready_test() {
+  let #(room, _) = open_room(["a"], quick(1000))
+  let a = subscribe(room, "a")
+  let _info = next_state(a)
+
+  let assert Ok(Nil) = room_actor.start_game(room)
+  field(next_state(a), "area", decode.string) |> should.equal("waiting")
+
+  room_actor.join(room, Player(PlayerId("b"), "b")) |> should.equal(Ok(Nil))
+  field(next_state(a), "area", decode.string) |> should.equal("ready")
+}
+
+/// 鬼選出が終わった後は入室できない。
+pub fn joining_after_selection_is_rejected_test() {
+  let #(room, _) = open_room(["a", "b"], quick(60_000))
+  let a = subscribe(room, "a")
+  let _info = next_state(a)
+  let assert Ok(Nil) = room_actor.start_game(room)
+  let _selection = next_state(a)
+  room_actor.game_event(room, PlayerId("a"), move(0.0, 0.0))
+  let _counting = next_state(a)
+  next_phase(a) |> should.equal("preparation")
+
+  room_actor.join(room, Player(PlayerId("c"), "c"))
+  |> should.equal(Error(room_actor.GameAlreadyStarted))
+}
 
 /// 鬼希望エリアへ移動したプレイヤーが立候補者になり、鬼に選ばれる。
 pub fn player_moving_into_oni_area_becomes_oni_test() {
-  // 移動が鬼選出の満了より先に届くよう、鬼選出だけ長めにする。
-  let durations = game.Durations(..quick(1000), oni_selection_ms: 300)
-  let #(room, _) = open_room(["a", "b", "c"], durations)
+  let #(room, _) = open_room(["a", "b", "c"], quick(1000))
   let a = subscribe(room, "a")
   let _info = next_state(a)
 
   let assert Ok(Nil) = room_actor.start_game(room)
   next_phase(a) |> should.equal("oni-selection")
   room_actor.game_event(room, PlayerId("c"), move(0.0, 0.1))
+  let _counting = next_state(a)
 
   let preparation = next_state(a)
   field(preparation, "phase", decode.string) |> should.equal("preparation")
   field(preparation, "oni", decode.string) |> should.equal("c")
 }
 
-// --- 勝敗（段階 8） ----------------------------------------------------------
+// --- 勝敗 ----------------------------------------------------------------------
 
-/// 鬼が猶予を過ぎて離脱すると、探索を待たずに即座に隠れ側の勝利。
+/// 鬼が猶予を過ぎて離脱すると、探索を待たずに即座に隠れ側の勝利（答え合わせへ）。
 pub fn oni_leaving_ends_with_hiders_win_immediately_test() {
   let durations =
     game.Durations(
@@ -186,6 +229,7 @@ pub fn oni_leaving_ends_with_hiders_win_immediately_test() {
       preparation_ms: 60_000,
       painting_ms: 60_000,
       exploration_ms: 60_000,
+      reveal_ms: 60_000,
     )
   let #(room, _) = open_room(["a", "b", "c"], durations)
   let b = subscribe(room, "b")
@@ -193,15 +237,18 @@ pub fn oni_leaving_ends_with_hiders_win_immediately_test() {
 
   let assert Ok(Nil) = room_actor.start_game(room)
   let _selection = next_state(b)
+  room_actor.game_event(room, PlayerId("a"), move(0.0, 0.0))
+  let _counting = next_state(b)
   let preparation = next_state(b)
   let oni = field(preparation, "oni", decode.string)
 
   room_actor.leave(room, PlayerId(oni))
-  let ended = next_state(b)
-  field(ended, "outcome", decode.string) |> should.equal("hiders-win")
+  let reveal = next_state(b)
+  field(reveal, "phase", decode.string) |> should.equal("reveal")
+  field(reveal, "outcome", decode.string) |> should.equal("hiders-win")
 }
 
-// --- ホスト（段階 12） -------------------------------------------------------
+// --- ホスト --------------------------------------------------------------------
 
 /// ホスト（最初の参加者）が進行中に抜けても、ルームは続き、残りで遊び続けられる。
 pub fn host_leaving_during_game_keeps_room_running_test() {
@@ -212,8 +259,10 @@ pub fn host_leaving_during_game_keeps_room_running_test() {
 
   let assert Ok(Nil) = room_actor.start_game(room)
   let _selection = next_state(b)
-  // 鬼選出中にホストが抜ける（参加者から外れるだけ）。
+  // 鬼選出中にホストが抜ける（参加者から外れるだけ）。残りの b が触れて進める。
   room_actor.leave(room, PlayerId("host"))
+  room_actor.game_event(room, PlayerId("b"), move(0.0, 0.0))
+  let _counting = next_state(b)
 
   let preparation = next_state(b)
   field(preparation, "phase", decode.string) |> should.equal("preparation")
