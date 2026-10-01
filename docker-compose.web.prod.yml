@@ -1,0 +1,30 @@
+# rondo フロント（Next.js）の本番（prod）構成（issue-35）。
+#
+# Coolify の Build Pack = Docker Compose、Docker Compose Location = /docker-compose.web.prod.yml
+# で使う。コンテナ名を rondo-app に固定し、再デプロイしても A1 の Traefik 動的設定
+# （docs/ops/traefik-rondo.yaml）が外れないようにする。
+#
+# ルーティングは Traefik の動的設定ファイルで行うため、ここには Traefik のラベルを書かない。
+# ホストへのポート公開もしない（coolify ネットワークの中で、コンテナ名で届く）。
+# 手順は docs/deploy.md。
+
+services:
+  rondo-app:
+    container_name: rondo-app
+    build:
+      # ビルドはリポジトリ直下を起点にする（pnpm ワークスペース全体が要る）。
+      context: .
+      dockerfile: apps/web/Dockerfile
+      args:
+        # リアルタイム基盤（Gleam）に繋ぐときだけ、Coolify のビルド変数で設定する。
+        # 未設定ならモック動作（サーバー不要）のまま。
+        NEXT_PUBLIC_RONDO_WS_URL: "${NEXT_PUBLIC_RONDO_WS_URL:-}"
+    expose:
+      - "3000"
+    networks:
+      - coolify
+    restart: unless-stopped
+
+networks:
+  coolify:
+    external: true

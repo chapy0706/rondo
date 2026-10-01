@@ -13,6 +13,7 @@ import rondo_server/games/veryare/game.{
   type Game, type Outcome, type Phase, Ended, Exploration, HidersWin,
   NotEnoughPlayers, OniSelection, OniWins, Painting, Preparation,
 }
+import rondo_server/games/veryare/stage
 import rondo_server/room/driver.{type Driver, type Effect}
 import rondo_server/room/room_actor.{
   type PlayerId, type RoomId, type RoomSpec, PlayerId, RoomSpec,
@@ -32,6 +33,9 @@ pub const max_active_rooms = 3
 
 /// 探索フェーズの長さの選択肢（秒）。20秒刻み、基本40秒（ADR 0024）。
 pub const exploration_choices = [40, 60, 80, 100, 120]
+
+/// ステージの種を引く範囲。pick（本番は int.random）にこの範囲で種を引かせる。
+const stage_seed_range = 2_147_483_647
 
 /// 探索フェーズの長さの基本値（秒）。
 pub const default_exploration_seconds = 40
@@ -102,7 +106,9 @@ fn start(
   durations: game.Durations,
   pick: fn(Int) -> Int,
 ) -> #(Driver(PlayerId), List(Effect(PlayerId))) {
-  let initial = game.new(players, durations)
+  // ステージは開始時に、骨格10種から1つを選び部屋を割り当てる（ADR 0032）。
+  let layout = stage.generate(pick(stage_seed_range))
+  let initial = game.new(players, durations, layout)
   #(wrap(initial, pick), phase_effects(initial))
 }
 

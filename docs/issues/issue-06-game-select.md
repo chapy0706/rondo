@@ -1,7 +1,7 @@
 ---
-status: closed
+status: open
 created_at: 2026-06-24
-closed_at: 2026-09-29
+closed_at:
 ---
 
 # issue-06: 基盤UI ゲーム選択画面（コンソール風シェルフ）

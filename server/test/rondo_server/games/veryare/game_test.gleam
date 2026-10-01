@@ -7,13 +7,14 @@ import rondo_server/games/veryare/game.{
   type Game, Ended, Exploration, HidersWin, NotEnoughPlayers, OniSelection,
   OniWins, Painting, Position, Preparation, Stage, WaitingRoom,
 }
+import rondo_server/games/veryare/stage
 
 // --- 補助 ---------------------------------------------------------------
 
 const players = ["a", "b", "c", "d"]
 
 fn start() -> Game(String) {
-  game.new(players, game.durations(exploration_ms: 40_000))
+  game.new(players, game.durations(exploration_ms: 40_000), stage.generate(0))
 }
 
 /// 乱数の代わりに、常に同じ位置を返す。
@@ -77,7 +78,7 @@ pub fn phases_advance_in_order_by_timer_test() {
 /// 探索フェーズの長さは作成時の設定に従う。
 pub fn exploration_uses_configured_duration_test() {
   let g =
-    game.new(players, game.durations(exploration_ms: 80_000))
+    game.new(players, game.durations(exploration_ms: 80_000), stage.generate(0))
     |> expire(always(0))
     |> expire(always(0))
     |> expire(always(0))
@@ -147,7 +148,11 @@ pub fn oni_moves_to_stage_when_exploration_starts_test() {
 /// 鬼選出の時点で2人未満なら、ゲームは成立しない。
 pub fn selection_with_single_player_does_not_start_test() {
   let g =
-    game.new(["a", "b"], game.durations(exploration_ms: 40_000))
+    game.new(
+      ["a", "b"],
+      game.durations(exploration_ms: 40_000),
+      stage.generate(0),
+    )
     |> game.leave("b")
     |> expire(always(0))
   g.phase |> should.equal(Ended(NotEnoughPlayers))
@@ -261,4 +266,65 @@ pub fn ended_game_ignores_everything_test() {
   g |> game.leave("b") |> should.equal(g)
   g |> expire(always(0)) |> should.equal(g)
   game.phase_duration(g) |> should.equal(None)
+}
+
+// --- ステージと被り判定（issue-26） -------------------------------------------
+
+/// ゲームは開始時に選ばれたステージ（骨格と部屋の割り当て）を持つ。
+pub fn game_holds_the_generated_stage_test() {
+  start().layout |> should.equal(stage.generate(0))
+}
+
+/// 準備移動フェーズの終わりに、球が重なっていた隠れ側だけが失格になる。
+pub fn overlapping_hiders_are_disqualified_when_preparation_ends_test() {
+  let g =
+    preparation_with_oni_a()
+    |> game.move("b", 1.0, 1.0)
+    |> game.move("c", 1.2, 1.0)
+    |> game.move("d", 4.0, -4.0)
+    |> expire(always(0))
+  g.phase |> should.equal(Painting)
+  g.still_hiding |> should.equal(set.from_list(["d"]))
+}
+
+/// 3人以上がほぼ同じ座標にいれば全員失格。全員いなくなれば鬼の勝ち。
+pub fn three_hiders_on_the_same_spot_are_all_disqualified_test() {
+  let g =
+    preparation_with_oni_a()
+    |> game.move("b", 2.0, 2.0)
+    |> game.move("c", 2.05, 2.0)
+    |> game.move("d", 2.0, 1.95)
+    |> expire(always(0))
+  g.still_hiding |> should.equal(set.new())
+  g.phase |> should.equal(Ended(OniWins))
+}
+
+/// 失格は発見・切断と同じ処理を通る。重なった人が切断してから進んだ場合と同じ状態になる。
+pub fn disqualification_uses_the_same_path_as_leaving_test() {
+  let placed =
+    preparation_with_oni_a()
+    |> game.move("b", 1.0, 1.0)
+    |> game.move("c", 1.2, 1.0)
+    |> game.move("d", 4.0, -4.0)
+
+  let by_overlap = expire(placed, always(0))
+  let by_leaving =
+    placed
+    |> game.leave("b")
+    |> game.leave("c")
+    |> expire(always(0))
+  by_overlap.still_hiding |> should.equal(by_leaving.still_hiding)
+  by_overlap.phase |> should.equal(by_leaving.phase)
+}
+
+/// 被り判定は準備移動の終わりだけ。ペイント中に重なっても失格にしない。
+pub fn overlap_is_checked_only_at_the_end_of_preparation_test() {
+  let g =
+    preparation_with_oni_a()
+    |> expire(always(0))
+    |> game.move("b", 1.0, 1.0)
+    |> game.move("c", 1.0, 1.0)
+    |> expire(always(0))
+  g.phase |> should.equal(Exploration)
+  g.still_hiding |> should.equal(set.from_list(["b", "c", "d"]))
 }

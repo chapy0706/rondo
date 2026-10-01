@@ -1,8 +1,8 @@
 # ローカルで本番相当に2サービスを起動する（issue-15 / ADR 0011）。
 #
-# 本番は Coolify が各サービスを個別にビルド・配置し、Cloudflare Tunnel で公開する
-# （docs/deploy.md）。この compose はその2サービス構成を手元で確かめるためのもので、
-# Coolify の設定そのものではない。
+# 本番は Coolify が docker-compose.web.prod.yml / docker-compose.server.prod.yml を使い、
+# コンテナ名 rondo-app / rondo-ws で起動して Cloudflare Tunnel で公開する（docs/deploy.md）。
+# この compose はその2サービス構成を手元で確かめるためのもので、本番では使わない。
 #
 #   docker compose up --build
 #     web    -> http://localhost:8080     （Next.js / standalone）

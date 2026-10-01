@@ -7,12 +7,18 @@
 /// 「まだ隠れている」集合（still_hiding）は、接続中かつ未発見の隠れ側と定義する。
 /// 発見（found）と、猶予を過ぎた切断（leave）は、どちらも remove_hider だけを通って
 /// この集合から抜ける。個別の分岐を持たないので、結果の状態は完全に一致する。
+/// 準備移動フェーズの終わりの被り判定（ADR 0026）で失格した隠れ側も、同じ remove_hider を通る。
+///
+/// ステージ（骨格と部屋の割り当て / ADR 0032）は開始時に受け取って持つだけで、ここでは
+/// 使わない。玄関からのリスポーンや部屋の当たり判定は issue-29 で使う。
 import gleam/dict.{type Dict}
 import gleam/float
 import gleam/int
 import gleam/list
 import gleam/option.{type Option, None, Some}
 import gleam/set.{type Set}
+import rondo_server/games/veryare/overlap
+import rondo_server/games/veryare/stage.{type Layout}
 
 // --- 定数 ----------------------------------------------------------------
 
@@ -92,6 +98,8 @@ pub type Game(id) {
     positions: Dict(id, Position),
     /// まだ隠れている隠れ側（接続中かつ未発見）。
     still_hiding: Set(id),
+    /// 開始時に選ばれたステージ（骨格と部屋の割り当て）。
+    layout: Layout,
   )
 }
 
@@ -108,7 +116,12 @@ pub fn durations(exploration_ms exploration_ms: Int) -> Durations {
 }
 
 /// 鬼選出フェーズから始める。全員が待機ルームで、鬼希望エリアの外に並ぶ。
-pub fn new(players: List(id), durations: Durations) -> Game(id) {
+/// layout は開始時に選ばれたステージ（stage.generate）。
+pub fn new(
+  players: List(id),
+  durations: Durations,
+  layout: Layout,
+) -> Game(id) {
   Game(
     phase: OniSelection,
     step: 0,
@@ -117,6 +130,7 @@ pub fn new(players: List(id), durations: Durations) -> Game(id) {
     oni: None,
     positions: ring(players, WaitingRoom, waiting_ring_radius),
     still_hiding: set.new(),
+    layout:,
   )
 }
 
@@ -154,7 +168,7 @@ pub fn advance(game: Game(id), step: Int, pick: fn(Int) -> Int) -> Game(id) {
     True ->
       case game.phase {
         OniSelection -> select_oni(game, pick)
-        Preparation -> next(game, Painting)
+        Preparation -> end_preparation(game)
         Painting -> start_exploration(game)
         Exploration ->
           case set.is_empty(game.still_hiding) {
@@ -242,6 +256,28 @@ fn select_oni(game: Game(id), pick: fn(Int) -> Int) -> Game(id) {
       )
     }
     _, _ -> end(game, NotEnoughPlayers)
+  }
+}
+
+/// 準備移動の終わり。全員の座標が確定したこの瞬間に被りを判定し、球が重なっていた
+/// 隠れ側を失格にしてからペイントへ進む。失格で誰もいなくなれば、その時点で鬼の勝利。
+fn end_preparation(game: Game(id)) -> Game(id) {
+  let hiders =
+    game.still_hiding
+    |> set.to_list
+    |> list.filter_map(fn(id) {
+      case dict.get(game.positions, id) {
+        Ok(Position(Stage, x, z)) -> Ok(#(id, x, z))
+        _ -> Error(Nil)
+      }
+    })
+  let judged =
+    overlap.overlapping(hiders)
+    |> set.to_list
+    |> list.fold(game, remove_hider)
+  case judged.phase {
+    Ended(_) -> judged
+    _ -> next(judged, Painting)
   }
 }
 

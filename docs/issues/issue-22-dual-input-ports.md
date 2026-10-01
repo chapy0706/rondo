@@ -1,7 +1,7 @@
 ---
-status: closed
+status: open
 created_at: 2026-09-27
-closed_at: 2026-09-29
+closed_at:
 ---
 
 # issue-22: 入力ポートの複数化（移動・視点）
