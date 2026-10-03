@@ -1,18 +1,23 @@
 /**
- * Tilt Maze の純粋なクライアントロジック（ADR 0004 のリアルタイムゲーム本体）。
+ * rolling（内部名 tilt-maze）の純粋なクライアントロジック（ADR 0004 のリアルタイムゲーム本体）。
  *
  * 迷路の生成と球の物理をここに閉じ込め、描画・入力・通信からは切り離す。物理は
  * クライアントで回すが、順位はサーバー受信順で確定するため（ADR 0014）、この
  * モジュールは到達判定までを担い、勝敗の決定権は持たない。乱数は seed で決まり、
- * 面番号を seed にするため 10 面は毎回同じ形になる。
+ * 旧面番号を seed にするため、各面は毎回同じ形になる。
+ *
+ * 面は旧10面のうち 1・5・10 面の3つ（易・中・難 / issue-36）。迷路の生成はそのまま
+ * 残しているので、STAGE_SOURCES に旧面番号を足せば、他の面も同じ形で作り直せる。
  */
 
 /** 迷路セル 1 マスの描画・当たり判定サイズ（px）。 */
 export const CELL = 24;
 /** 球の半径（px）。通路幅（CELL）より十分小さくして詰まらないようにする。 */
 export const BALL_R = 8;
+/** 使う面（旧10面での面番号）。易・中・難の順。 */
+export const STAGE_SOURCES = [1, 5, 10] as const;
 /** 面数。 */
-export const TOTAL_LEVELS = 10;
+export const TOTAL_LEVELS = STAGE_SOURCES.length;
 
 const ACCEL = 900;
 const DAMP = 6;
@@ -66,7 +71,7 @@ function nextRandom(seed: number): { value: number; seed: number } {
 	return { value, seed: s };
 }
 
-/** 面番号に応じた迷路のマス数（縦横同数）。面が進むほど広く難しくする。 */
+/** 旧面番号（0 始まり）に応じた迷路のマス数（縦横同数）。面が進むほど広く難しくする。 */
 function cellsForLevel(index: number): number {
 	return Math.min(4 + Math.floor(index / 2), 7);
 }
@@ -169,11 +174,11 @@ function buildLevel(index: number): Level {
 	};
 }
 
-/** 10 面。面番号 seed で決まるため毎回同じ形になる。 */
-export const LEVELS: readonly Level[] = Array.from(
-	{ length: TOTAL_LEVELS },
-	(_, index) => buildLevel(index),
-);
+/** 3 面。旧面番号から作るため、旧10面のときと同じ形になる。index は今の面の位置（0 始まり）。 */
+export const LEVELS: readonly Level[] = STAGE_SOURCES.map((source, index) => ({
+	...buildLevel(source - 1),
+	index,
+}));
 
 /** 面を取り出す。範囲外は最後の面に丸める。 */
 export function levelAt(index: number): Level {

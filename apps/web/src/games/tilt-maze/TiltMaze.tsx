@@ -1,12 +1,15 @@
 "use client";
 
 /**
- * Tilt Maze 本体（リアルタイムゲーム / ADR 0004）。
+ * rolling 本体（内部名 tilt-maze / リアルタイムゲーム / ADR 0004）。
+ *
+ * 始める前にモード選択を出す（issue-36）。1人モードで本編へ進み、対戦モードは準備中の
+ * お知らせを出して、閉じるとモード選択に戻る（通信・ルーム作成・画面遷移はしない）。
  *
  * 盤面規則と物理は engine.ts の純粋関数に委ね、ここは描画・ループ・入力・通知だけを
  * 受け持つ。入力は共通 VirtualPad（ADR 0018）の方向を球への加速度として使う。物理は
  * クライアントで回すが、ゴール到達は send でサーバーへ通知するだけで、順位はサーバー
- * 受信順が確定する（ADR 0014）。全10面クリアで finished を送り、結果発表（issue-14）は
+ * 受信順が確定する（ADR 0014）。全3面クリアで finished を送り、結果発表（issue-14）は
  * 基盤が受け取る。球の軌跡を描き、その回の結果として残す。
  */
 
@@ -30,6 +33,8 @@ import {
 	stepBall,
 } from "./engine";
 import { tiltMazeManifest } from "./manifest";
+import { MODES, type ModeId, chooseMode } from "./modes";
+import { TEXT } from "./text";
 
 const WALL_COLOR = "#0f172a";
 const FLOOR_COLOR = "#1e293b";
@@ -100,6 +105,71 @@ function drawMaze(
 }
 
 export default function TiltMaze() {
+	const [started, setStarted] = useState(false);
+	return started ? <Run /> : <ModeSelect onStart={() => setStarted(true)} />;
+}
+
+/** 始める前のモード選択。利用できないモードは、お知らせを出してここに戻る。 */
+function ModeSelect({ onStart }: { onStart: () => void }) {
+	const [notice, setNotice] = useState<string | null>(null);
+
+	const choose = (id: ModeId) => {
+		const choice = chooseMode(id);
+		if (choice.kind === "play") onStart();
+		else setNotice(choice.message);
+	};
+
+	return (
+		<div className="flex w-full flex-col items-center gap-4">
+			<p className="text-fg-muted text-sm">{TEXT.chooseMode}</p>
+			<div className="flex w-full flex-col gap-3">
+				{MODES.map((mode) => (
+					<button
+						key={mode.id}
+						type="button"
+						onClick={() => choose(mode.id)}
+						className={`flex min-h-14 w-full flex-col items-center justify-center rounded-2xl px-6 py-3 transition-transform active:scale-[0.98] ${
+							mode.available
+								? "bg-accent text-accent-fg"
+								: "bg-surface text-fg ring-1 ring-line ring-inset"
+						}`}
+					>
+						<span className="font-semibold text-lg">{mode.label}</span>
+						<span
+							className={`text-xs ${mode.available ? "opacity-80" : "text-fg-muted"}`}
+						>
+							{mode.note}
+						</span>
+					</button>
+				))}
+			</div>
+
+			{notice !== null ? (
+				<div className="fixed inset-0 z-50 flex items-center justify-center bg-ink/70 px-6">
+					<dialog
+						open
+						aria-labelledby="rolling-notice"
+						className="relative m-0 flex w-full max-w-xs flex-col items-center gap-4 rounded-2xl bg-surface p-6 text-center ring-1 ring-line ring-inset"
+					>
+						<p id="rolling-notice" className="text-fg">
+							{notice}
+						</p>
+						<button
+							type="button"
+							onClick={() => setNotice(null)}
+							className="min-h-11 w-full rounded-xl bg-accent px-4 font-semibold text-accent-fg"
+						>
+							{TEXT.close}
+						</button>
+					</dialog>
+				</div>
+			) : null}
+		</div>
+	);
+}
+
+/** 本編。1人モードを選んでから始まる。 */
+function Run() {
 	const { send } = useRealtimeGame(tiltMazeManifest);
 	const direction = useVirtualPad();
 
@@ -178,7 +248,7 @@ export default function TiltMaze() {
 	return (
 		<div className="flex flex-col items-center gap-5">
 			<p className="text-slate-300 text-sm">
-				面 {Math.min(levelIndex + 1, TOTAL_LEVELS)} / {TOTAL_LEVELS}
+				{TEXT.stage(Math.min(levelIndex + 1, TOTAL_LEVELS), TOTAL_LEVELS)}
 			</p>
 
 			<canvas
@@ -187,14 +257,10 @@ export default function TiltMaze() {
 			/>
 
 			{cleared ? (
-				<p className="text-slate-400 text-sm">
-					全 {TOTAL_LEVELS} 面クリア。上が今回の軌跡です。
-				</p>
+				<p className="text-slate-400 text-sm">{TEXT.cleared(TOTAL_LEVELS)}</p>
 			) : (
 				<>
-					<p className="text-slate-500 text-xs">
-						パッドを倒した向きに球が転がる
-					</p>
+					<p className="text-slate-500 text-xs">{TEXT.padHint}</p>
 					<div className="rounded-full bg-slate-800 ring-1 ring-slate-700 ring-inset">
 						<VirtualPad size={140} />
 					</div>

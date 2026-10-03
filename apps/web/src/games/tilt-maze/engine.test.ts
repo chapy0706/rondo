@@ -4,6 +4,7 @@ import {
 	CELL,
 	LEVELS,
 	type Level,
+	STAGE_SOURCES,
 	TOTAL_LEVELS,
 	atGoal,
 	createRun,
@@ -33,9 +34,46 @@ function goalReachable(level: Level): boolean {
 	return false;
 }
 
+/** start マスからゴールマスまでの最短の歩数（グリッドのマス単位）。 */
+function shortestPath(level: Level): number {
+	const queue: [number, number, number][] = [[1, 1, 0]];
+	const seen = new Set(["1,1"]);
+	while (queue.length > 0) {
+		const next = queue.shift();
+		if (next === undefined) break;
+		const [gx, gy, steps] = next;
+		if (gx === level.goalCell.gx && gy === level.goalCell.gy) return steps;
+		for (const [dx, dy] of [
+			[1, 0],
+			[-1, 0],
+			[0, 1],
+			[0, -1],
+		] as const) {
+			const key = `${gx + dx},${gy + dy}`;
+			if (seen.has(key) || (level.grid[gy + dy]?.[gx + dx] ?? true)) continue;
+			seen.add(key);
+			queue.push([gx + dx, gy + dy, steps + 1]);
+		}
+	}
+	return -1;
+}
+
 describe("迷路の構造", () => {
-	it("10 面ある", () => {
+	it("3 面ある（易・中・難）", () => {
+		expect(TOTAL_LEVELS).toBe(3);
 		expect(LEVELS).toHaveLength(TOTAL_LEVELS);
+	});
+
+	it("旧10面のうち 1・5・10 面を、同じ形のまま使う", () => {
+		expect(STAGE_SOURCES).toEqual([1, 5, 10]);
+		// 旧面の大きさ（4x4 / 6x6 / 7x7）がそのまま残る。
+		expect(LEVELS.map((level) => (level.gridCols - 1) / 2)).toEqual([4, 6, 7]);
+	});
+
+	it("易・中・難の順に、ゴールまでの最短経路が長くなる", () => {
+		const lengths = LEVELS.map(shortestPath);
+		expect(lengths).toEqual([...lengths].sort((a, b) => a - b));
+		expect(new Set(lengths).size).toBe(3);
 	});
 
 	it("各面は外周が壁で、開始とゴールのマスは開いている", () => {
