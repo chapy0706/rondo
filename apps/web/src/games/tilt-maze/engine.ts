@@ -1,23 +1,29 @@
 /**
  * rolling（内部名 tilt-maze）の純粋なクライアントロジック（ADR 0004 のリアルタイムゲーム本体）。
  *
- * 迷路の生成と球の物理をここに閉じ込め、描画・入力・通信からは切り離す。物理は
+ * 迷路と球の物理をここに閉じ込め、描画・入力・通信からは切り離す。物理は
  * クライアントで回すが、順位はサーバー受信順で確定するため（ADR 0014）、この
- * モジュールは到達判定までを担い、勝敗の決定権は持たない。乱数は seed で決まり、
- * 旧面番号を seed にするため、各面は毎回同じ形になる。
+ * モジュールは到達判定までを担い、勝敗の決定権は持たない。
  *
- * 面は旧10面のうち 1・5・10 面の3つ（易・中・難 / issue-36）。迷路の生成はそのまま
- * 残しているので、STAGE_SOURCES に旧面番号を足せば、他の面も同じ形で作り直せる。
+ * 迷路は難易度（小・中・大）と seed から、毎回クラスカル法で作る（maze.ts / issue-39）。
+ * 同じ難易度と seed なら同じ迷路になる。
  */
+
+import { type Grid, type MazeCell, generateMaze, seededRandom } from "./maze";
 
 /** 迷路セル 1 マスの描画・当たり判定サイズ（px）。 */
 export const CELL = 24;
 /** 球の半径（px）。通路幅（CELL）より十分小さくして詰まらないようにする。 */
 export const BALL_R = 8;
-/** 使う面（旧10面での面番号）。易・中・難の順。 */
-export const STAGE_SOURCES = [1, 5, 10] as const;
-/** 面数。 */
-export const TOTAL_LEVELS = STAGE_SOURCES.length;
+/** 難易度。小・中・大の順。 */
+export const DIFFICULTIES = ["small", "medium", "large"] as const;
+export type Difficulty = (typeof DIFFICULTIES)[number];
+/** 難易度ごとの迷路のマス数（縦横同数）。 */
+export const MAZE_CELLS: Readonly<Record<Difficulty, number>> = {
+	small: 5,
+	medium: 8,
+	large: 11,
+};
 
 const ACCEL = 900;
 const DAMP = 6;
@@ -42,127 +48,43 @@ export interface Input {
 	readonly y: number;
 }
 
-/** 1 面分の迷路。grid[gy][gx] が true なら壁。 */
+/** 1 つの迷路。grid[gy][gx] が true なら壁。 */
 export interface Level {
-	readonly index: number;
-	readonly grid: readonly (readonly boolean[])[];
+	readonly difficulty: Difficulty;
+	readonly seed: number;
+	/** 迷路のマス数（縦横同数）。 */
+	readonly cells: number;
+	readonly grid: Grid;
 	readonly gridCols: number;
 	readonly gridRows: number;
 	readonly widthPx: number;
 	readonly heightPx: number;
 	readonly start: Vec;
 	readonly goal: Vec;
+	/** スタートとゴールの、迷路のマスとしての位置。 */
+	readonly startCell: MazeCell;
+	readonly goalMazeCell: MazeCell;
+	/** ゴールの、格子としての位置（到達判定に使う）。 */
 	readonly goalCell: { readonly gx: number; readonly gy: number };
-}
-
-/** プレイ全体の進行。 */
-export interface RunState {
-	readonly levelIndex: number;
-	readonly ball: Ball;
-	readonly cleared: boolean;
-}
-
-function nextRandom(seed: number): { value: number; seed: number } {
-	let s = (seed + 0x6d2b79f5) | 0;
-	let t = Math.imul(s ^ (s >>> 15), 1 | s);
-	t = (t + Math.imul(t ^ (t >>> 7), 61 | t)) ^ t;
-	const value = ((t ^ (t >>> 14)) >>> 0) / 4294967296;
-	s = t | 0;
-	return { value, seed: s };
-}
-
-/** 旧面番号（0 始まり）に応じた迷路のマス数（縦横同数）。面が進むほど広く難しくする。 */
-function cellsForLevel(index: number): number {
-	return Math.min(4 + Math.floor(index / 2), 7);
-}
-
-/**
- * 再帰的バックトラッカーで完全迷路（全マスが連結）を作る。
- * grid は (2*cols+1) x (2*rows+1)。true=壁。start と goal の間には必ず道がある。
- */
-function generateMaze(cols: number, rows: number, seed: number): boolean[][] {
-	const gridCols = 2 * cols + 1;
-	const gridRows = 2 * rows + 1;
-	const grid: boolean[][] = Array.from({ length: gridRows }, () =>
-		Array.from({ length: gridCols }, () => true),
-	);
-	const visited: boolean[][] = Array.from({ length: rows }, () =>
-		Array.from({ length: cols }, () => false),
-	);
-
-	const open = (gx: number, gy: number) => {
-		const row = grid[gy];
-		if (row) row[gx] = false;
-	};
-	const markVisited = (cx: number, cy: number) => {
-		const row = visited[cy];
-		if (row) row[cx] = true;
-	};
-	const isVisited = (cx: number, cy: number): boolean =>
-		visited[cy]?.[cx] ?? true;
-
-	let s = seed === 0 ? 1 : seed;
-	const random = () => {
-		const r = nextRandom(s);
-		s = r.seed;
-		return r.value;
-	};
-
-	const directions: readonly (readonly [number, number])[] = [
-		[0, -1],
-		[0, 1],
-		[-1, 0],
-		[1, 0],
-	];
-
-	const stack: [number, number][] = [[0, 0]];
-	markVisited(0, 0);
-	open(1, 1);
-
-	while (stack.length > 0) {
-		const top = stack[stack.length - 1];
-		if (top === undefined) break;
-		const [cx, cy] = top;
-
-		const candidates: [number, number, number, number][] = [];
-		for (const [dx, dy] of directions) {
-			const nx = cx + dx;
-			const ny = cy + dy;
-			if (nx >= 0 && nx < cols && ny >= 0 && ny < rows && !isVisited(nx, ny)) {
-				candidates.push([nx, ny, dx, dy]);
-			}
-		}
-
-		if (candidates.length === 0) {
-			stack.pop();
-			continue;
-		}
-
-		const pick = candidates[Math.floor(random() * candidates.length)];
-		if (pick === undefined) continue;
-		const [nx, ny, dx, dy] = pick;
-		markVisited(nx, ny);
-		open(2 * cx + 1 + dx, 2 * cy + 1 + dy);
-		open(2 * nx + 1, 2 * ny + 1);
-		stack.push([nx, ny]);
-	}
-
-	return grid;
 }
 
 function centerPx(gx: number, gy: number): Vec {
 	return { x: (gx + 0.5) * CELL, y: (gy + 0.5) * CELL };
 }
 
-function buildLevel(index: number): Level {
-	const cells = cellsForLevel(index);
-	const grid = generateMaze(cells, cells, index + 1);
+/** 難易度と seed から迷路を作る。スタートは左上、ゴールは右下のマス。 */
+export function createLevel(difficulty: Difficulty, seed: number): Level {
+	const cells = MAZE_CELLS[difficulty];
+	const grid = generateMaze(cells, cells, seededRandom(seed));
 	const gridCols = 2 * cells + 1;
 	const gridRows = 2 * cells + 1;
-	const goalGx = 2 * (cells - 1) + 1;
-	const goalGy = 2 * (cells - 1) + 1;
+	const goalMazeCell = { cx: cells - 1, cy: cells - 1 };
+	const goalGx = 2 * goalMazeCell.cx + 1;
+	const goalGy = 2 * goalMazeCell.cy + 1;
 	return {
-		index,
+		difficulty,
+		seed,
+		cells,
 		grid,
 		gridCols,
 		gridRows,
@@ -170,21 +92,20 @@ function buildLevel(index: number): Level {
 		heightPx: gridRows * CELL,
 		start: centerPx(1, 1),
 		goal: centerPx(goalGx, goalGy),
+		startCell: { cx: 0, cy: 0 },
+		goalMazeCell,
 		goalCell: { gx: goalGx, gy: goalGy },
 	};
 }
 
-/** 3 面。旧面番号から作るため、旧10面のときと同じ形になる。index は今の面の位置（0 始まり）。 */
-export const LEVELS: readonly Level[] = STAGE_SOURCES.map((source, index) => ({
-	...buildLevel(source - 1),
-	index,
-}));
-
-/** 面を取り出す。範囲外は最後の面に丸める。 */
-export function levelAt(index: number): Level {
-	return (
-		LEVELS[Math.min(Math.max(index, 0), TOTAL_LEVELS - 1)] ?? buildLevel(0)
-	);
+/**
+ * 球の中心がある迷路のマス。マスどうしの間の通路（格子の偶数番目）の上なら null。
+ */
+export function cellOfBall(ball: Ball): MazeCell | null {
+	const gx = Math.floor(ball.x / CELL);
+	const gy = Math.floor(ball.y / CELL);
+	if (gx % 2 === 0 || gy % 2 === 0) return null;
+	return { cx: (gx - 1) / 2, cy: (gy - 1) / 2 };
 }
 
 function isWall(level: Level, gx: number, gy: number): boolean {
@@ -197,12 +118,6 @@ function isWall(level: Level, gx: number, gy: number): boolean {
 /** 面の開始位置に静止した球。 */
 export function startBall(level: Level): Ball {
 	return { x: level.start.x, y: level.start.y, vx: 0, vy: 0 };
-}
-
-/** 新しいプレイを始める。 */
-export function createRun(): RunState {
-	const first = levelAt(0);
-	return { levelIndex: 0, ball: startBall(first), cleared: false };
 }
 
 function clampSpeed(v: number): number {
