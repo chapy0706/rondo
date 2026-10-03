@@ -1,6 +1,6 @@
 import gleam/erlang/process
 import gleam/list
-import gleam/option.{None}
+import gleam/option.{None, Some}
 import gleeunit/should
 import rondo_server/room/room_actor.{
   type Player, type RoomSpec, AlreadyPlaying, GameAlreadyStarted,
@@ -16,6 +16,7 @@ fn spec(min: Int, max: Int) -> RoomSpec {
     authority: None,
     driver: None,
     member_info: None,
+    bots: [],
   )
 }
 
@@ -128,5 +129,39 @@ pub fn leave_last_dissolves_test() {
   room_actor.leave(room, PlayerId("u1"))
   process.sleep(30)
 
+  process.is_alive(started.pid) |> should.be_false
+}
+
+// --- CPU（接続を持たない参加者 / issue-33） -------------------------------------
+
+fn spec_with_bots(max: Int, bots: List(String)) -> RoomSpec {
+  RoomSpec(..spec(2, max), bots: list.map(bots, player))
+}
+
+/// CPU は作成時から参加者で、定員に数える。
+pub fn bots_are_members_from_the_start_and_count_toward_capacity_test() {
+  let assert Ok(started) =
+    room_actor.start(spec_with_bots(3, ["cpu-1", "cpu-2"]))
+  let room = started.data
+  room_actor.snapshot(room).players |> list.length |> should.equal(2)
+  room_actor.join(room, player("u1")) |> should.equal(Ok(Nil))
+  room_actor.join(room, player("u2")) |> should.equal(Error(RoomFull))
+}
+
+/// 主催者は最初に入った人間で、CPU ではない。
+pub fn host_is_the_first_human_not_a_bot_test() {
+  let assert Ok(started) = room_actor.start(spec_with_bots(5, ["cpu-1"]))
+  let room = started.data
+  room_actor.join(room, player("u1")) |> should.equal(Ok(Nil))
+  room_actor.snapshot(room).host |> should.equal(Some(PlayerId("u1")))
+}
+
+/// CPU だけが残ったら（人間が全員抜けたら）解散する。
+pub fn room_dissolves_when_only_bots_remain_test() {
+  let assert Ok(started) = room_actor.start(spec_with_bots(5, ["cpu-1"]))
+  let room = started.data
+  room_actor.join(room, player("u1")) |> should.equal(Ok(Nil))
+  room_actor.leave(room, PlayerId("u1"))
+  process.sleep(50)
   process.is_alive(started.pid) |> should.be_false
 }

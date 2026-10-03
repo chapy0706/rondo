@@ -52,6 +52,9 @@ pub type RoomSpec {
     /// 入室後に初めて分かる案内（探索時間など / ADR 0024）。参加者が送信先を登録した
     /// ときにだけ送り、ルーム一覧には出さない。
     member_info: Option(Dynamic),
+    /// 接続を持たない参加者（CPU / ADR 0038）。作成時から参加者で、定員と人数の判定に
+    /// 数える。送信先を持たないので、限定配信・全体配信は届かない。
+    bots: List(Player),
   )
 }
 
@@ -163,7 +166,9 @@ pub fn start(spec: RoomSpec) -> actor.StartResult(Subject(Message)) {
       self:,
       spec:,
       status: Open,
-      players: dict.new(),
+      players: spec.bots
+        |> list.map(fn(bot) { #(bot.id, bot) })
+        |> dict.from_list,
       outboxes: dict.new(),
       authority: None,
       result: None,
@@ -467,6 +472,12 @@ fn handle_leave(state: State, player: PlayerId) -> actor.Next(State, Message) {
   let outboxes = dict.delete(state.outboxes, player)
   let remaining = dict.size(players)
   let below_min = remaining < state.spec.min_players
+  // CPU（接続を持たない参加者）だけが残っても、遊ぶ人はいないので解散する。
+  let humans =
+    dict.keys(players)
+    |> list.count(fn(id) {
+      !list.any(state.spec.bots, fn(bot) { bot.id == id })
+    })
 
   let state = State(..state, players:, outboxes:)
   case was_member {
@@ -477,8 +488,8 @@ fn handle_leave(state: State, player: PlayerId) -> actor.Next(State, Message) {
     False -> Nil
   }
 
-  case remaining, state.status, below_min, state.driver {
-    // 誰も残らなければ解散する。
+  case humans, state.status, below_min, state.driver {
+    // 人間が誰も残らなければ解散する。
     0, _, _, _ -> actor.stop()
     // ゲーム進行の差し込み口があるゲームは、進行中の離脱の扱い（勝敗）をゲームに委ねる。
     _, Playing, _, Some(current) ->

@@ -26,6 +26,7 @@ pub fn room_ranks_goals_in_receive_order_test() {
       authority: Some(tilt_maze.create),
       driver: None,
       member_info: None,
+      bots: [],
     )
   let assert Ok(started) = room_actor.start(spec)
   let room = started.data
@@ -58,6 +59,7 @@ pub fn room_stays_playing_until_all_finish_test() {
       authority: Some(tilt_maze.create),
       driver: None,
       member_info: None,
+      bots: [],
     )
   let assert Ok(started) = room_actor.start(spec)
   let room = started.data

@@ -15,6 +15,7 @@ fn spec(id: String) -> RoomSpec {
     authority: None,
     driver: None,
     member_info: None,
+    bots: [],
   )
 }
 

@@ -9,6 +9,10 @@
  * （自分がエリアに入っても台本は変わらない）。
  * 発見（issue-27）がまだないため、終わり方は常に「探索の時間切れで隠れ側の勝ち」で、
  * 答え合わせタイム（20秒）を経て終了する。
+ *
+ * CPU（ADR 0038 / issue-33）を選ぶと、仮のプレイヤーの代わりに CPU N を参加させる。
+ * 隠れ側 CPU のときは自分が鬼、鬼 CPU のときは CPU 1 が鬼になる。探索開始時には、
+ * 隠れ側の状態の一括配信（type: "hiders"）を、サーバーと同じ形で送る。
  */
 
 import type {
@@ -26,6 +30,29 @@ export const MOCK_BOTS: readonly PlayerInfo[] = [
 	{ playerId: "bot-2", name: "bot2" },
 	{ playerId: "bot-3", name: "bot3" },
 ];
+
+/** CPU の選択肢の値。0 = なし、1〜3 = 隠れ側 CPU の数、4 = 鬼 CPU。 */
+const ONI_CPU = 4;
+
+/** 隠れ CPU の仮の状態（サーバーでは部屋のマスと代表色から決まる）。 */
+const MOCK_CPU_COLOR = "#b5a46a";
+
+/** 作成時の設定から CPU の選択を取り出す。省略時はなし。 */
+export function cpuOf(
+	settings: Readonly<Record<string, number>> | undefined,
+): number {
+	return settings?.cpu ?? 0;
+}
+
+/** 自分以外の参加者。CPU を選べば CPU N、選ばなければ仮のプレイヤー。 */
+export function mockPlayersOf(cpu: number): readonly PlayerInfo[] {
+	const count = cpu === ONI_CPU ? 1 : cpu;
+	if (count <= 0) return MOCK_BOTS;
+	return Array.from({ length: count }, (_, i) => ({
+		playerId: `cpu-${i + 1}`,
+		name: `CPU ${i + 1}`,
+	}));
+}
 
 /** 探索時間の既定値（秒）。ルーム作成時に選ばれなかったとき。 */
 const DEFAULT_EXPLORATION_SECONDS = 40;
@@ -59,9 +86,33 @@ export function veryareScript(options: {
 	readonly self: PlayerId;
 	readonly selfIsOni: boolean;
 	readonly explorationSeconds: number;
+	/** CPU の選択（省略時はなし）。 */
+	readonly cpu?: number;
 }): ScriptedMessage[] {
 	const { roomId, self, selfIsOni, explorationSeconds } = options;
-	const oni = selfIsOni ? self : (MOCK_BOTS[0]?.playerId ?? self);
+	const cpu = options.cpu ?? 0;
+	const others = mockPlayersOf(cpu);
+	// 鬼 CPU なら CPU 1。隠れ側 CPU は鬼にならないので自分。どちらも無ければ交互。
+	const oni =
+		cpu === ONI_CPU
+			? (others[0]?.playerId ?? self)
+			: cpu > 0 || selfIsOni
+				? self
+				: (others[0]?.playerId ?? self);
+	const hiders = [self, ...others.map((p) => p.playerId)]
+		.filter((id) => id !== oni)
+		.map((id, index) =>
+			id.startsWith("cpu-")
+				? {
+						playerId: id,
+						x: 1.5 + index,
+						z: 2.5,
+						facing: 0,
+						pose: "standing",
+						paint: { kind: "uniform", color: MOCK_CPU_COLOR },
+					}
+				: { playerId: id, x: 0, z: 0, facing: null, pose: null, paint: null },
+		);
 	const explorationMs = explorationSeconds * 1000;
 
 	const state = (payload: unknown): ServerMessage => ({
@@ -115,6 +166,8 @@ export function veryareScript(options: {
 			afterMs: explorationAt,
 			message: phase("exploration", explorationMs, oni),
 		},
+		// 探索の開始と同時に、隠れ側の状態を一括で送る（ADR 0025 / 0035）。
+		{ afterMs: explorationAt, message: state({ type: "hiders", hiders }) },
 		{
 			afterMs: revealAt,
 			message: phase("reveal", REVEAL_MS, oni, "hiders-win"),

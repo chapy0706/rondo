@@ -1,6 +1,6 @@
 import type { RoomOption } from "@rondo/contracts";
 import { describe, expect, it } from "vitest";
-import { chooseOption, initialSettings } from "./roomOptions";
+import { choiceLabel, chooseOption, initialSettings } from "./roomOptions";
 
 const exploration: RoomOption = {
 	key: "explorationSeconds",
@@ -31,5 +31,25 @@ describe("chooseOption - プルダウンで選んだ値を反映する", () => {
 		const current = { explorationSeconds: 40 };
 		expect(chooseOption(current, exploration, "50")).toBe(current);
 		expect(chooseOption(current, exploration, "abc")).toBe(current);
+	});
+});
+
+describe("choiceLabel - プルダウンの表示名", () => {
+	const cpu: RoomOption = {
+		key: "cpu",
+		label: "CPU",
+		choices: [0, 1, 4],
+		default: 0,
+		choiceLabels: { 0: "なし", 1: "隠れ側 CPU 1体", 4: "鬼 CPU" },
+	};
+
+	it("表示名があればそれを、無ければ数値をそのまま出す", () => {
+		expect(choiceLabel(cpu, 0)).toBe("なし");
+		expect(choiceLabel(cpu, 4)).toBe("鬼 CPU");
+		expect(choiceLabel(exploration, 60)).toBe("60");
+	});
+
+	it("送る値は数値のまま（表示名は送らない）", () => {
+		expect(chooseOption({ cpu: 0 }, cpu, "4")).toEqual({ cpu: 4 });
 	});
 });

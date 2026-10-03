@@ -61,6 +61,7 @@ fn open_room(min: Int, ids: List(String)) -> #(Subject(Message), process.Pid) {
       authority: None,
       driver: Some(start_echo),
       member_info: Some(text("welcome")),
+      bots: [],
     )
   let assert Ok(started) = room_actor.start(spec)
   list.each(ids, fn(id) {

@@ -29,6 +29,7 @@ describe("veryareScript - 時間で進む簡易な台本", () => {
 	it("鬼選出（赤 → 緑 → 青）→ 準備 → ペイント → 探索 → 答え合わせ → 終了 を、決まった時刻に通知する", () => {
 		const phases = script(true)
 			.slice(1)
+			.filter(({ message }) => payloadOf(message).type === "phase")
 			.map(({ afterMs, message }) => {
 				const payload = payloadOf(message);
 				return [afterMs, payload.phase, payload.area];
@@ -43,6 +44,19 @@ describe("veryareScript - 時間で進む簡易な台本", () => {
 			[116_000, "reveal", null],
 			[136_000, "ended", null],
 		]);
+	});
+
+	it("探索の開始と同時に、隠れ側の状態を一括で送る（CPU なしなら仮のプレイヤーは null の状態）", () => {
+		const hiders = script(true).find(
+			({ message }) => payloadOf(message).type === "hiders",
+		);
+		expect(hiders?.afterMs).toBe(56_000);
+		const states = payloadOf(hiders?.message as ServerMessage)
+			.hiders as readonly Record<string, unknown>[];
+		expect(states.map((h) => h.playerId)).toEqual(
+			MOCK_BOTS.map((bot) => bot.playerId),
+		);
+		expect(states.every((h) => h.paint === null)).toBe(true);
 	});
 
 	it("青（カウント中）の通知は10秒の残り時間を持つ", () => {
@@ -143,6 +157,48 @@ describe("MockWebSocketAdapter - veryare の模擬", () => {
 		expect(info(defaulted.received)).toBe(40);
 		chosen.adapter.close();
 		defaulted.adapter.close();
+	});
+
+	it("隠れ側 CPU を選ぶと、CPU N が参加し、自分が鬼になり、探索開始時に CPU の状態が届く", () => {
+		vi.useFakeTimers();
+		const { adapter, received } = play({ cpu: 2 });
+		vi.advanceTimersByTime(56_100);
+		const joined = received.find((m) => m.type === "room-joined");
+		if (joined?.type !== "room-joined") throw new Error("not joined");
+		expect(joined.players).toEqual([
+			{ playerId: joined.you, name: expect.any(String) },
+			{ playerId: "cpu-1", name: "CPU 1" },
+			{ playerId: "cpu-2", name: "CPU 2" },
+		]);
+		expect(oniAfterSelection(received)).toBe(joined.you);
+
+		const hiders = received
+			.filter((m) => m.type === "game-state")
+			.map(payloadOf)
+			.find((p) => p.type === "hiders");
+		const states = hiders?.hiders as readonly Record<string, unknown>[];
+		expect(states.map((h) => h.playerId)).toEqual(["cpu-1", "cpu-2"]);
+		for (const state of states) {
+			expect(state.paint).toEqual({
+				kind: "uniform",
+				color: expect.any(String),
+			});
+		}
+		adapter.close();
+	});
+
+	it("鬼 CPU を選ぶと、CPU 1 が鬼になる", () => {
+		vi.useFakeTimers();
+		const { adapter, received } = play({ cpu: 4 });
+		vi.advanceTimersByTime(16_100);
+		const joined = received.find((m) => m.type === "room-joined");
+		if (joined?.type !== "room-joined") throw new Error("not joined");
+		expect(joined.players.map((p) => p.playerId)).toEqual([
+			joined.you,
+			"cpu-1",
+		]);
+		expect(oniAfterSelection(received)).toBe("cpu-1");
+		adapter.close();
 	});
 
 	it("閉じたら台本のタイマーも止まる", () => {

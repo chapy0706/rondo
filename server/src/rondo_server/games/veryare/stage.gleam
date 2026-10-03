@@ -318,12 +318,13 @@ pub fn oshiire_count(layout: Layout) -> Int {
 
 const modulus = 2_147_483_648
 
-fn normalize(seed: Int) -> Int {
+/// 種を 0 以上 modulus 未満に収める。hider_cpu も同じ乱数を使う。
+pub fn normalize(seed: Int) -> Int {
   int.absolute_value(seed) % modulus
 }
 
 /// 0 以上 size 未満の値と、次の種を返す。
-fn draw(seed: Int, size: Int) -> #(Int, Int) {
+pub fn draw(seed: Int, size: Int) -> #(Int, Int) {
   let next = { seed * 1_103_515_245 + 12_345 } % modulus
   case size <= 1 {
     True -> #(0, next)
@@ -332,7 +333,7 @@ fn draw(seed: Int, size: Int) -> #(Int, Int) {
 }
 
 /// 種で並べ替える（Fisher-Yates）。
-fn shuffle(items: List(a), seed: Int) -> #(List(a), Int) {
+pub fn shuffle(items: List(a), seed: Int) -> #(List(a), Int) {
   do_shuffle(items, [], seed)
 }
 

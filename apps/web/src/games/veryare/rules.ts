@@ -6,6 +6,12 @@
  * 空間の広さはサーバーの game.gleam と揃えた仮の値で、issue-29 で実際のステージに合わせる。
  */
 
+import type {
+	VeryareHiderState,
+	VeryareHidersNotice,
+	VeryarePose,
+} from "@rondo/contracts";
+
 export type Phase =
 	| "oni-selection"
 	| "preparation"
@@ -84,6 +90,36 @@ export function parsePhaseNotice(payload: unknown): PhaseNotice | null {
 	if (outcome !== null && !isOutcome(outcome)) return null;
 	if (area !== null && !isAreaState(area)) return null;
 	return { phase, durationMs, oni, outcome, area };
+}
+
+const POSES: readonly VeryarePose[] = ["standing", "crouching", "lying"];
+
+function isHiderState(value: unknown): value is VeryareHiderState {
+	if (!isRecord(value)) return false;
+	const { playerId, x, z, facing, pose, paint } = value;
+	if (typeof playerId !== "string") return false;
+	if (typeof x !== "number" || typeof z !== "number") return false;
+	if (facing !== null && typeof facing !== "number") return false;
+	if (pose !== null && !POSES.includes(pose as VeryarePose)) return false;
+	if (paint === null) return true;
+	return (
+		isRecord(paint) &&
+		paint.kind === "uniform" &&
+		typeof paint.color === "string"
+	);
+}
+
+/**
+ * 探索開始時の一括配信（まだ隠れている隠れ側全員の状態 / ADR 0025 / 0035）を検証して読む。
+ * 人間の隠れ側の向き・ポーズ・ペイントは、まだ null で届く（issue-25 で足す）。
+ */
+export function parseHidersNotice(
+	payload: unknown,
+): VeryareHidersNotice | null {
+	if (!isRecord(payload) || payload.type !== "hiders") return null;
+	const { hiders } = payload;
+	if (!Array.isArray(hiders) || !hiders.every(isHiderState)) return null;
+	return { type: "hiders", hiders };
 }
 
 /** 入室後の案内（探索時間）を検証して読む。 */

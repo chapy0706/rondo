@@ -6,7 +6,9 @@ import gleam/option.{None, Some}
 import gleam/string
 import gleeunit/should
 import rondo_server/games/veryare/game
-import rondo_server/games/veryare/room.{Settings} as veryare
+import rondo_server/games/veryare/room.{
+  type Settings, HiderCpus, NoCpu, OniCpu, Settings,
+} as veryare
 import rondo_server/protocol/message.{type ServerMessage, GameState}
 import rondo_server/room/room_actor.{
   type Message, Player, PlayerId, RoomFull, RoomId,
@@ -29,13 +31,16 @@ fn open_room(
   ids: List(String),
   durations: game.Durations,
 ) -> #(Subject(Message), process.Pid) {
+  open_room_with(ids, durations, Settings(exploration_seconds: 60, cpu: NoCpu))
+}
+
+fn open_room_with(
+  ids: List(String),
+  durations: game.Durations,
+  settings: Settings,
+) -> #(Subject(Message), process.Pid) {
   let spec =
-    veryare.spec_with(
-      RoomId("v"),
-      Settings(exploration_seconds: 60),
-      durations,
-      fn(_size) { 0 },
-    )
+    veryare.spec_with(RoomId("v"), settings, durations, fn(_size) { 0 })
   let assert Ok(started) = room_actor.start(spec)
   list.each(ids, fn(id) {
     let assert Ok(Nil) = room_actor.join(started.data, Player(PlayerId(id), id))
@@ -93,16 +98,16 @@ pub fn exploration_choices_are_40_to_120_by_20_test() {
 
 /// 設定を省略すると基本の 40 秒になる。
 pub fn missing_settings_default_to_40_seconds_test() {
-  veryare.parse_settings(None) |> should.equal(Ok(Settings(40)))
+  veryare.parse_settings(None) |> should.equal(Ok(Settings(40, NoCpu)))
   veryare.parse_settings(Some(dynamic.properties([])))
-  |> should.equal(Ok(Settings(40)))
+  |> should.equal(Ok(Settings(40, NoCpu)))
 }
 
 /// 選択肢の値は受け付ける。
 pub fn choices_are_accepted_test() {
   list.each(veryare.exploration_choices, fn(seconds) {
     veryare.parse_settings(Some(settings(dynamic.int(seconds))))
-    |> should.equal(Ok(Settings(seconds)))
+    |> should.equal(Ok(Settings(seconds, NoCpu)))
   })
 }
 
@@ -165,6 +170,8 @@ pub fn phases_advance_automatically_with_time_test() {
   next_phase(a) |> should.equal("preparation")
   next_phase(a) |> should.equal("painting")
   next_phase(a) |> should.equal("exploration")
+  // 探索の開始と同時に、隠れ側の状態が一括で届く（ADR 0025 / 0035）。
+  field(next_state(a), "type", decode.string) |> should.equal("hiders")
 
   // 誰も見つからないまま探索が時間切れ -> 答え合わせ（隠れ側の勝利）-> 終了。
   let reveal = next_state(a)
@@ -272,4 +279,133 @@ pub fn host_leaving_during_game_keeps_room_running_test() {
   let preparation = next_state(b)
   field(preparation, "phase", decode.string) |> should.equal("preparation")
   process.is_alive(pid) |> should.be_true
+}
+
+// --- CPU（issue-33） ---------------------------------------------------------
+
+fn cpu_setting(value: Dynamic) -> Dynamic {
+  dynamic.properties([#(dynamic.string("cpu"), value)])
+}
+
+/// CPU の選択肢は なし(0)・隠れ側 CPU 1〜3体(1〜3)・鬼 CPU(4)。省略時はなし。
+pub fn cpu_choices_are_parsed_test() {
+  veryare.cpu_choices |> should.equal([0, 1, 2, 3, 4])
+  veryare.parse_settings(Some(cpu_setting(dynamic.int(0))))
+  |> should.equal(Ok(Settings(40, NoCpu)))
+  veryare.parse_settings(Some(cpu_setting(dynamic.int(2))))
+  |> should.equal(Ok(Settings(40, HiderCpus(2))))
+  veryare.parse_settings(Some(cpu_setting(dynamic.int(4))))
+  |> should.equal(Ok(Settings(40, OniCpu)))
+  list.each([-1, 5, 9], fn(value) {
+    veryare.parse_settings(Some(cpu_setting(dynamic.int(value))))
+    |> should.equal(Error(Nil))
+  })
+  veryare.parse_settings(Some(cpu_setting(dynamic.string("oni"))))
+  |> should.equal(Error(Nil))
+}
+
+/// CPU は cpu-N・「CPU N」の参加者としてルームにいて、定員に数える。
+pub fn cpus_join_the_room_as_members_test() {
+  let #(room, _) = open_room_with([], quick(1000), Settings(60, HiderCpus(3)))
+  let state = room_actor.snapshot(room)
+  state.players
+  |> list.map(fn(p) { #(p.id, p.name) })
+  |> list.sort(fn(a, b) { string.compare(a.1, b.1) })
+  |> should.equal([
+    #(PlayerId("cpu-1"), "CPU 1"),
+    #(PlayerId("cpu-2"), "CPU 2"),
+    #(PlayerId("cpu-3"), "CPU 3"),
+  ])
+  // 人間は残り2人まで。
+  room_actor.join(room, Player(PlayerId("a"), "a")) |> should.equal(Ok(Nil))
+  room_actor.join(room, Player(PlayerId("b"), "b")) |> should.equal(Ok(Nil))
+  room_actor.join(room, Player(PlayerId("c"), "c"))
+  |> should.equal(Error(RoomFull))
+}
+
+/// 1人の人間と隠れ側 CPU だけで始められ、探索開始時に CPU の状態が全員へ届く。
+pub fn one_human_and_hider_cpus_can_play_test() {
+  let #(room, _) = open_room_with(["a"], quick(30), Settings(60, HiderCpus(2)))
+  let a = subscribe(room, "a")
+  let _info = next_state(a)
+  let assert Ok(Nil) = room_actor.start_game(room)
+  // CPU を数えて2人以上なので、最初から緑（開始）。
+  field(next_state(a), "area", decode.string) |> should.equal("ready")
+
+  room_actor.game_event(room, PlayerId("a"), move(0.0, 0.0))
+  let _counting = next_state(a)
+  let preparation = next_state(a)
+  field(preparation, "oni", decode.string) |> should.equal("a")
+  next_phase(a) |> should.equal("painting")
+  next_phase(a) |> should.equal("exploration")
+
+  let hiders = next_state(a)
+  field(hiders, "type", decode.string) |> should.equal("hiders")
+  let entries =
+    field(
+      hiders,
+      "hiders",
+      decode.list({
+        use id <- decode.field("playerId", decode.string)
+        use pose <- decode.field("pose", decode.string)
+        use kind <- decode.subfield(["paint", "kind"], decode.string)
+        use color <- decode.subfield(["paint", "color"], decode.string)
+        use _x <- decode.field("x", decode.float)
+        use _z <- decode.field("z", decode.float)
+        use _facing <- decode.field("facing", decode.float)
+        decode.success(#(id, pose, kind, string.length(color)))
+      }),
+    )
+  entries
+  |> list.map(fn(entry) { entry.0 })
+  |> list.sort(string.compare)
+  |> should.equal(["cpu-1", "cpu-2"])
+  list.each(entries, fn(entry) {
+    list.contains(["standing", "crouching", "lying"], entry.1)
+    |> should.be_true
+    entry.2 |> should.equal("uniform")
+    entry.3 |> should.equal(7)
+  })
+}
+
+/// 人間の隠れ側は、向き・ポーズ・ペイントがまだ無いので null で載る（issue-25 で足す）。
+pub fn human_hiders_are_listed_with_null_state_test() {
+  let #(room, _) = open_room(["a", "b"], quick(30))
+  let a = subscribe(room, "a")
+  let _info = next_state(a)
+  let assert Ok(Nil) = room_actor.start_game(room)
+  let _selection = next_state(a)
+  room_actor.game_event(room, PlayerId("a"), move(0.0, 0.0))
+  let _counting = next_state(a)
+  next_phase(a) |> should.equal("preparation")
+  next_phase(a) |> should.equal("painting")
+  next_phase(a) |> should.equal("exploration")
+  let hiders = next_state(a)
+  let entries =
+    field(
+      hiders,
+      "hiders",
+      decode.list({
+        use id <- decode.field("playerId", decode.string)
+        use pose <- decode.field("pose", decode.optional(decode.string))
+        use paint <- decode.field("paint", decode.optional(decode.dynamic))
+        use facing <- decode.field("facing", decode.optional(decode.float))
+        decode.success(#(id, pose, paint, facing))
+      }),
+    )
+  entries |> should.equal([#("b", None, None, None)])
+}
+
+/// 鬼 CPU を選ぶと、抽選をせずに CPU が鬼になる。
+pub fn oni_cpu_becomes_oni_test() {
+  let #(room, _) = open_room_with(["a"], quick(30), Settings(60, OniCpu))
+  let a = subscribe(room, "a")
+  let _info = next_state(a)
+  let assert Ok(Nil) = room_actor.start_game(room)
+  let _selection = next_state(a)
+  room_actor.game_event(room, PlayerId("a"), move(0.0, 0.0))
+  let _counting = next_state(a)
+  let preparation = next_state(a)
+  field(preparation, "phase", decode.string) |> should.equal("preparation")
+  field(preparation, "oni", decode.string) |> should.equal("cpu-1")
 }

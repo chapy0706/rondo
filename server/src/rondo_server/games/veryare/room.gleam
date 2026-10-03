@@ -4,6 +4,10 @@
 /// ルームは veryare を知らず、ここが返す RoomSpec と箱を動かすだけである。
 /// タイマーは各フェーズの長さで張り、フェーズの通し番号（step）を token にして、
 /// 早く終わったフェーズの古いタイマーを状態機械の側で無視する。
+///
+/// CPU（ADR 0038 / issue-33）は、作成時の設定に応じて接続を持たない参加者（cpu-N・
+/// 「CPU N」）としてルームに加える。探索開始の瞬間に、まだ隠れている隠れ側全員の状態を
+/// 全員へ同じ内容で一括配信する（ADR 0025 / 0035）。
 import gleam/dynamic.{type Dynamic}
 import gleam/dynamic/decode
 import gleam/int
@@ -14,10 +18,15 @@ import rondo_server/games/veryare/game.{
   AreaWaiting, Ended, Exploration, HidersWin, NotEnoughPlayers, OniSelection,
   OniWins, Painting, Preparation, Reveal,
 }
+import rondo_server/games/veryare/hider_cpu.{
+  type Placement, Crouching, Lying, Standing,
+}
+import rondo_server/games/veryare/palette
 import rondo_server/games/veryare/stage
 import rondo_server/room/driver.{type Driver, type Effect}
 import rondo_server/room/room_actor.{
-  type PlayerId, type RoomId, type RoomSpec, PlayerId, RoomSpec,
+  type Player, type PlayerId, type RoomId, type RoomSpec, Player, PlayerId,
+  RoomSpec,
 }
 
 /// ゲーム種別。マニフェストの id と一致させる（ADR 0023）。
@@ -41,16 +50,28 @@ const stage_seed_range = 2_147_483_647
 /// 探索フェーズの長さの基本値（秒）。
 pub const default_exploration_seconds = 40
 
+/// CPU の選択肢の値。0 = なし、1〜3 = 隠れ側 CPU の数、4 = 鬼 CPU。
+pub const cpu_choices = [0, 1, 2, 3, 4]
+
+/// ルームに加える CPU。
+pub type CpuChoice {
+  NoCpu
+  /// 隠れ側 CPU（1〜3体）。
+  HiderCpus(count: Int)
+  /// 鬼 CPU（1体）。
+  OniCpu
+}
+
 /// ルーム作成時の設定。
 pub type Settings {
-  Settings(exploration_seconds: Int)
+  Settings(exploration_seconds: Int, cpu: CpuChoice)
 }
 
 /// create-room の settings（unknown）を検証する。省略時は基本値。
 /// 選択肢にない値は拒否する（境界での unknown 検証）。
 pub fn parse_settings(raw: Option(Dynamic)) -> Result(Settings, Nil) {
   case raw {
-    None -> Ok(Settings(default_exploration_seconds))
+    None -> Ok(Settings(default_exploration_seconds, NoCpu))
     Some(data) -> {
       let decoder = {
         use seconds <- decode.optional_field(
@@ -58,17 +79,61 @@ pub fn parse_settings(raw: Option(Dynamic)) -> Result(Settings, Nil) {
           default_exploration_seconds,
           decode.int,
         )
-        decode.success(seconds)
+        use cpu <- decode.optional_field("cpu", 0, decode.int)
+        decode.success(#(seconds, cpu))
       }
       case decode.run(data, decoder) {
-        Ok(seconds) ->
-          case list.contains(exploration_choices, seconds) {
-            True -> Ok(Settings(seconds))
-            False -> Error(Nil)
+        Ok(#(seconds, cpu)) ->
+          case
+            list.contains(exploration_choices, seconds),
+            list.contains(cpu_choices, cpu)
+          {
+            True, True -> Ok(Settings(seconds, cpu_choice(cpu)))
+            _, _ -> Error(Nil)
           }
         Error(_) -> Error(Nil)
       }
     }
+  }
+}
+
+fn cpu_choice(value: Int) -> CpuChoice {
+  case value {
+    0 -> NoCpu
+    4 -> OniCpu
+    count -> HiderCpus(count)
+  }
+}
+
+/// 設定に応じた CPU の参加者（cpu-1 から順に、表示名は「CPU N」）。
+fn cpu_players(cpu: CpuChoice) -> List(Player) {
+  let count = case cpu {
+    NoCpu -> 0
+    HiderCpus(count) -> count
+    OniCpu -> 1
+  }
+  numbered(1, count)
+  |> list.map(fn(n) {
+    Player(
+      id: PlayerId("cpu-" <> int.to_string(n)),
+      name: "CPU " <> int.to_string(n),
+    )
+  })
+}
+
+fn numbered(from: Int, to: Int) -> List(Int) {
+  case from > to {
+    True -> []
+    False -> [from, ..numbered(from + 1, to)]
+  }
+}
+
+/// 状態機械に渡す CPU の内訳（どの参加者が CPU か）。
+fn cpus_of(cpu: CpuChoice) -> game.Cpus(PlayerId) {
+  let ids = list.map(cpu_players(cpu), fn(player) { player.id })
+  case cpu {
+    OniCpu -> game.Cpus(hiders: [], oni: list.first(ids) |> option.from_result)
+    _ -> game.Cpus(hiders: ids, oni: None)
   }
 }
 
@@ -95,8 +160,11 @@ pub fn spec_with(
     min_players:,
     max_players:,
     authority: None,
-    driver: Some(fn(players) { start(players, durations, pick) }),
+    driver: Some(fn(players) {
+      start(players, durations, cpus_of(settings.cpu), pick)
+    }),
     member_info: Some(room_info(settings)),
+    bots: cpu_players(settings.cpu),
   )
 }
 
@@ -105,11 +173,12 @@ pub fn spec_with(
 fn start(
   players: List(PlayerId),
   durations: game.Durations,
+  cpus: game.Cpus(PlayerId),
   pick: fn(Int) -> Int,
 ) -> #(Driver(PlayerId), List(Effect(PlayerId))) {
   // ステージは開始時に、骨格10種から1つを選び部屋を割り当てる（ADR 0032）。
   let layout = stage.generate(pick(stage_seed_range))
-  let initial = game.new(players, durations, layout)
+  let initial = game.new_with(players, durations, layout, cpus)
   #(wrap(initial, pick), phase_effects(initial))
 }
 
@@ -195,12 +264,19 @@ fn area_of(state: Game(PlayerId)) -> Option(AreaState) {
   }
 }
 
+/// フェーズが切り替わったときの通知とタイマー。探索の開始時には、隠れ側の状態の
+/// 一括配信を続けて送る（全員へ同じ内容 / ADR 0035）。
 fn phase_effects(state: Game(PlayerId)) -> List(Effect(PlayerId)) {
   let notice = driver.Broadcast(phase_payload(state))
-  case game.phase_duration(state) {
-    Some(ms) -> [notice, driver.WakeAfter(ms, state.step)]
-    None -> [notice]
+  let snapshot = case state.phase {
+    Exploration -> [driver.Broadcast(hiders_payload(state))]
+    _ -> []
   }
+  let timer = case game.phase_duration(state) {
+    Some(ms) -> [driver.WakeAfter(ms, state.step)]
+    None -> []
+  }
+  list.flatten([[notice], snapshot, timer])
 }
 
 // --- 電文 ----------------------------------------------------------------
@@ -260,6 +336,49 @@ fn phase_payload(state: Game(PlayerId)) -> Dynamic {
     #(dynamic.string("oni"), oni),
     #(dynamic.string("outcome"), outcome),
   ])
+}
+
+/// 探索開始時の、まだ隠れている隠れ側全員の状態（ADR 0025 / 0035）。
+/// { type: "hiders", hiders: [{ playerId, x, z, facing, pose, paint }] }。
+/// 人間の隠れ側の向き・ポーズ・ペイントは、まだ持たないので null（issue-25 で足す）。
+/// 隠れ CPU のペイントは全面1色で { kind: "uniform", color: "#rrggbb" }。
+fn hiders_payload(state: Game(PlayerId)) -> Dynamic {
+  let hiders =
+    game.hider_states(state)
+    |> list.map(fn(entry) {
+      let #(PlayerId(id), position, placement) = entry
+      let #(facing, pose, paint) = case placement {
+        Some(p) -> #(
+          dynamic.float(p.facing),
+          dynamic.string(pose_name(p)),
+          dynamic.properties([
+            #(dynamic.string("kind"), dynamic.string("uniform")),
+            #(dynamic.string("color"), dynamic.string(palette.to_hex(p.color))),
+          ]),
+        )
+        None -> #(dynamic.nil(), dynamic.nil(), dynamic.nil())
+      }
+      dynamic.properties([
+        #(dynamic.string("playerId"), dynamic.string(id)),
+        #(dynamic.string("x"), dynamic.float(position.x)),
+        #(dynamic.string("z"), dynamic.float(position.z)),
+        #(dynamic.string("facing"), facing),
+        #(dynamic.string("pose"), pose),
+        #(dynamic.string("paint"), paint),
+      ])
+    })
+  dynamic.properties([
+    #(dynamic.string("type"), dynamic.string("hiders")),
+    #(dynamic.string("hiders"), dynamic.list(hiders)),
+  ])
+}
+
+fn pose_name(placement: Placement) -> String {
+  case placement.pose {
+    Standing -> "standing"
+    Crouching -> "crouching"
+    Lying -> "lying"
+  }
 }
 
 fn phase_name(phase: Phase) -> String {

@@ -66,4 +66,9 @@ export interface RoomOption {
 	readonly choices: readonly number[];
 	/** 既定値。choices のいずれか。 */
 	readonly default: number;
+	/**
+	 * 値ごとのプルダウンの表示名（任意）。無い値は数値をそのまま出す。送る値は数値のまま。
+	 * 例: veryare の CPU（0 = なし、4 = 鬼 CPU）。
+	 */
+	readonly choiceLabels?: Readonly<Record<number, string>>;
 }

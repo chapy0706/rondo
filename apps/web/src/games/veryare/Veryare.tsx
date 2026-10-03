@@ -10,8 +10,11 @@
  * 鬼の待機中ペイントはアバターの色を変えるだけのローカル状態で、送らず保存もしない。
  * 鬼選出中は、鬼希望エリアの色（赤・待機 / 緑・開始 / 青・鬼希望）を通知のとおりに出す。
  * 探索の後は答え合わせタイム（20秒）を挟んで終了する（襖や位置の公開の演出は issue-29）。
+ * 探索開始時の一括配信（隠れ側の状態 / issue-33）は受け取って人数だけを出す。隠れ側の
+ * 体をステージに描くのは、ステージとキャラクターを統合する issue-29 以降。
  */
 
+import type { VeryareHiderState } from "@rondo/contracts";
 import { VirtualPad, useRealtimeGame, useVirtualPad } from "@rondo/game-sdk";
 import { useEffect, useRef, useState } from "react";
 import { veryareManifest } from "./manifest";
@@ -25,6 +28,7 @@ import {
 	canMove,
 	canPaintWhileWaiting,
 	moveReport,
+	parseHidersNotice,
 	parsePhaseNotice,
 	parseRoomInfo,
 	roleOf,
@@ -89,6 +93,10 @@ export default function Veryare() {
 		null,
 	);
 	const [waitingColor, setWaitingColor] = useState(DEFAULT_COLOR);
+	/** 探索開始時に届いた、隠れ側の状態（CPU を含む）。 */
+	const [hiders, setHiders] = useState<readonly VeryareHiderState[] | null>(
+		null,
+	);
 	const [now, setNow] = useState(0);
 
 	// サーバーの通知を購読する（全員宛てのフェーズ通知と、入室後の案内）。
@@ -103,9 +111,14 @@ export default function Veryare() {
 			const info = parseRoomInfo(payload);
 			if (info !== null) setExplorationSeconds(info.explorationSeconds);
 		});
+		const offHiders = on("hiders", (payload) => {
+			const next = parseHidersNotice(payload);
+			if (next !== null) setHiders(next.hiders);
+		});
 		return () => {
 			offPhase();
 			offInfo();
+			offHiders();
 		};
 	}, [on]);
 
@@ -255,6 +268,9 @@ export default function Veryare() {
 				{phase === "oni-selection" ? " ・鬼になりたい人は中央の円へ" : ""}
 				{(phase === "painting" || phase === "exploration") && role === "hider"
 					? " ・その場から動けません"
+					: ""}
+				{phase === "exploration" && hiders !== null
+					? ` ・隠れている ${hiders.length}人`
 					: ""}
 			</p>
 			{area !== null ? (

@@ -11,7 +11,7 @@
 import type { GameType, RoomOption } from "@rondo/contracts";
 import Link from "next/link";
 import { useState } from "react";
-import { chooseOption, initialSettings } from "./roomOptions";
+import { choiceLabel, chooseOption, initialSettings } from "./roomOptions";
 import { useRealtimeLobby } from "./useRealtimeLobby";
 
 export function Lobby({
@@ -126,7 +126,7 @@ export function Lobby({
 							>
 								{option.choices.map((choice) => (
 									<option key={choice} value={choice}>
-										{choice}
+										{choiceLabel(option, choice)}
 									</option>
 								))}
 							</select>

@@ -17,7 +17,10 @@ fn directory() {
 }
 
 fn veryare_spec(n: Int) -> RoomSpec {
-  veryare.spec(RoomId("v" <> int.to_string(n)), veryare.Settings(40))
+  veryare.spec(
+    RoomId("v" <> int.to_string(n)),
+    veryare.Settings(40, veryare.NoCpu),
+  )
 }
 
 fn other_spec(n: Int) -> RoomSpec {
@@ -29,6 +32,7 @@ fn other_spec(n: Int) -> RoomSpec {
     authority: None,
     driver: None,
     member_info: None,
+    bots: [],
   )
 }
 

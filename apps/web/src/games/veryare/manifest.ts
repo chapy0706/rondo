@@ -5,7 +5,8 @@ import type { GameManifest } from "@rondo/contracts";
  *
  * 鬼1人と隠れ側最大4人のリアルタイムゲーム（ADR 0030）。フェーズと勝敗はサーバー権威
  * （server/src/rondo_server/games/veryare/）が決める。探索時間はルーム作成時に選び、
- * ルーム一覧には出さない（ADR 0024）。
+ * ルーム一覧には出さない（ADR 0024）。CPU（ADR 0038）もルーム作成時に選び、
+ * 接続を持たない参加者（CPU N）として加わる。
  */
 export const veryareManifest: GameManifest = {
 	id: "veryare",
@@ -23,6 +24,20 @@ export const veryareManifest: GameManifest = {
 			label: "探索時間",
 			choices: [40, 60, 80, 100, 120],
 			default: 40,
+		},
+		{
+			key: "cpu",
+			label: "CPU",
+			// 0 = なし、1〜3 = 隠れ側 CPU の数、4 = 鬼 CPU（サーバーの room.gleam と揃える）。
+			choices: [0, 1, 2, 3, 4],
+			default: 0,
+			choiceLabels: {
+				0: "なし",
+				1: "隠れ側 CPU 1体",
+				2: "隠れ側 CPU 2体",
+				3: "隠れ側 CPU 3体",
+				4: "鬼 CPU",
+			},
 		},
 	],
 };

@@ -15,14 +15,20 @@
 /// この集合から抜ける。個別の分岐を持たないので、結果の状態は完全に一致する。
 /// 準備移動フェーズの終わりの被り判定（ADR 0026）で失格した隠れ側も、同じ remove_hider を通る。
 ///
-/// ステージ（骨格と部屋の割り当て / ADR 0032）は開始時に受け取って持つだけで、ここでは
-/// 使わない。玄関からのリスポーンや部屋の当たり判定は issue-29 で使う。
+/// ステージ（骨格と部屋の割り当て / ADR 0032）は開始時に受け取って持つ。ここでは隠れ CPU
+/// の置き場所にだけ使い、玄関からのリスポーンや部屋の当たり判定は issue-29 で使う。
+///
+/// CPU（ADR 0038 / issue-33）は参加者の一種として players に入り、人数の判定・勝敗・
+/// 「まだ隠れている」集合に人間と同じように入る。違いは3つだけ: 隠れ側 CPU は鬼の抽選の
+/// 対象にならない。鬼 CPU がいれば抽選をせずにその CPU が鬼になる。隠れ側 CPU は準備移動の
+/// 終わりに、被り判定の直前に位置・ポーズ・ペイントを確定させる（hider_cpu）。
 import gleam/dict.{type Dict}
 import gleam/float
 import gleam/int
 import gleam/list
 import gleam/option.{type Option, None, Some}
 import gleam/set.{type Set}
+import rondo_server/games/veryare/hider_cpu.{type Placement}
 import rondo_server/games/veryare/overlap
 import rondo_server/games/veryare/stage.{type Layout}
 
@@ -42,6 +48,9 @@ pub const reveal_ms = 20_000
 
 /// 最小人数（鬼1 + 隠れ側1 / ADR 0030）。鬼選出のカウントダウンの開始と成立に使う。
 pub const min_players = 2
+
+/// 隠れ CPU の配置の種を引く範囲。
+const cpu_seed_range = 2_147_483_647
 
 /// 待機ルームの半径（メートル）。円柱形で、床は直径約4m（8畳相当）の円。
 pub const waiting_room_radius = 2.0
@@ -112,6 +121,11 @@ pub type Durations {
   )
 }
 
+/// ルームに加わっている CPU。どちらも players に含まれる参加者の ID。
+pub type Cpus(id) {
+  Cpus(hiders: List(id), oni: Option(id))
+}
+
 pub type Game(id) {
   Game(
     phase: Phase,
@@ -131,6 +145,9 @@ pub type Game(id) {
     candidates: Set(id),
     /// 開始時に選ばれたステージ（骨格と部屋の割り当て）。
     layout: Layout,
+    cpus: Cpus(id),
+    /// 準備移動の終わりに確定した、隠れ CPU の状態。
+    cpu_states: Dict(id, Placement),
   )
 }
 
@@ -154,6 +171,16 @@ pub fn new(
   durations: Durations,
   layout: Layout,
 ) -> Game(id) {
+  new_with(players, durations, layout, Cpus(hiders: [], oni: None))
+}
+
+/// CPU を加えて始める。cpus の ID は players にも含めておく（参加者として数える）。
+pub fn new_with(
+  players: List(id),
+  durations: Durations,
+  layout: Layout,
+  cpus: Cpus(id),
+) -> Game(id) {
   Game(
     phase: OniSelection,
     step: 0,
@@ -165,6 +192,8 @@ pub fn new(
     counting: False,
     candidates: set.new(),
     layout:,
+    cpus:,
+    cpu_states: dict.new(),
   )
 }
 
@@ -190,6 +219,22 @@ pub fn area_state(game: Game(id)) -> AreaState {
     False, True -> AreaReady
     False, False -> AreaWaiting
   }
+}
+
+/// まだ隠れている隠れ側の状態（参加順）。探索開始時の一括配信に使う（ADR 0025 / 0035）。
+/// 隠れ CPU は確定した状態を持ち、人間はポーズ・ペイントがまだ無いので None（issue-25）。
+pub fn hider_states(
+  game: Game(id),
+) -> List(#(id, Position, Option(Placement))) {
+  game.players
+  |> list.filter(fn(id) { set.contains(game.still_hiding, id) })
+  |> list.map(fn(id) {
+    #(
+      id,
+      position_of(game, id),
+      option.from_result(dict.get(game.cpu_states, id)),
+    )
+  })
 }
 
 /// 入室を受け付けるか。鬼選出中（カウント中を含む）だけ。
@@ -224,7 +269,7 @@ pub fn advance(game: Game(id), step: Int, pick: fn(Int) -> Int) -> Game(id) {
         OniSelection if game.counting -> select_oni(game, pick)
         // カウント前にタイマーは張らないので、届いても何もしない。
         OniSelection -> game
-        Preparation -> end_preparation(game)
+        Preparation -> end_preparation(settle_cpus(game, pick))
         Painting -> start_exploration(game)
         Exploration ->
           case set.is_empty(game.still_hiding) {
@@ -315,17 +360,25 @@ fn touch_area(game: Game(id), player: id) -> Game(id) {
 
 /// 立候補者（残っている人）がいればその中から、いなければ全員から、鬼を1人選ぶ。
 /// 隠れ側はステージへ移り、鬼は待機ルームに残る。2人未満なら不成立。
+/// 鬼 CPU がいれば、抽選をせずにその CPU を鬼にする。隠れ側 CPU は抽選の対象にしない。
 fn select_oni(game: Game(id), pick: fn(Int) -> Int) -> Game(id) {
+  let humans =
+    list.filter(game.players, fn(id) { !list.contains(game.cpus.hiders, id) })
   let pool = case
-    list.filter(game.players, fn(id) { set.contains(game.candidates, id) })
+    list.filter(humans, fn(id) { set.contains(game.candidates, id) })
   {
-    [] -> game.players
+    [] -> humans
     some -> some
   }
-  case
-    list.length(game.players) < min_players,
-    nth(pool, pick(list.length(pool)))
-  {
+  let chosen = case game.cpus.oni {
+    Some(cpu) ->
+      case list.contains(game.players, cpu) {
+        True -> Ok(cpu)
+        False -> nth(pool, pick(list.length(pool)))
+      }
+    None -> nth(pool, pick(list.length(pool)))
+  }
+  case list.length(game.players) < min_players, chosen {
     False, Ok(oni) -> {
       let hiders = list.filter(game.players, fn(id) { id != oni })
       let positions =
@@ -363,6 +416,43 @@ fn end_preparation(game: Game(id)) -> Game(id) {
   case judged.phase {
     Preparation -> next(judged, Painting)
     _ -> judged
+  }
+}
+
+/// 準備移動の終わりに、まだ隠れている隠れ CPU の位置・ポーズ・ペイントを確定させる。
+/// 人間の隠れ側の今の位置とも、CPU どうしとも被らないマスに置く（被り判定の直前）。
+fn settle_cpus(game: Game(id), pick: fn(Int) -> Int) -> Game(id) {
+  let #(cpus, humans) =
+    game.players
+    |> list.filter(fn(id) { set.contains(game.still_hiding, id) })
+    |> list.partition(fn(id) { list.contains(game.cpus.hiders, id) })
+  case cpus {
+    [] -> game
+    _ -> {
+      let occupied =
+        list.filter_map(humans, fn(id) {
+          case dict.get(game.positions, id) {
+            Ok(Position(Stage, x, z)) -> Ok(#(x, z))
+            _ -> Error(Nil)
+          }
+        })
+      let placed =
+        hider_cpu.place(
+          game.layout,
+          occupied,
+          list.length(cpus),
+          pick(cpu_seed_range),
+        )
+      list.zip(cpus, placed)
+      |> list.fold(game, fn(game, pair) {
+        let #(id, p) = pair
+        Game(
+          ..game,
+          positions: dict.insert(game.positions, id, Position(Stage, p.x, p.z)),
+          cpu_states: dict.insert(game.cpu_states, id, p),
+        )
+      })
+    }
   }
 }
 

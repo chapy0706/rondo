@@ -476,3 +476,134 @@ pub fn positions_judged_for_overlap_stay_fixed_through_painting_test() {
   })
   after_attempts.still_hiding |> should.equal(set.from_list(["b", "c", "d"]))
 }
+
+// --- CPU（issue-33） ---------------------------------------------------------
+
+fn new_game_with(ids: List(String), cpus: game.Cpus(String)) -> Game(String) {
+  game.new_with(
+    ids,
+    game.durations(exploration_ms: 40_000),
+    stage.generate(0),
+    cpus,
+  )
+}
+
+/// CPU は参加者として、最小人数（2人）の判定に数える。1人の人間と CPU で始められる。
+pub fn cpus_count_toward_the_minimum_test() {
+  new_game_with(["h", "cpu-1"], game.Cpus(hiders: ["cpu-1"], oni: None))
+  |> game.area_state
+  |> should.equal(AreaReady)
+  new_game_with(["h", "cpu-1"], game.Cpus(hiders: [], oni: Some("cpu-1")))
+  |> game.area_state
+  |> should.equal(AreaReady)
+}
+
+/// 隠れ側 CPU は鬼の抽選の対象にならない。立候補者が抜けて全員から引くときも同じ。
+pub fn hider_cpus_are_never_picked_as_oni_test() {
+  [0, 1, 2, 3]
+  |> list.each(fn(index) {
+    let g =
+      new_game_with(
+        ["cpu-1", "h", "x", "cpu-2"],
+        game.Cpus(hiders: ["cpu-1", "cpu-2"], oni: None),
+      )
+      |> touch_area("x")
+      // 立候補者 x が抜けると、残った全員からの抽選になる。
+      |> game.leave("x")
+      // 本物の乱数と同じく、抽選の人数の範囲で引く。
+      |> expire(fn(size) { index % size })
+    g.oni |> should.equal(Some("h"))
+    g.still_hiding |> should.equal(set.from_list(["cpu-1", "cpu-2"]))
+  })
+}
+
+/// 鬼 CPU を選ぶと、抽選をせずに CPU が鬼になり、人間は全員隠れ側になる。
+pub fn oni_cpu_becomes_oni_without_a_lottery_test() {
+  let g =
+    new_game_with(
+      ["h1", "h2", "cpu-1"],
+      game.Cpus(hiders: [], oni: Some("cpu-1")),
+    )
+    |> touch_area("h1")
+    |> touch_area("h2")
+    |> expire(always(0))
+  g.phase |> should.equal(Preparation)
+  g.oni |> should.equal(Some("cpu-1"))
+  g.still_hiding |> should.equal(set.from_list(["h1", "h2"]))
+}
+
+/// 鬼 CPU でも、2人未満なら不成立（人数の判定は変わらない）。
+pub fn oni_cpu_still_needs_two_participants_test() {
+  let g =
+    new_game_with(["h", "cpu-1"], game.Cpus(hiders: [], oni: Some("cpu-1")))
+    |> touch_area("h")
+    |> game.leave("h")
+    |> expire(always(0))
+  g.phase |> should.equal(Ended(NotEnoughPlayers))
+}
+
+/// 隠れ CPU は準備移動の終わりに、部屋のマスへ、人間と被らずに確定する。
+/// ポーズとペイント（部屋の代表色）も持ち、被りで失格にならない。
+pub fn hider_cpus_settle_at_the_end_of_preparation_test() {
+  let g =
+    new_game_with(
+      ["h", "cpu-1", "cpu-2"],
+      game.Cpus(hiders: ["cpu-1", "cpu-2"], oni: None),
+    )
+    |> touch_area("h")
+    |> expire(always(0))
+  // h は鬼。人間の隠れ側がいないので、CPU だけが残る。
+  g.oni |> should.equal(Some("h"))
+  let painted = expire(g, always(0))
+  painted.phase |> should.equal(Painting)
+  painted.still_hiding |> should.equal(set.from_list(["cpu-1", "cpu-2"]))
+  let states = game.hider_states(painted)
+  list.length(states) |> should.equal(2)
+  list.each(states, fn(entry) {
+    let #(_id, position, placement) = entry
+    position.space |> should.equal(Stage)
+    let assert Some(p) = placement
+    p.x |> should.equal(position.x)
+    p.z |> should.equal(position.z)
+  })
+}
+
+/// 人間の隠れ側の位置を避けて置く。人間の状態（ポーズ・ペイント）は未設定のまま。
+pub fn hider_cpus_avoid_human_hiders_test() {
+  let g =
+    new_game_with(
+      ["oni", "h", "cpu-1"],
+      game.Cpus(hiders: ["cpu-1"], oni: None),
+    )
+    |> touch_area("oni")
+    |> expire(always(0))
+  g.oni |> should.equal(Some("oni"))
+  let painted = expire(g, always(0))
+  painted.still_hiding |> should.equal(set.from_list(["h", "cpu-1"]))
+  let states = game.hider_states(painted)
+  let assert Ok(#(_, human, None)) =
+    list.find(states, fn(entry) { entry.0 == "h" })
+  let assert Ok(#(_, cpu, Some(_))) =
+    list.find(states, fn(entry) { entry.0 == "cpu-1" })
+  let dx = human.x -. cpu.x
+  let dz = human.z -. cpu.z
+  { dx *. dx +. dz *. dz >=. 0.36 } |> should.be_true
+}
+
+/// 状態の一覧には、まだ隠れている隠れ側だけが載る（見つかった CPU は載らない）。
+pub fn hider_states_list_only_those_still_hiding_test() {
+  let g =
+    new_game_with(
+      ["oni", "cpu-1", "cpu-2"],
+      game.Cpus(hiders: ["cpu-1", "cpu-2"], oni: None),
+    )
+    |> touch_area("oni")
+    |> expire(always(0))
+    |> expire(always(0))
+    |> expire(always(0))
+  g.phase |> should.equal(Exploration)
+  let after = game.found(g, "cpu-1")
+  game.hider_states(after)
+  |> list.map(fn(entry) { entry.0 })
+  |> should.equal(["cpu-2"])
+}

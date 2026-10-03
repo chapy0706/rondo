@@ -21,6 +21,7 @@ fn open_room(ids: List(String)) -> Subject(Message) {
       authority: None,
       driver: None,
       member_info: None,
+      bots: [],
     )
   let assert Ok(started) = room_actor.start(spec)
   let room = started.data

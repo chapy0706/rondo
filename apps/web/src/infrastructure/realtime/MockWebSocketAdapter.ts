@@ -20,9 +20,10 @@ import type {
 } from "@rondo/contracts";
 import { MultiplexingAdapter } from "./MultiplexingAdapter";
 import {
-	MOCK_BOTS,
 	VERYARE,
+	cpuOf,
 	explorationSecondsOf,
+	mockPlayersOf,
 	nextSelfIsOni,
 	veryareScript,
 } from "./mockVeryare";
@@ -103,7 +104,7 @@ export class MockWebSocketAdapter extends MultiplexingAdapter {
 		const room: MockRoom = {
 			roomId: `room-${randomId()}`,
 			gameType: VERYARE,
-			players: [this.self, ...MOCK_BOTS],
+			players: [this.self, ...mockPlayersOf(cpuOf(settings))],
 			status: "playing",
 		};
 		this.rooms.set(room.roomId, room);
@@ -120,6 +121,7 @@ export class MockWebSocketAdapter extends MultiplexingAdapter {
 			self: this.self.playerId,
 			selfIsOni: nextSelfIsOni(),
 			explorationSeconds: explorationSecondsOf(settings),
+			cpu: cpuOf(settings),
 		});
 		this.scriptTimers.set(
 			room.roomId,

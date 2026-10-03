@@ -50,6 +50,7 @@ pub fn spec_for(
           authority: Some(tilt_maze.create),
           driver: None,
           member_info: None,
+          bots: [],
         ),
         StartAtMinimum,
       ))

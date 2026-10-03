@@ -18,6 +18,11 @@ export function initialSettings(
 	);
 }
 
+/** プルダウンに出す表示名。表示名が無い値は数値をそのまま出す。 */
+export function choiceLabel(option: RoomOption, value: number): string {
+	return option.choiceLabels?.[value] ?? String(value);
+}
+
 /** プルダウンで選んだ値（文字列）を反映する。選択肢にない値は無視する。 */
 export function chooseOption(
 	settings: RoomSettings,

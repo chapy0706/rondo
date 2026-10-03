@@ -8,6 +8,7 @@ import {
 	canMove,
 	canPaintWhileWaiting,
 	clampToSpace,
+	parseHidersNotice,
 	parsePhaseNotice,
 	parseRoomInfo,
 	roleOf,
@@ -262,5 +263,47 @@ describe("初期位置", () => {
 		const { x, z } = spawnOf("waiting-room");
 		expect(Math.hypot(x, z)).toBeGreaterThan(ONI_AREA_RADIUS);
 		expect(Math.hypot(x, z)).toBeLessThan(WAITING_ROOM_RADIUS);
+	});
+});
+
+describe("parseHidersNotice - 探索開始時の一括配信（issue-33）", () => {
+	const cpu = {
+		playerId: "cpu-1",
+		x: 3.5,
+		z: 10.5,
+		facing: 1.2,
+		pose: "crouching",
+		paint: { kind: "uniform", color: "#b5a46a" },
+	};
+	const human = {
+		playerId: "p-2",
+		x: 0,
+		z: 1,
+		facing: null,
+		pose: null,
+		paint: null,
+	};
+
+	it("CPU の状態も、まだ状態を持たない人間（null）も読む", () => {
+		expect(parseHidersNotice({ type: "hiders", hiders: [cpu, human] })).toEqual(
+			{ type: "hiders", hiders: [cpu, human] },
+		);
+	});
+
+	it("形が違えば null（境界での unknown 検証）", () => {
+		expect(parseHidersNotice({ type: "phase" })).toBeNull();
+		expect(parseHidersNotice({ type: "hiders", hiders: "x" })).toBeNull();
+		expect(
+			parseHidersNotice({ type: "hiders", hiders: [{ ...cpu, pose: "jump" }] }),
+		).toBeNull();
+		expect(
+			parseHidersNotice({
+				type: "hiders",
+				hiders: [{ ...cpu, paint: { kind: "strokes" } }],
+			}),
+		).toBeNull();
+		expect(
+			parseHidersNotice({ type: "hiders", hiders: [{ ...cpu, x: "1" }] }),
+		).toBeNull();
 	});
 });
