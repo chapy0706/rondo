@@ -10,11 +10,15 @@
  * 鬼の待機中ペイントはアバターの色を変えるだけのローカル状態で、送らず保存もしない。
  * 鬼選出中は、鬼希望エリアの色（赤・待機 / 緑・開始 / 青・鬼希望）を通知のとおりに出す。
  * 探索の後は答え合わせタイム（20秒）を挟んで終了する（襖や位置の公開の演出は issue-29）。
- * 探索開始時の一括配信（隠れ側の状態 / issue-33）は受け取って人数だけを出す。隠れ側の
- * 体をステージに描くのは、ステージとキャラクターを統合する issue-29 以降。
+ * 探索開始時の一括配信（隠れ側の状態 / issue-33）を受け取り、隠れ側を描く。
+ *
+ * 観戦（issue-28 / ADR 0027・0034・0035）: まだ隠れている一覧から外れた隠れ側（見つかった・
+ * 被りで失格）は観戦者になり、探索中は鬼を中央に固定した周回カメラ（鬼 TPS 視点）で見る。
+ * 移動はできず、視点パッドでカメラを回すだけ。探索中の隠れ側は、自分の視点と鬼 TPS 視点を
+ * 切り替えられる。鬼の状態はサーバーが全員へ送る（鬼は動くたびに、向きを添えて報告する）。
  */
 
-import type { VeryareHiderState } from "@rondo/contracts";
+import type { VeryareHiderState, VeryareOniNotice } from "@rondo/contracts";
 import { VirtualPad, useRealtimeGame, useVirtualPad } from "@rondo/game-sdk";
 import { useEffect, useRef, useState } from "react";
 import { veryareManifest } from "./manifest";
@@ -27,16 +31,21 @@ import {
 	areaLook,
 	canMove,
 	canPaintWhileWaiting,
+	facingOfYaw,
+	isSpectator,
 	moveReport,
 	parseHidersNotice,
+	parseHidingNotice,
+	parseOniNotice,
 	parsePhaseNotice,
 	parseRoomInfo,
 	roleOf,
 	spaceOf,
 	spawnOf,
 	stepPosition,
+	viewOf,
 } from "./rules";
-import type { VeryareScene } from "./scene";
+import type { SceneHider, SceneOni, VeryareScene } from "./scene";
 
 /** 歩く速さ（m/秒）。 */
 const WALK_SPEED = 1.6;
@@ -44,6 +53,8 @@ const WALK_SPEED = 1.6;
 const TURN_SPEED = 2.2;
 /** 位置の報告の最短間隔（ミリ秒）。 */
 const SEND_INTERVAL_MS = 100;
+/** 向きだけが変わったときに報告し直す角度の差（ラジアン）。 */
+const FACING_EPSILON = 0.05;
 /** アバターの既定の色。 */
 const DEFAULT_COLOR = "#ece8f5";
 /** 待機中ペイントで選べる色。本番のペイント（issue-25）とは別の簡易なもの。 */
@@ -97,6 +108,12 @@ export default function Veryare() {
 	const [hiders, setHiders] = useState<readonly VeryareHiderState[] | null>(
 		null,
 	);
+	/** 探索中の鬼の状態（観戦・鬼 TPS 視点に使う）。 */
+	const [oniState, setOniState] = useState<VeryareOniNotice | null>(null);
+	/** まだ隠れている隠れ側の一覧。届くまでは null。 */
+	const [hiding, setHiding] = useState<readonly string[] | null>(null);
+	/** 探索中の隠れ側が、鬼 TPS 視点を選んでいるか。 */
+	const [choseOni, setChoseOni] = useState(false);
 	const [now, setNow] = useState(0);
 
 	// サーバーの通知を購読する（全員宛てのフェーズ通知と、入室後の案内）。
@@ -115,17 +132,53 @@ export default function Veryare() {
 			const next = parseHidersNotice(payload);
 			if (next !== null) setHiders(next.hiders);
 		});
+		const offOni = on("oni", (payload) => {
+			const next = parseOniNotice(payload);
+			if (next !== null) setOniState(next);
+		});
+		const offHiding = on("hiding", (payload) => {
+			const next = parseHidingNotice(payload);
+			if (next !== null) setHiding(next.playerIds);
+		});
 		return () => {
 			offPhase();
 			offInfo();
 			offHiders();
+			offOni();
+			offHiding();
 		};
 	}, [on]);
 
 	const phase: Phase = notice?.phase ?? "oni-selection";
 	const role = roleOf(notice?.oni ?? null, you);
 	const space = spaceOf(phase, role);
-	const movable = notice !== null && canMove(phase, role);
+	const spectator = isSpectator(phase, role, hiding, you);
+	const oniVisible =
+		(phase === "exploration" || phase === "reveal") && oniState !== null;
+	const view = viewOf({
+		phase,
+		role,
+		spectator,
+		choseOni,
+		oniKnown: oniState !== null,
+	});
+	// 観戦者は移動できない（サーバー側でも、準備移動の後の隠れ側の移動は無視される）。
+	const movable = notice !== null && canMove(phase, role) && !spectator;
+	const sceneOni: SceneOni | null =
+		oniVisible && oniState !== null
+			? { x: oniState.x, z: oniState.z, facing: oniState.facing }
+			: null;
+	const sceneHiders: readonly SceneHider[] =
+		(phase === "exploration" || phase === "reveal") && hiders !== null
+			? hiders
+					.filter((h) => h.playerId !== you)
+					.map((h) => ({
+						id: h.playerId,
+						x: h.x,
+						z: h.z,
+						color: h.paint?.color ?? DEFAULT_COLOR,
+					}))
+			: [];
 	const painting = canPaintWhileWaiting(phase, role);
 	// 待機中ペイントは待機ルームの中だけで見せる。ステージの見た目には一切持ち込まない。
 	const avatarColor =
@@ -155,8 +208,22 @@ export default function Veryare() {
 		avatarColor,
 		area,
 		send,
+		view,
+		sceneOni,
+		sceneHiders,
 	});
-	latest.current = { move, look, movable, space, avatarColor, area, send };
+	latest.current = {
+		move,
+		look,
+		movable,
+		space,
+		avatarColor,
+		area,
+		send,
+		view,
+		sceneOni,
+		sceneHiders,
+	};
 
 	const canvasRef = useRef<HTMLCanvasElement | null>(null);
 	const fadeRef = useRef<HTMLDivElement | null>(null);
@@ -186,6 +253,7 @@ export default function Veryare() {
 			let last = performance.now();
 			let lastSent = 0;
 			let sentPosition: Point | null = null;
+			let sentFacing: number | null = null;
 
 			const loop = (time: number) => {
 				const dt = Math.min((time - last) / 1000, 0.1);
@@ -202,15 +270,21 @@ export default function Veryare() {
 						dt,
 						current.space,
 					);
-					// 位置はクライアントが報告し、サーバーが制限する（動いたときだけ間引いて送る）。
+					// 位置と向きはクライアントが報告し、サーバーが制限する（変わったときだけ
+					// 間引いて送る）。向きは観戦者へ送る鬼の向きに使う（issue-28）。
 					const position = positionRef.current;
+					const facing = facingOfYaw(yaw);
 					const moved =
 						sentPosition === null ||
 						sentPosition.x !== position.x ||
 						sentPosition.z !== position.z;
-					if (moved && time - lastSent >= SEND_INTERVAL_MS) {
-						current.send(moveReport(position));
+					const turned =
+						sentFacing === null ||
+						Math.abs(facing - sentFacing) > FACING_EPSILON;
+					if ((moved || turned) && time - lastSent >= SEND_INTERVAL_MS) {
+						current.send(moveReport(position, facing));
 						sentPosition = position;
+						sentFacing = facing;
 						lastSent = time;
 					}
 				}
@@ -218,6 +292,9 @@ export default function Veryare() {
 				scene.setSpace(current.space);
 				scene.setArea(current.area);
 				scene.setAvatar(positionRef.current, current.avatarColor);
+				scene.setOni(current.sceneOni);
+				scene.setHiders(current.sceneHiders);
+				scene.setView(current.view);
 				scene.setCamera(yaw, pitch);
 				scene.render();
 				frame = requestAnimationFrame(loop);
@@ -269,8 +346,8 @@ export default function Veryare() {
 				{(phase === "painting" || phase === "exploration") && role === "hider"
 					? " ・その場から動けません"
 					: ""}
-				{phase === "exploration" && hiders !== null
-					? ` ・隠れている ${hiders.length}人`
+				{phase === "exploration" && hiding !== null
+					? ` ・隠れている ${hiding.length}人`
 					: ""}
 			</p>
 			{area !== null ? (
@@ -294,6 +371,26 @@ export default function Veryare() {
 								: " ・今触れると鬼の立候補になります"}
 					</span>
 				</p>
+			) : null}
+
+			{spectator ? (
+				<p className="rounded-xl bg-surface px-3 py-2 text-fg text-sm">
+					見つかりました。観戦中です
+					{view === "oni"
+						? "（鬼の視点・視点パッドで回せます）"
+						: "（探索が始まると鬼の視点になります）"}
+				</p>
+			) : null}
+			{phase === "exploration" && role === "hider" && !spectator ? (
+				<button
+					type="button"
+					aria-pressed={choseOni}
+					disabled={oniState === null}
+					onClick={() => setChoseOni((current) => !current)}
+					className="min-h-11 rounded-xl bg-surface px-3 font-semibold text-fg text-sm ring-1 ring-line ring-inset disabled:opacity-50"
+				>
+					{choseOni ? "自分の視点に戻る" : "鬼の視点を見る"}
+				</button>
 			) : null}
 
 			<div className="relative aspect-[3/4] w-full overflow-hidden rounded-2xl">
@@ -344,12 +441,17 @@ export default function Veryare() {
 			) : null}
 
 			<div className="flex items-center justify-between">
-				<div className="flex flex-col items-center gap-1">
-					<div className="rounded-full bg-surface ring-1 ring-line ring-inset">
-						<VirtualPad name="move" size={120} />
+				{movable ? (
+					<div className="flex flex-col items-center gap-1">
+						<div className="rounded-full bg-surface ring-1 ring-line ring-inset">
+							<VirtualPad name="move" size={120} />
+						</div>
+						<span className="text-fg-muted text-xs">移動</span>
 					</div>
-					<span className="text-fg-muted text-xs">移動</span>
-				</div>
+				) : (
+					// 動けない間（観戦中を含む）は移動パッドを出さない。
+					<div aria-hidden="true" className="size-[120px]" />
+				)}
 				<div className="flex flex-col items-center gap-1">
 					<div className="rounded-full bg-surface ring-1 ring-line ring-inset">
 						<VirtualPad name="look" size={120} />

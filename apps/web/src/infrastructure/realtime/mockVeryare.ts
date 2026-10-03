@@ -13,6 +13,10 @@
  * CPU（ADR 0038 / issue-33）を選ぶと、仮のプレイヤーの代わりに CPU N を参加させる。
  * 隠れ側 CPU のときは自分が鬼、鬼 CPU のときは CPU 1 が鬼になる。探索開始時には、
  * 隠れ側の状態の一括配信（type: "hiders"）を、サーバーと同じ形で送る。
+ *
+ * 観戦（issue-28）: 準備移動の始まりに、まだ隠れている一覧（type: "hiding"）を送る。
+ * 自分が隠れ側の回は、探索中に鬼の状態（type: "oni"）を0.5秒ごとに送り（鬼はステージの
+ * 中を円く歩く）、探索開始の10秒後に自分を一覧から外して、観戦に切り替わるのを試せる。
  */
 
 import type {
@@ -53,6 +57,13 @@ export function mockPlayersOf(cpu: number): readonly PlayerInfo[] {
 		name: `CPU ${i + 1}`,
 	}));
 }
+
+/** 鬼の状態を送る間隔（ミリ秒）。サーバーの鬼 CPU と同じ0.5秒。 */
+const ONI_INTERVAL_MS = 500;
+/** 自分が隠れ側の回で、探索開始から見つかるまでの時間（ミリ秒）。 */
+const FOUND_AFTER_MS = 10_000;
+/** 模擬の鬼が歩く円の半径（メートル。仮のステージ ±5m の内側）。 */
+const ONI_WALK_RADIUS = 3;
 
 /** 探索時間の既定値（秒）。ルーム作成時に選ばれなかったとき。 */
 const DEFAULT_EXPLORATION_SECONDS = 40;
@@ -99,20 +110,21 @@ export function veryareScript(options: {
 			: cpu > 0 || selfIsOni
 				? self
 				: (others[0]?.playerId ?? self);
-	const hiders = [self, ...others.map((p) => p.playerId)]
-		.filter((id) => id !== oni)
-		.map((id, index) =>
-			id.startsWith("cpu-")
-				? {
-						playerId: id,
-						x: 1.5 + index,
-						z: 2.5,
-						facing: 0,
-						pose: "standing",
-						paint: { kind: "uniform", color: MOCK_CPU_COLOR },
-					}
-				: { playerId: id, x: 0, z: 0, facing: null, pose: null, paint: null },
-		);
+	const hiderIds = [self, ...others.map((p) => p.playerId)].filter(
+		(id) => id !== oni,
+	);
+	const hiders = hiderIds.map((id, index) =>
+		id.startsWith("cpu-")
+			? {
+					playerId: id,
+					x: 1.5 + index,
+					z: 2.5,
+					facing: 0,
+					pose: "standing",
+					paint: { kind: "uniform", color: MOCK_CPU_COLOR },
+				}
+			: { playerId: id, x: 0, z: 0, facing: null, pose: null, paint: null },
+	);
 	const explorationMs = explorationSeconds * 1000;
 
 	const state = (payload: unknown): ServerMessage => ({
@@ -143,6 +155,41 @@ export function veryareScript(options: {
 	const revealAt = explorationAt + explorationMs;
 	const endedAt = revealAt + REVEAL_MS;
 
+	// 自分が隠れ側の回だけ、鬼の状態を流し、途中で自分を見つけさせる。
+	const selfHides = oni !== self;
+	const oniWalk: ScriptedMessage[] = selfHides
+		? Array.from(
+				{ length: Math.floor(explorationMs / ONI_INTERVAL_MS) },
+				(_, i) => {
+					const angle = (i / 20) * Math.PI * 2;
+					return {
+						afterMs: explorationAt + i * ONI_INTERVAL_MS,
+						message: state({
+							type: "oni",
+							playerId: oni,
+							x: ONI_WALK_RADIUS * Math.cos(angle),
+							z: ONI_WALK_RADIUS * Math.sin(angle),
+							// 円の接線の向きへ歩く。
+							facing: angle + Math.PI / 2,
+							pose: "standing",
+							openDoors: [],
+						}),
+					};
+				},
+			)
+		: [];
+	const found: ScriptedMessage[] = selfHides
+		? [
+				{
+					afterMs: explorationAt + FOUND_AFTER_MS,
+					message: state({
+						type: "hiding",
+						playerIds: hiderIds.filter((id) => id !== self),
+					}),
+				},
+			]
+		: [];
+
 	return [
 		{ afterMs: 0, message: state({ type: "room-info", explorationSeconds }) },
 		{
@@ -168,6 +215,13 @@ export function veryareScript(options: {
 		},
 		// 探索の開始と同時に、隠れ側の状態を一括で送る（ADR 0025 / 0035）。
 		{ afterMs: explorationAt, message: state({ type: "hiders", hiders }) },
+		// 準備移動の始まりに、まだ隠れている一覧を送る。
+		{
+			afterMs: preparationAt,
+			message: state({ type: "hiding", playerIds: hiderIds }),
+		},
+		...oniWalk,
+		...found,
 		{
 			afterMs: revealAt,
 			message: phase("reveal", REVEAL_MS, oni, "hiders-win"),

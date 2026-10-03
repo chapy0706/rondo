@@ -7,8 +7,10 @@
  */
 
 import type {
+	VeryareDoor,
 	VeryareHiderState,
 	VeryareHidersNotice,
+	VeryareOniNotice,
 	VeryarePose,
 } from "@rondo/contracts";
 
@@ -122,6 +124,87 @@ export function parseHidersNotice(
 	return { type: "hiders", hiders };
 }
 
+function isCell(value: unknown): boolean {
+	return (
+		isRecord(value) &&
+		typeof value.x === "number" &&
+		typeof value.z === "number"
+	);
+}
+
+function isDoor(value: unknown): value is VeryareDoor {
+	return isRecord(value) && isCell(value.corridor) && isCell(value.slot);
+}
+
+/** 探索中の鬼の状態（issue-28 / issue-34）を検証して読む。 */
+export function parseOniNotice(payload: unknown): VeryareOniNotice | null {
+	if (!isRecord(payload) || payload.type !== "oni") return null;
+	const { playerId, x, z, facing, pose, openDoors } = payload;
+	if (typeof playerId !== "string") return null;
+	if (typeof x !== "number" || typeof z !== "number") return null;
+	if (typeof facing !== "number") return null;
+	if (!POSES.includes(pose as VeryarePose)) return null;
+	if (!Array.isArray(openDoors) || !openDoors.every(isDoor)) return null;
+	return {
+		type: "oni",
+		playerId,
+		x,
+		z,
+		facing,
+		pose: pose as VeryarePose,
+		openDoors,
+	};
+}
+
+/** まだ隠れている隠れ側の一覧（issue-28）を検証して読む。 */
+export function parseHidingNotice(
+	payload: unknown,
+): { readonly playerIds: readonly string[] } | null {
+	if (!isRecord(payload) || payload.type !== "hiding") return null;
+	const { playerIds } = payload;
+	if (
+		!Array.isArray(playerIds) ||
+		!playerIds.every((id) => typeof id === "string")
+	) {
+		return null;
+	}
+	return { playerIds };
+}
+
+/**
+ * 観戦者か。隠れ側で、まだ隠れている一覧から外れた人（見つかった・被りで失格）。
+ * 一覧がまだ届いていないときと、答え合わせ・終了の後は観戦にしない。
+ */
+export function isSpectator(
+	phase: Phase,
+	role: Role,
+	hiding: readonly string[] | null,
+	you: string | null,
+): boolean {
+	if (role !== "hider" || hiding === null || you === null) return false;
+	if (phase !== "painting" && phase !== "exploration") return false;
+	return !hiding.includes(you);
+}
+
+/** 画面の視点。self は自分の TPS 視点、oni は鬼を中央に固定した周回カメラ（ADR 0034）。 */
+export type View = "self" | "oni";
+
+/**
+ * 視点を決める。探索中に鬼の状態が届いていれば、観戦者と、鬼 TPS 視点を選んだ隠れ側は
+ * 鬼 TPS 視点になる。鬼自身は常に自分の視点。
+ */
+export function viewOf(options: {
+	readonly phase: Phase;
+	readonly role: Role;
+	readonly spectator: boolean;
+	readonly choseOni: boolean;
+	readonly oniKnown: boolean;
+}): View {
+	const { phase, role, spectator, choseOni, oniKnown } = options;
+	if (phase !== "exploration" || role !== "hider" || !oniKnown) return "self";
+	return spectator || choseOni ? "oni" : "self";
+}
+
 /** 入室後の案内（探索時間）を検証して読む。 */
 export function parseRoomInfo(
 	payload: unknown,
@@ -205,10 +288,27 @@ export interface MoveReport {
 	readonly type: "move";
 	readonly x: number;
 	readonly z: number;
+	/** 向き（サーバーの向き。facingOfYaw で作る）。観戦者へ送る鬼の向きに使う。 */
+	readonly facing?: number;
 }
 
-export function moveReport(position: Point): MoveReport {
-	return { type: "move", x: position.x, z: position.z };
+export function moveReport(position: Point, facing?: number): MoveReport {
+	return facing === undefined
+		? { type: "move", x: position.x, z: position.z }
+		: { type: "move", x: position.x, z: position.z, facing };
+}
+
+/**
+ * カメラの向き（yaw。0 で -z を向き、正で左へ回る）を、サーバーの向き（facing。x 軸から
+ * z 軸の向きへ回るラジアン）にする。yaw の正面は (-sin yaw, -cos yaw)。
+ */
+export function facingOfYaw(yaw: number): number {
+	return Math.atan2(-Math.cos(yaw), -Math.sin(yaw));
+}
+
+/** サーバーの向き（facing）を、カメラの向き（yaw）にする。facingOfYaw の逆。 */
+export function yawOfFacing(facing: number): number {
+	return Math.atan2(-Math.cos(facing), -Math.sin(facing));
 }
 
 function clamp(value: number, half: number): number {

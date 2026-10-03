@@ -38,6 +38,7 @@ export type {
 	VeryareDoor,
 	VeryareHiderState,
 	VeryareHidersNotice,
+	VeryareHidingNotice,
 	VeryareOniNotice,
 	VeryarePaint,
 	VeryarePose,

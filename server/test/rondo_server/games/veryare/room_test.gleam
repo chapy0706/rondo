@@ -84,9 +84,13 @@ fn next_state_within(outbox: Subject(ServerMessage), ms: Int) -> Dynamic {
   }
 }
 
-/// 次に届くフェーズ通知の phase 名。
+/// 次に届くフェーズ通知の phase 名。間に届く一覧（hiding）は読み飛ばす。
 fn next_phase(outbox: Subject(ServerMessage)) -> String {
-  field(next_state(outbox), "phase", decode.string)
+  let payload = next_state(outbox)
+  case field(payload, "type", decode.string) {
+    "hiding" -> next_phase(outbox)
+    _ -> field(payload, "phase", decode.string)
+  }
 }
 
 fn move(x: Float, z: Float) -> Dynamic {
@@ -267,6 +271,8 @@ pub fn oni_leaving_ends_with_hiders_win_immediately_test() {
   let _counting = next_state(b)
   let preparation = next_state(b)
   let oni = field(preparation, "oni", decode.string)
+  // 隠れ側が決まった一覧（hiding）を読む。
+  let _hiding = next_state(b)
 
   room_actor.leave(room, PlayerId(oni))
   let reveal = next_state(b)
@@ -482,4 +488,86 @@ pub fn oni_cpu_broadcasts_its_state_during_exploration_test() {
   let _ = read(next_state_within(a, 2000))
   let fourth = read(next_state_within(a, 2000))
   { first != fourth } |> should.be_true
+}
+
+// --- 観戦（issue-28） -----------------------------------------------------------
+
+fn move_facing(x: Float, z: Float, facing: Float) -> Dynamic {
+  dynamic.properties([
+    #(dynamic.string("type"), dynamic.string("move")),
+    #(dynamic.string("x"), dynamic.float(x)),
+    #(dynamic.string("z"), dynamic.float(z)),
+    #(dynamic.string("facing"), dynamic.float(facing)),
+  ])
+}
+
+fn hiding_ids(payload: Dynamic) -> List(String) {
+  field(payload, "type", decode.string) |> should.equal("hiding")
+  field(payload, "playerIds", decode.list(decode.string))
+  |> list.sort(string.compare)
+}
+
+/// a が鬼の部屋を、探索フェーズまで進める（隠れ側の一括配信まで読む）。
+fn to_exploration(ids: List(String)) {
+  let durations =
+    game.Durations(
+      oni_selection_ms: 30,
+      preparation_ms: 30,
+      painting_ms: 30,
+      exploration_ms: 60_000,
+      reveal_ms: 60_000,
+    )
+  let #(room, _) = open_room(ids, durations)
+  let a = subscribe(room, "a")
+  let _info = next_state(a)
+  let assert Ok(Nil) = room_actor.start_game(room)
+  let _selection = next_state(a)
+  room_actor.game_event(room, PlayerId("a"), move(0.0, 0.0))
+  let _counting = next_state(a)
+  next_phase(a) |> should.equal("preparation")
+  #(room, a)
+}
+
+/// 準備移動の始まりに、まだ隠れている隠れ側の一覧が全員へ届く。
+pub fn hiding_list_is_sent_when_hiders_are_decided_test() {
+  let #(_room, a) = to_exploration(["a", "b", "c"])
+  hiding_ids(next_state(a)) |> should.equal(["b", "c"])
+}
+
+/// 被りで失格すると、一覧から外れた知らせが全員へ届く（失格者も観戦になる）。
+pub fn disqualified_hiders_leave_the_hiding_list_test() {
+  let #(room, a) = to_exploration(["a", "b", "c"])
+  let _start = next_state(a)
+  // b を c と同じ場所へ動かして被らせる。
+  room_actor.game_event(room, PlayerId("c"), move(1.0, 1.0))
+  room_actor.game_event(room, PlayerId("b"), move(1.0, 1.0))
+  let after = next_state(a)
+  // 全員失格で鬼の勝ち（答え合わせ）の知らせと、空になった一覧が届く。
+  field(after, "phase", decode.string) |> should.equal("reveal")
+  hiding_ids(next_state(a)) |> should.equal([])
+}
+
+/// 人間の鬼は、探索中に動くたびに、位置と向きを全員へ送る（鬼 CPU と同じ形）。
+pub fn human_oni_state_is_broadcast_during_exploration_test() {
+  let #(room, a) = to_exploration(["a", "b"])
+  let _hiding = next_state(a)
+  // ペイント中の鬼の移動（待機ルーム）は送らない。
+  next_phase(a) |> should.equal("painting")
+  next_phase(a) |> should.equal("exploration")
+  field(next_state(a), "type", decode.string) |> should.equal("hiders")
+
+  room_actor.game_event(room, PlayerId("a"), move_facing(1.0, 2.0, 0.5))
+  let oni = next_state(a)
+  field(oni, "type", decode.string) |> should.equal("oni")
+  field(oni, "playerId", decode.string) |> should.equal("a")
+  field(oni, "x", decode.float) |> should.equal(1.0)
+  field(oni, "z", decode.float) |> should.equal(2.0)
+  field(oni, "facing", decode.float) |> should.equal(0.5)
+  field(oni, "pose", decode.string) |> should.equal("standing")
+  field(oni, "openDoors", decode.list(decode.dynamic)) |> should.equal([])
+
+  // 隠れ側の移動の報告（動けない）では、鬼の状態は送らない。
+  room_actor.game_event(room, PlayerId("b"), move_facing(0.0, 0.0, 0.0))
+  let _ = room_actor.snapshot(room)
+  process.receive(a, 50) |> should.equal(Error(Nil))
 }

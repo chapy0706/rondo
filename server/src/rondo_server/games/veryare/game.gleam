@@ -144,6 +144,8 @@ pub type Game(id) {
     /// 鬼。鬼選出が終わるまで None。鬼は1人固定。
     oni: Option(id),
     positions: Dict(id, Position),
+    /// 向き（ラジアン。x 軸から z 軸の向きへ回る）。報告された人だけ持つ（観戦の配信に使う）。
+    facings: Dict(id, Float),
     /// まだ隠れている隠れ側（接続中かつ未発見）。
     still_hiding: Set(id),
     /// 鬼選出のカウントダウン中か。エリアへの最初の接触で True になる。
@@ -206,6 +208,7 @@ pub fn new_with(
     players:,
     oni: None,
     positions: waiting_seats(players),
+    facings: dict.new(),
     still_hiding: set.new(),
     counting: False,
     candidates: set.new(),
@@ -318,6 +321,14 @@ pub fn move(game: Game(id), player: id, x: Float, z: Float) -> Game(id) {
       }
     }
     _, _ -> game
+  }
+}
+
+/// 向きの報告。動ける間だけ受け付ける（観戦者へ送る鬼の向きに使う / issue-28）。
+pub fn turn(game: Game(id), player: id, facing: Float) -> Game(id) {
+  case can_move(game, player) {
+    True -> Game(..game, facings: dict.insert(game.facings, player, facing))
+    False -> game
   }
 }
 

@@ -62,3 +62,12 @@ export interface VeryareOniNotice {
 	/** 開いている襖（開けっぱなし / ADR 0033）。 */
 	readonly openDoors: readonly VeryareDoor[];
 }
+
+/**
+ * まだ隠れている隠れ側の一覧（参加順）。一覧が変わるたび（発見・被りの失格・離脱）に送る。
+ * 一覧から外れた隠れ側は観戦になる（issue-28）。
+ */
+export interface VeryareHidingNotice {
+	readonly type: "hiding";
+	readonly playerIds: readonly PlayerId[];
+}

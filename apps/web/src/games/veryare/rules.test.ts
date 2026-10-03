@@ -8,13 +8,20 @@ import {
 	canMove,
 	canPaintWhileWaiting,
 	clampToSpace,
+	facingOfYaw,
+	isSpectator,
+	moveReport,
 	parseHidersNotice,
+	parseHidingNotice,
+	parseOniNotice,
 	parsePhaseNotice,
 	parseRoomInfo,
 	roleOf,
 	spaceOf,
 	spawnOf,
 	stepPosition,
+	viewOf,
+	yawOfFacing,
 } from "./rules";
 
 const phases: readonly Phase[] = [
@@ -305,5 +312,104 @@ describe("parseHidersNotice - 探索開始時の一括配信（issue-33）", () 
 		expect(
 			parseHidersNotice({ type: "hiders", hiders: [{ ...cpu, x: "1" }] }),
 		).toBeNull();
+	});
+});
+
+describe("観戦（issue-28）", () => {
+	const oni = {
+		type: "oni",
+		playerId: "cpu-1",
+		x: 3.5,
+		z: 10.5,
+		facing: -1.57,
+		pose: "standing",
+		openDoors: [{ corridor: { x: 3, z: 2 }, slot: { x: 2, z: 2 } }],
+	};
+
+	it("鬼の状態の通知を検証して読む", () => {
+		expect(parseOniNotice(oni)).toEqual(oni);
+		expect(parseOniNotice({ ...oni, x: "1" })).toBeNull();
+		expect(parseOniNotice({ ...oni, pose: "jump" })).toBeNull();
+		expect(parseOniNotice({ ...oni, openDoors: [{ corridor: 1 }] })).toBeNull();
+		expect(parseOniNotice({ type: "hiders" })).toBeNull();
+	});
+
+	it("まだ隠れている一覧の通知を検証して読む", () => {
+		expect(
+			parseHidingNotice({ type: "hiding", playerIds: ["a", "b"] }),
+		).toEqual({ playerIds: ["a", "b"] });
+		expect(parseHidingNotice({ type: "hiding", playerIds: [1] })).toBeNull();
+		expect(parseHidingNotice({ type: "oni" })).toBeNull();
+	});
+
+	it("一覧から外れた隠れ側は観戦になる（見つかった・失格）。鬼や、一覧に残る人はならない", () => {
+		expect(isSpectator("exploration", "hider", ["b"], "a")).toBe(true);
+		expect(isSpectator("painting", "hider", [], "a")).toBe(true);
+		expect(isSpectator("exploration", "hider", ["a"], "a")).toBe(false);
+		expect(isSpectator("exploration", "oni", [], "a")).toBe(false);
+		// 一覧がまだ届いていなければ観戦にしない。
+		expect(isSpectator("exploration", "hider", null, "a")).toBe(false);
+		// 答え合わせ・終了は全員が同じ景色を見るので、観戦の扱いはしない。
+		expect(isSpectator("reveal", "hider", [], "a")).toBe(false);
+	});
+
+	it("鬼 TPS 視点になるのは、探索中に鬼の状態が届いていて、観戦者か、選んだ隠れ側", () => {
+		const base = { phase: "exploration", oniKnown: true } as const;
+		expect(
+			viewOf({ ...base, role: "hider", spectator: true, choseOni: false }),
+		).toBe("oni");
+		expect(
+			viewOf({ ...base, role: "hider", spectator: false, choseOni: true }),
+		).toBe("oni");
+		expect(
+			viewOf({ ...base, role: "hider", spectator: false, choseOni: false }),
+		).toBe("self");
+		// 鬼自身は常に自分の視点。
+		expect(
+			viewOf({ ...base, role: "oni", spectator: false, choseOni: true }),
+		).toBe("self");
+		// 鬼の状態がまだ届いていなければ、自分の視点のまま。
+		expect(
+			viewOf({
+				...base,
+				oniKnown: false,
+				role: "hider",
+				spectator: true,
+				choseOni: false,
+			}),
+		).toBe("self");
+		expect(
+			viewOf({
+				...base,
+				phase: "painting",
+				role: "hider",
+				spectator: true,
+				choseOni: false,
+			}),
+		).toBe("self");
+	});
+
+	it("観戦者は移動できない", () => {
+		expect(canMove("exploration", "hider")).toBe(false);
+	});
+
+	it("カメラの向き（yaw）とサーバーの向き（facing）を相互に変換する", () => {
+		// yaw 0 は -z を向く。サーバーの向きでは -π/2。
+		expect(facingOfYaw(0)).toBeCloseTo(-Math.PI / 2);
+		// yaw π/2 は -x を向く。サーバーの向きでは π。
+		expect(Math.abs(facingOfYaw(Math.PI / 2))).toBeCloseTo(Math.PI);
+		for (const yaw of [-2, -0.5, 0, 1, 2.5]) {
+			expect(yawOfFacing(facingOfYaw(yaw))).toBeCloseTo(yaw);
+		}
+	});
+
+	it("移動の報告に向きを載せられる", () => {
+		expect(moveReport({ x: 1, z: 2 }, 0.5)).toEqual({
+			type: "move",
+			x: 1,
+			z: 2,
+			facing: 0.5,
+		});
+		expect(moveReport({ x: 1, z: 2 })).toEqual({ type: "move", x: 1, z: 2 });
 	});
 });

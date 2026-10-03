@@ -59,6 +59,45 @@ describe("veryareScript - 時間で進む簡易な台本", () => {
 		expect(states.every((h) => h.paint === null)).toBe(true);
 	});
 
+	it("準備移動の始まりに、まだ隠れている一覧（鬼以外）を送る", () => {
+		const hiding = script(true).find(
+			({ message }) => payloadOf(message).type === "hiding",
+		);
+		expect(hiding?.afterMs).toBe(16_000);
+		expect(payloadOf(hiding?.message as ServerMessage).playerIds).toEqual(
+			MOCK_BOTS.map((bot) => bot.playerId),
+		);
+	});
+
+	it("自分が隠れ側の回は、探索中に鬼の状態が0.5秒ごとに届き、10秒後に自分が見つかって観戦になる", () => {
+		const messages = script(false);
+		const oni = messages.filter(
+			({ message }) => payloadOf(message).type === "oni",
+		);
+		expect(oni.length).toBeGreaterThan(10);
+		expect(oni[0]?.afterMs).toBe(56_000);
+		expect(oni[1]?.afterMs).toBe(56_500);
+		expect(payloadOf(oni[0]?.message as ServerMessage)).toMatchObject({
+			type: "oni",
+			playerId: MOCK_BOTS[0]?.playerId,
+			pose: "standing",
+			openDoors: [],
+		});
+		const found = messages
+			.filter(({ message }) => payloadOf(message).type === "hiding")
+			.at(-1);
+		expect(found?.afterMs).toBe(66_000);
+		expect(payloadOf(found?.message as ServerMessage).playerIds).not.toContain(
+			"me",
+		);
+	});
+
+	it("自分が鬼の回は、鬼の状態を台本で送らない（自分の操作で動く）", () => {
+		expect(
+			script(true).some(({ message }) => payloadOf(message).type === "oni"),
+		).toBe(false);
+	});
+
 	it("青（カウント中）の通知は10秒の残り時間を持つ", () => {
 		const counting = script(true)
 			.map(({ message }) => payloadOf(message))

@@ -12,11 +12,17 @@
 /// 鬼 CPU（issue-34）がいる探索フェーズでは、0.5秒ごとのタイマー（tick）で鬼 CPU を
 /// 歩かせ、そのたびに鬼の状態（位置・向き・ポーズ・開いた襖）を全員へ送る。tick の
 /// タイマーは、フェーズのタイマーと見分けるため、負の token（-1 - step）を持つ。
+///
+/// 観戦（issue-28）: 人間の鬼も、探索中に動くたびに同じ形で鬼の状態を全員へ送る。
+/// 「まだ隠れている」隠れ側の一覧が変わったら（発見・失格・離脱）、一覧を全員へ送る。
+/// 一覧から外れた隠れ側のクライアントは、観戦（鬼 TPS 視点）に切り替える。
+import gleam/dict
 import gleam/dynamic.{type Dynamic}
 import gleam/dynamic/decode
 import gleam/int
 import gleam/list
 import gleam/option.{type Option, None, Some}
+import gleam/result
 import gleam/set
 import rondo_server/games/veryare/game.{
   type AreaState, type Game, type Outcome, type Phase, AreaCounting, AreaReady,
@@ -214,7 +220,18 @@ fn wrap(state: Game(PlayerId), pick: fn(Int) -> Int) -> Driver(PlayerId) {
   driver.new(
     on_event: fn(player, payload) {
       case decode.run(payload, move_decoder()) {
-        Ok(#(x, z)) -> step(state, game.move(state, player, x, z), pick)
+        Ok(#(x, z, facing)) -> {
+          let moved = game.move(state, player, x, z)
+          let turned = case facing {
+            Some(f) -> game.turn(moved, player, f)
+            None -> moved
+          }
+          let #(next, effects) = step(state, turned, pick)
+          #(
+            next,
+            list.append(effects, human_oni_effects(state, turned, player)),
+          )
+        }
         Error(_) -> #(wrap(state, pick), [])
       }
     },
@@ -253,7 +270,31 @@ fn step(
         False -> [driver.Broadcast(phase_payload(after))]
       }
   }
-  #(wrap(after, pick), effects)
+  // まだ隠れている隠れ側が変わったら、一覧を全員へ送る（観戦への切り替えに使う）。
+  let hiding = case after.still_hiding == before.still_hiding {
+    True -> []
+    False -> [driver.Broadcast(hiding_payload(after))]
+  }
+  #(wrap(after, pick), list.append(effects, hiding))
+}
+
+/// 人間の鬼が探索中に動いたら、鬼の状態を全員へ送る（位置か向きが変わったときだけ）。
+fn human_oni_effects(
+  before: Game(PlayerId),
+  after: Game(PlayerId),
+  player: PlayerId,
+) -> List(Effect(PlayerId)) {
+  let changed =
+    dict.get(before.positions, player) != dict.get(after.positions, player)
+    || dict.get(before.facings, player) != dict.get(after.facings, player)
+  case after.phase, after.oni == Some(player), after.oni_cpu, changed {
+    Exploration, True, None, True ->
+      case oni_payload(after) {
+        Some(payload) -> [driver.Broadcast(payload)]
+        None -> []
+      }
+    _, _, _, _ -> []
+  }
 }
 
 /// 鬼 CPU の tick のタイマーの token。フェーズのタイマー（step、0 以上）と重ならない。
@@ -343,15 +384,32 @@ fn phase_effects(state: Game(PlayerId)) -> List(Effect(PlayerId)) {
 
 // --- 電文 ----------------------------------------------------------------
 
-/// 移動の報告 { type: "move", x, z }。数値は整数でも受け付ける。
-fn move_decoder() -> decode.Decoder(#(Float, Float)) {
+/// 移動の報告 { type: "move", x, z, facing? }。数値は整数でも受け付ける。
+/// facing（向き）は任意で、観戦者へ送る鬼の向きに使う（issue-28）。
+fn move_decoder() -> decode.Decoder(#(Float, Float, Option(Float))) {
   use kind <- decode.field("type", decode.string)
   use x <- decode.field("x", number())
   use z <- decode.field("z", number())
+  use facing <- decode.optional_field("facing", None, decode.optional(number()))
   case kind {
-    "move" -> decode.success(#(x, z))
-    _ -> decode.failure(#(0.0, 0.0), "move")
+    "move" -> decode.success(#(x, z, facing))
+    _ -> decode.failure(#(0.0, 0.0, None), "move")
   }
+}
+
+/// まだ隠れている隠れ側の一覧 { type: "hiding", playerIds }（参加順）。
+fn hiding_payload(state: Game(PlayerId)) -> Dynamic {
+  let ids =
+    state.players
+    |> list.filter(fn(id) { set.contains(state.still_hiding, id) })
+    |> list.map(fn(id) {
+      let PlayerId(raw) = id
+      dynamic.string(raw)
+    })
+  dynamic.properties([
+    #(dynamic.string("type"), dynamic.string("hiding")),
+    #(dynamic.string("playerIds"), dynamic.list(ids)),
+  ])
 }
 
 fn number() -> decode.Decoder(Float) {
@@ -438,36 +496,57 @@ fn hiders_payload(state: Game(PlayerId)) -> Dynamic {
 /// 鬼 CPU の状態（人間の鬼も issue-28 で同じ形で送る）。
 /// { type: "oni", playerId, x, z, facing, pose, openDoors: [{ corridor: {x, z}, slot: {x, z} }] }。
 fn oni_payload(state: Game(PlayerId)) -> Option(Dynamic) {
-  case state.oni, state.oni_cpu {
-    Some(PlayerId(id)), Some(walker) -> {
-      let cell = fn(c: stage.Cell) {
-        dynamic.properties([
-          #(dynamic.string("x"), dynamic.int(c.x)),
-          #(dynamic.string("z"), dynamic.int(c.z)),
-        ])
+  let cell = fn(c: stage.Cell) {
+    dynamic.properties([
+      #(dynamic.string("x"), dynamic.int(c.x)),
+      #(dynamic.string("z"), dynamic.int(c.z)),
+    ])
+  }
+  let door = fn(d: stage.Door) {
+    dynamic.properties([
+      #(dynamic.string("corridor"), cell(d.corridor)),
+      #(dynamic.string("slot"), cell(d.slot)),
+    ])
+  }
+  // 鬼 CPU は自分の状態から、人間の鬼は報告された位置と向きから作る。
+  // 人間の鬼が開けた襖は、襖を実装する issue-29 まで空。
+  let state_of = case state.oni, state.oni_cpu {
+    Some(oni), Some(walker) ->
+      Ok(#(
+        oni,
+        walker.position,
+        walker.facing,
+        list.map(set.to_list(walker.open_doors), door),
+      ))
+    Some(oni), None ->
+      case dict.get(state.positions, oni) {
+        Ok(position) ->
+          Ok(
+            #(
+              oni,
+              #(position.x, position.z),
+              result.unwrap(dict.get(state.facings, oni), 0.0),
+              [],
+            ),
+          )
+        Error(Nil) -> Error(Nil)
       }
-      let doors =
-        walker.open_doors
-        |> set.to_list
-        |> list.map(fn(door) {
-          dynamic.properties([
-            #(dynamic.string("corridor"), cell(door.corridor)),
-            #(dynamic.string("slot"), cell(door.slot)),
-          ])
-        })
+    None, _ -> Error(Nil)
+  }
+  case state_of {
+    Ok(#(PlayerId(id), #(x, z), facing, doors)) ->
       Some(
         dynamic.properties([
           #(dynamic.string("type"), dynamic.string("oni")),
           #(dynamic.string("playerId"), dynamic.string(id)),
-          #(dynamic.string("x"), dynamic.float(walker.position.0)),
-          #(dynamic.string("z"), dynamic.float(walker.position.1)),
-          #(dynamic.string("facing"), dynamic.float(walker.facing)),
+          #(dynamic.string("x"), dynamic.float(x)),
+          #(dynamic.string("z"), dynamic.float(z)),
+          #(dynamic.string("facing"), dynamic.float(facing)),
           #(dynamic.string("pose"), dynamic.string("standing")),
           #(dynamic.string("openDoors"), dynamic.list(doors)),
         ]),
       )
-    }
-    _, _ -> None
+    Error(Nil) -> None
   }
 }
 
