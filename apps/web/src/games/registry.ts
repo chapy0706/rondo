@@ -1,6 +1,7 @@
 import type { GameManifest } from "@rondo/contracts";
 import type { ComponentType } from "react";
 import { czzManifest } from "./czz/manifest";
+import { minichessManifest } from "./minichess/manifest";
 import { nikakuKeshiManifest } from "./nikaku-keshi/manifest";
 import { tetrisManifest } from "./tetris/manifest";
 import { tiltMazeManifest } from "./tilt-maze/manifest";
@@ -20,6 +21,7 @@ export const registry: readonly GameManifest[] = [
 	czzManifest,
 	veryareManifest,
 	nikakuKeshiManifest,
+	minichessManifest,
 ];
 
 /** ゲーム本体（React コンポーネント）の遅延ローダ。 */
@@ -38,6 +40,7 @@ const gameComponents: Record<string, GameLoader> = {
 	[czzManifest.id]: () => import("./czz/Czz"),
 	[veryareManifest.id]: () => import("./veryare/Veryare"),
 	[nikakuKeshiManifest.id]: () => import("./nikaku-keshi/NikakuKeshi"),
+	[minichessManifest.id]: () => import("./minichess/Minichess"),
 };
 
 /**
