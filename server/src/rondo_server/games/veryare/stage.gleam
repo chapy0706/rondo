@@ -248,6 +248,11 @@ pub fn generate(seed: Int) -> Layout {
   Layout(skeleton:, rooms: assign(skeleton, seed))
 }
 
+/// 骨格を指定して、部屋タイプだけを割り当てる（シミュレーションで骨格ごとに集計する）。
+pub fn generate_on(skeleton: Skeleton, seed: Int) -> Layout {
+  Layout(skeleton:, rooms: assign(skeleton, normalize(seed)))
+}
+
 /// スロットへ部屋タイプを割り当てる。空きのスロットも残し、構成の幅
 /// （和室8〜12・押し入れ3〜5）に必ず収める。
 fn assign(skeleton: Skeleton, seed: Int) -> Dict(String, RoomType) {
@@ -323,7 +328,7 @@ pub fn normalize(seed: Int) -> Int {
   int.absolute_value(seed) % modulus
 }
 
-/// 0 以上 size 未満の値と、次の種を返す。
+/// 0 以上 size 未満の値と、次の種を返す。値は上位15ビットから取るので、size は 32768 以下で使う。
 pub fn draw(seed: Int, size: Int) -> #(Int, Int) {
   let next = { seed * 1_103_515_245 + 12_345 } % modulus
   case size <= 1 {

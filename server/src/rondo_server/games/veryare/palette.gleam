@@ -3,12 +3,14 @@
 /// サーバーには描画が無いので、隠れ側が周囲に溶け込んでいるかは、ペイントの平均色と
 /// その場の代表色の差で近似する。差は 0（同じ色）〜 1（黒と白）に正規化する。
 /// 代表色は仮の値で、モデルと素材がそろったら平均色を取って合わせ直す。
+import gleam/dict
 import gleam/float
 import gleam/int
 import gleam/list
 import gleam/string
 import rondo_server/games/veryare/stage.{
-  type RoomType, Oshiire, Washitsu, WashitsuWithKakejiku, WashitsuWithOshiire,
+  type Cell, type Layout, type RoomType, Oshiire, Washitsu, WashitsuWithKakejiku,
+  WashitsuWithOshiire,
 }
 
 /// 色（各 0〜255）。
@@ -26,6 +28,28 @@ pub fn room_color(room: RoomType) -> Rgb {
     WashitsuWithKakejiku -> Rgb(194, 178, 128)
     // 押し入れの、暗い木の色。
     Oshiire -> Rgb(107, 84, 64)
+  }
+}
+
+/// 廊下・縁側・玄関の代表色（仮の値。板張りの明るい茶色）。
+pub const floor_color = Rgb(160, 120, 80)
+
+/// まだ塗っていない体の色（クライアントのアバターの既定色と揃える）。
+pub const unpainted = Rgb(236, 232, 245)
+
+/// その場の代表色。部屋の中ならその部屋タイプの色、それ以外は廊下の色。
+pub fn place_color(layout: Layout, cell: Cell) -> Rgb {
+  let room =
+    list.find(layout.skeleton.slots, fn(slot) {
+      list.contains(slot.cells, cell)
+    })
+  case room {
+    Ok(slot) ->
+      case dict.get(layout.rooms, slot.id) {
+        Ok(room) -> room_color(room)
+        Error(Nil) -> floor_color
+      }
+    Error(Nil) -> floor_color
   }
 }
 

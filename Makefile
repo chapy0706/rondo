@@ -12,6 +12,7 @@ help:
 	@echo ""
 	@echo "  test           フロントのテスト（Vitest）"
 	@echo "  test/server    Gleam サーバーのテスト（gleam test）"
+	@echo "  simulate       veryare の CPU 対戦シミュレーション（集計を表で出す）"
 	@echo ""
 	@echo "  lint           静的解析（Biome）"
 	@echo "  type-check     型チェック（tsc）"
@@ -64,6 +65,10 @@ test:
 .PHONY: test/server
 test/server:
 	cd server && gleam test
+
+.PHONY: simulate
+simulate:
+	cd server && gleam run -m rondo_server/simulate
 
 # ------------------------
 # Lint / Format / Types

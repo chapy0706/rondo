@@ -4,6 +4,7 @@ import gleam/int
 import gleam/list
 import gleam/option.{None}
 import gleeunit/should
+import rondo_server/games/veryare/oni_cpu
 import rondo_server/games/veryare/room as veryare
 import rondo_server/room/room_actor.{type RoomSpec, RoomId, RoomSpec}
 import rondo_server/room/room_directory.{LimitReached}
@@ -19,7 +20,7 @@ fn directory() {
 fn veryare_spec(n: Int) -> RoomSpec {
   veryare.spec(
     RoomId("v" <> int.to_string(n)),
-    veryare.Settings(40, veryare.NoCpu),
+    veryare.Settings(40, veryare.NoCpu, oni_cpu.Normal),
   )
 }
 

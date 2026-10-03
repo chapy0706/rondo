@@ -22,6 +22,9 @@
 /// 「まだ隠れている」集合に人間と同じように入る。違いは3つだけ: 隠れ側 CPU は鬼の抽選の
 /// 対象にならない。鬼 CPU がいれば抽選をせずにその CPU が鬼になる。隠れ側 CPU は準備移動の
 /// 終わりに、被り判定の直前に位置・ポーズ・ペイントを確定させる（hider_cpu）。
+///
+/// 鬼 CPU（issue-34）は、探索の開始時に玄関から出て、0.5秒ごとの tick で歩いて探す
+/// （oni_cpu）。見つけた隠れ側は、人間の鬼が当てたときと同じ found を通る。
 import gleam/dict.{type Dict}
 import gleam/float
 import gleam/int
@@ -29,7 +32,10 @@ import gleam/list
 import gleam/option.{type Option, None, Some}
 import gleam/set.{type Set}
 import rondo_server/games/veryare/hider_cpu.{type Placement}
+import rondo_server/games/veryare/oni_cpu.{type OniCpu, type Strength}
 import rondo_server/games/veryare/overlap
+import rondo_server/games/veryare/palette
+import rondo_server/games/veryare/sight
 import rondo_server/games/veryare/stage.{type Layout}
 
 // --- 定数 ----------------------------------------------------------------
@@ -122,8 +128,9 @@ pub type Durations {
 }
 
 /// ルームに加わっている CPU。どちらも players に含まれる参加者の ID。
+/// strength は鬼 CPU の強さ（鬼 CPU がいないときは使わない）。
 pub type Cpus(id) {
-  Cpus(hiders: List(id), oni: Option(id))
+  Cpus(hiders: List(id), oni: Option(id), strength: Strength)
 }
 
 pub type Game(id) {
@@ -148,6 +155,12 @@ pub type Game(id) {
     cpus: Cpus(id),
     /// 準備移動の終わりに確定した、隠れ CPU の状態。
     cpu_states: Dict(id, Placement),
+    /// 鬼 CPU が使う見通しの地図（ステージから作っておく）。
+    sight_map: sight.Map,
+    /// 探索中の鬼 CPU。鬼が CPU のときだけ、探索の開始時に作る。
+    oni_cpu: Option(OniCpu),
+    /// 直前の tick で鬼 CPU の視界に入っていた隠れ側（見逃しポイント / issue-32 で使う）。
+    seen: List(id),
   )
 }
 
@@ -171,7 +184,12 @@ pub fn new(
   durations: Durations,
   layout: Layout,
 ) -> Game(id) {
-  new_with(players, durations, layout, Cpus(hiders: [], oni: None))
+  new_with(
+    players,
+    durations,
+    layout,
+    Cpus(hiders: [], oni: None, strength: oni_cpu.Normal),
+  )
 }
 
 /// CPU を加えて始める。cpus の ID は players にも含めておく（参加者として数える）。
@@ -194,6 +212,9 @@ pub fn new_with(
     layout:,
     cpus:,
     cpu_states: dict.new(),
+    sight_map: sight.map_of(layout),
+    oni_cpu: None,
+    seen: [],
   )
 }
 
@@ -270,7 +291,7 @@ pub fn advance(game: Game(id), step: Int, pick: fn(Int) -> Int) -> Game(id) {
         // カウント前にタイマーは張らないので、届いても何もしない。
         OniSelection -> game
         Preparation -> end_preparation(settle_cpus(game, pick))
-        Painting -> start_exploration(game)
+        Painting -> start_exploration(game, pick)
         Exploration ->
           case set.is_empty(game.still_hiding) {
             True -> reveal(game, OniWins)
@@ -456,14 +477,72 @@ fn settle_cpus(game: Game(id), pick: fn(Int) -> Int) -> Game(id) {
   }
 }
 
-/// 鬼が待機ルームからステージへ移り、探索を始める。
-fn start_exploration(game: Game(id)) -> Game(id) {
-  let positions = case game.oni {
-    Some(oni) ->
-      dict.insert(game.positions, oni, Position(Stage, 0.0, stage_half -. 0.5))
-    None -> game.positions
+/// 鬼が待機ルームからステージへ移り、探索を始める。鬼 CPU は玄関から出る。
+fn start_exploration(game: Game(id), pick: fn(Int) -> Int) -> Game(id) {
+  case game.oni, game.cpus.oni {
+    Some(oni), Some(cpu) if oni == cpu -> {
+      let walker =
+        oni_cpu.start(game.layout, game.cpus.strength, pick(cpu_seed_range))
+      let #(x, z) = walker.position
+      Game(
+        ..next(game, Exploration),
+        positions: dict.insert(game.positions, oni, Position(Stage, x, z)),
+        oni_cpu: Some(walker),
+      )
+    }
+    Some(oni), _ ->
+      Game(
+        ..next(game, Exploration),
+        positions: dict.insert(
+          game.positions,
+          oni,
+          Position(Stage, 0.0, stage_half -. 0.5),
+        ),
+      )
+    None, _ -> next(game, Exploration)
   }
-  Game(..next(game, Exploration), positions:)
+}
+
+/// 探索中に鬼 CPU が動いているか（0.5秒ごとの tick が要るか）。
+pub fn oni_cpu_active(game: Game(id)) -> Bool {
+  game.phase == Exploration && option.is_some(game.oni_cpu)
+}
+
+/// 鬼 CPU の 0.5秒ぶん。歩いて、視界に入った隠れ側に発見の乱数を引く。見つけた隠れ側は
+/// found（人間の鬼が当てたときと同じ処理）で抜ける。探索中でなければ何もしない。
+pub fn tick(game: Game(id)) -> Game(id) {
+  case game.phase, game.oni_cpu, game.oni {
+    Exploration, Some(walker), Some(oni) -> {
+      let hiders =
+        game.players
+        |> list.filter(fn(id) { set.contains(game.still_hiding, id) })
+        |> list.filter_map(fn(id) {
+          case dict.get(game.positions, id) {
+            Ok(Position(Stage, x, z)) -> {
+              let color = case dict.get(game.cpu_states, id) {
+                Ok(placement) -> placement.color
+                // 人間のペイントはまだ無い（issue-25）。塗っていない体の色で数える。
+                Error(Nil) -> palette.unpainted
+              }
+              Ok(oni_cpu.Hider(id:, x:, z:, color:))
+            }
+            _ -> Error(Nil)
+          }
+        })
+      let #(walker, found_ids, seen) =
+        oni_cpu.step(walker, game.sight_map, game.layout, hiders)
+      let #(x, z) = walker.position
+      let moved =
+        Game(
+          ..game,
+          oni_cpu: Some(walker),
+          seen:,
+          positions: dict.insert(game.positions, oni, Position(Stage, x, z)),
+        )
+      list.fold(found_ids, moved, found)
+    }
+    _, _, _ -> game
+  }
 }
 
 /// 動けるか。準備移動の後（ペイント・探索）は鬼だけ。答え合わせ・終了後は誰も動けない。

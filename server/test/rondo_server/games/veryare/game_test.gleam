@@ -9,6 +9,7 @@ import rondo_server/games/veryare/game.{
   NotEnoughPlayers, OniSelection, OniWins, Painting, Position, Preparation,
   Reveal, Stage, WaitingRoom,
 }
+import rondo_server/games/veryare/oni_cpu
 import rondo_server/games/veryare/stage
 
 // --- 補助 ---------------------------------------------------------------
@@ -490,10 +491,16 @@ fn new_game_with(ids: List(String), cpus: game.Cpus(String)) -> Game(String) {
 
 /// CPU は参加者として、最小人数（2人）の判定に数える。1人の人間と CPU で始められる。
 pub fn cpus_count_toward_the_minimum_test() {
-  new_game_with(["h", "cpu-1"], game.Cpus(hiders: ["cpu-1"], oni: None))
+  new_game_with(
+    ["h", "cpu-1"],
+    game.Cpus(hiders: ["cpu-1"], oni: None, strength: oni_cpu.Normal),
+  )
   |> game.area_state
   |> should.equal(AreaReady)
-  new_game_with(["h", "cpu-1"], game.Cpus(hiders: [], oni: Some("cpu-1")))
+  new_game_with(
+    ["h", "cpu-1"],
+    game.Cpus(hiders: [], oni: Some("cpu-1"), strength: oni_cpu.Normal),
+  )
   |> game.area_state
   |> should.equal(AreaReady)
 }
@@ -505,7 +512,11 @@ pub fn hider_cpus_are_never_picked_as_oni_test() {
     let g =
       new_game_with(
         ["cpu-1", "h", "x", "cpu-2"],
-        game.Cpus(hiders: ["cpu-1", "cpu-2"], oni: None),
+        game.Cpus(
+          hiders: ["cpu-1", "cpu-2"],
+          oni: None,
+          strength: oni_cpu.Normal,
+        ),
       )
       |> touch_area("x")
       // 立候補者 x が抜けると、残った全員からの抽選になる。
@@ -522,7 +533,7 @@ pub fn oni_cpu_becomes_oni_without_a_lottery_test() {
   let g =
     new_game_with(
       ["h1", "h2", "cpu-1"],
-      game.Cpus(hiders: [], oni: Some("cpu-1")),
+      game.Cpus(hiders: [], oni: Some("cpu-1"), strength: oni_cpu.Normal),
     )
     |> touch_area("h1")
     |> touch_area("h2")
@@ -535,7 +546,10 @@ pub fn oni_cpu_becomes_oni_without_a_lottery_test() {
 /// 鬼 CPU でも、2人未満なら不成立（人数の判定は変わらない）。
 pub fn oni_cpu_still_needs_two_participants_test() {
   let g =
-    new_game_with(["h", "cpu-1"], game.Cpus(hiders: [], oni: Some("cpu-1")))
+    new_game_with(
+      ["h", "cpu-1"],
+      game.Cpus(hiders: [], oni: Some("cpu-1"), strength: oni_cpu.Normal),
+    )
     |> touch_area("h")
     |> game.leave("h")
     |> expire(always(0))
@@ -548,7 +562,7 @@ pub fn hider_cpus_settle_at_the_end_of_preparation_test() {
   let g =
     new_game_with(
       ["h", "cpu-1", "cpu-2"],
-      game.Cpus(hiders: ["cpu-1", "cpu-2"], oni: None),
+      game.Cpus(hiders: ["cpu-1", "cpu-2"], oni: None, strength: oni_cpu.Normal),
     )
     |> touch_area("h")
     |> expire(always(0))
@@ -573,7 +587,7 @@ pub fn hider_cpus_avoid_human_hiders_test() {
   let g =
     new_game_with(
       ["oni", "h", "cpu-1"],
-      game.Cpus(hiders: ["cpu-1"], oni: None),
+      game.Cpus(hiders: ["cpu-1"], oni: None, strength: oni_cpu.Normal),
     )
     |> touch_area("oni")
     |> expire(always(0))
@@ -595,7 +609,7 @@ pub fn hider_states_list_only_those_still_hiding_test() {
   let g =
     new_game_with(
       ["oni", "cpu-1", "cpu-2"],
-      game.Cpus(hiders: ["cpu-1", "cpu-2"], oni: None),
+      game.Cpus(hiders: ["cpu-1", "cpu-2"], oni: None, strength: oni_cpu.Normal),
     )
     |> touch_area("oni")
     |> expire(always(0))
@@ -606,4 +620,74 @@ pub fn hider_states_list_only_those_still_hiding_test() {
   game.hider_states(after)
   |> list.map(fn(entry) { entry.0 })
   |> should.equal(["cpu-2"])
+}
+
+// --- 鬼 CPU（issue-34） -------------------------------------------------------
+
+/// 鬼 CPU と隠れ CPU だけの対戦を、探索フェーズまで進める。
+fn exploration_with_oni_cpu(strength: oni_cpu.Strength) -> Game(String) {
+  new_game_with(
+    ["cpu-1", "cpu-2", "cpu-3"],
+    game.Cpus(hiders: ["cpu-2", "cpu-3"], oni: Some("cpu-1"), strength:),
+  )
+  // 誰かがエリアに触れてカウントを始める（CPU は動かないので、ここでは手で触れさせる）。
+  |> touch_area("cpu-2")
+  |> expire(always(0))
+  |> expire(always(0))
+  |> expire(always(0))
+}
+
+fn ticks(g: Game(String), n: Int) -> List(Game(String)) {
+  case n <= 0 {
+    True -> []
+    False -> {
+      let next = game.tick(g)
+      [next, ..ticks(next, n - 1)]
+    }
+  }
+}
+
+/// 鬼 CPU は、探索の開始時に玄関（リスポーン位置）から出る。
+pub fn oni_cpu_starts_from_the_entrance_test() {
+  let g = exploration_with_oni_cpu(oni_cpu.Normal)
+  g.phase |> should.equal(Exploration)
+  let #(x, z) = g.layout.skeleton.spawn
+  position(g, "cpu-1") |> should.equal(Position(Stage, x, z))
+  game.oni_cpu_active(g) |> should.be_true
+}
+
+/// 0.5秒ごとの tick で歩き、見つけた隠れ側は「見つけた」処理（found）と同じ経路で抜ける。
+/// 全員見つければ鬼の勝ち（答え合わせへ）。「まだ隠れている」集合は増えない。
+pub fn oni_cpu_finds_hiders_through_the_found_path_test() {
+  let history = ticks(exploration_with_oni_cpu(oni_cpu.Strong), 400)
+  list.window_by_2(history)
+  |> list.each(fn(pair) {
+    set.is_subset({ pair.1 }.still_hiding, { pair.0 }.still_hiding)
+    |> should.be_true
+  })
+  let assert Ok(last) = list.last(history)
+  last.phase |> should.equal(Reveal(OniWins))
+  // 探索が終わった後は tick しても何も変わらない。
+  game.tick(last) |> should.equal(last)
+}
+
+/// 鬼 CPU が動くと、鬼の位置が変わる。
+pub fn oni_cpu_moves_on_ticks_test() {
+  let g = exploration_with_oni_cpu(oni_cpu.Normal)
+  let assert Ok(later) = ticks(g, 10) |> list.last
+  { position(later, "cpu-1") != position(g, "cpu-1") } |> should.be_true
+}
+
+/// 鬼が人間なら、tick は何もしない。
+pub fn tick_does_nothing_without_an_oni_cpu_test() {
+  let g = exploration_with_oni_a()
+  game.oni_cpu_active(g) |> should.be_false
+  game.tick(g) |> should.equal(g)
+}
+
+/// 種が同じなら、同じ動きになる。
+pub fn oni_cpu_is_deterministic_test() {
+  let a = ticks(exploration_with_oni_cpu(oni_cpu.Normal), 60)
+  let b = ticks(exploration_with_oni_cpu(oni_cpu.Normal), 60)
+  a |> should.equal(b)
 }

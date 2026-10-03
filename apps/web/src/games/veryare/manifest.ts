@@ -39,5 +39,14 @@ export const veryareManifest: GameManifest = {
 				4: "鬼 CPU",
 			},
 		},
+		{
+			key: "cpuStrength",
+			label: "鬼 CPU の強さ",
+			// 0 = よわい、1 = ふつう、2 = つよい（サーバーの room.gleam と揃える）。
+			// 鬼 CPU を選んだときだけ使われる。
+			choices: [0, 1, 2],
+			default: 1,
+			choiceLabels: { 0: "よわい", 1: "ふつう", 2: "つよい" },
+		},
 	],
 };

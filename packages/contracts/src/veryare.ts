@@ -2,7 +2,8 @@
  * veryare のゲーム内通知のうち、ゲームの外とも形を取り決めるもの（ADR 0009）。
  *
  * 探索フェーズの開始時に、まだ隠れている隠れ側全員の状態を、全員へ同じ内容で一括配信する
- * （ADR 0025 / 0035）。サーバーは game-state の payload としてこの形を送る。
+ * （ADR 0025 / 0035）。探索中は、鬼の状態を全員へ送り続ける（いまは鬼 CPU だけ / issue-34。
+ * 人間の鬼も issue-28 で同じ形で送る）。サーバーは game-state の payload としてこれらを送る。
  */
 
 import type { PlayerId } from "./messages";
@@ -35,4 +36,29 @@ export interface VeryareHiderState {
 export interface VeryareHidersNotice {
 	readonly type: "hiders";
 	readonly hiders: readonly VeryareHiderState[];
+}
+
+/** 骨格のマス（1m 四方）。x は幅方向、z は奥（0）から手前（玄関側）。 */
+export interface VeryareCell {
+	readonly x: number;
+	readonly z: number;
+}
+
+/** 襖。廊下のマスと、部屋のマスの境にある。 */
+export interface VeryareDoor {
+	readonly corridor: VeryareCell;
+	readonly slot: VeryareCell;
+}
+
+/** 探索中の鬼の状態。鬼 CPU は 0.5秒ごとに送る。 */
+export interface VeryareOniNotice {
+	readonly type: "oni";
+	readonly playerId: PlayerId;
+	readonly x: number;
+	readonly z: number;
+	/** 向き（ラジアン。x 軸から z 軸の向きへ回る）。 */
+	readonly facing: number;
+	readonly pose: VeryarePose;
+	/** 開いている襖（開けっぱなし / ADR 0033）。 */
+	readonly openDoors: readonly VeryareDoor[];
 }

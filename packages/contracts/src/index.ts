@@ -34,8 +34,11 @@ export type {
 	ScoreOrder,
 } from "./result";
 export type {
+	VeryareCell,
+	VeryareDoor,
 	VeryareHiderState,
 	VeryareHidersNotice,
+	VeryareOniNotice,
 	VeryarePaint,
 	VeryarePose,
 } from "./veryare";

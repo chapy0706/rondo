@@ -8,11 +8,16 @@
 /// CPU（ADR 0038 / issue-33）は、作成時の設定に応じて接続を持たない参加者（cpu-N・
 /// 「CPU N」）としてルームに加える。探索開始の瞬間に、まだ隠れている隠れ側全員の状態を
 /// 全員へ同じ内容で一括配信する（ADR 0025 / 0035）。
+///
+/// 鬼 CPU（issue-34）がいる探索フェーズでは、0.5秒ごとのタイマー（tick）で鬼 CPU を
+/// 歩かせ、そのたびに鬼の状態（位置・向き・ポーズ・開いた襖）を全員へ送る。tick の
+/// タイマーは、フェーズのタイマーと見分けるため、負の token（-1 - step）を持つ。
 import gleam/dynamic.{type Dynamic}
 import gleam/dynamic/decode
 import gleam/int
 import gleam/list
 import gleam/option.{type Option, None, Some}
+import gleam/set
 import rondo_server/games/veryare/game.{
   type AreaState, type Game, type Outcome, type Phase, AreaCounting, AreaReady,
   AreaWaiting, Ended, Exploration, HidersWin, NotEnoughPlayers, OniSelection,
@@ -21,6 +26,7 @@ import rondo_server/games/veryare/game.{
 import rondo_server/games/veryare/hider_cpu.{
   type Placement, Crouching, Lying, Standing,
 }
+import rondo_server/games/veryare/oni_cpu.{type Strength}
 import rondo_server/games/veryare/palette
 import rondo_server/games/veryare/stage
 import rondo_server/room/driver.{type Driver, type Effect}
@@ -53,6 +59,12 @@ pub const default_exploration_seconds = 40
 /// CPU の選択肢の値。0 = なし、1〜3 = 隠れ側 CPU の数、4 = 鬼 CPU。
 pub const cpu_choices = [0, 1, 2, 3, 4]
 
+/// 鬼 CPU の強さの選択肢の値。0 = よわい、1 = ふつう、2 = つよい。
+pub const cpu_strength_choices = [0, 1, 2]
+
+/// 鬼 CPU が歩く間隔（ミリ秒）。
+const tick_ms = 500
+
 /// ルームに加える CPU。
 pub type CpuChoice {
   NoCpu
@@ -64,14 +76,14 @@ pub type CpuChoice {
 
 /// ルーム作成時の設定。
 pub type Settings {
-  Settings(exploration_seconds: Int, cpu: CpuChoice)
+  Settings(exploration_seconds: Int, cpu: CpuChoice, strength: Strength)
 }
 
 /// create-room の settings（unknown）を検証する。省略時は基本値。
 /// 選択肢にない値は拒否する（境界での unknown 検証）。
 pub fn parse_settings(raw: Option(Dynamic)) -> Result(Settings, Nil) {
   case raw {
-    None -> Ok(Settings(default_exploration_seconds, NoCpu))
+    None -> Ok(Settings(default_exploration_seconds, NoCpu, oni_cpu.Normal))
     Some(data) -> {
       let decoder = {
         use seconds <- decode.optional_field(
@@ -80,20 +92,31 @@ pub fn parse_settings(raw: Option(Dynamic)) -> Result(Settings, Nil) {
           decode.int,
         )
         use cpu <- decode.optional_field("cpu", 0, decode.int)
-        decode.success(#(seconds, cpu))
+        use strength <- decode.optional_field("cpuStrength", 1, decode.int)
+        decode.success(#(seconds, cpu, strength))
       }
       case decode.run(data, decoder) {
-        Ok(#(seconds, cpu)) ->
+        Ok(#(seconds, cpu, strength)) ->
           case
             list.contains(exploration_choices, seconds),
-            list.contains(cpu_choices, cpu)
+            list.contains(cpu_choices, cpu),
+            list.contains(cpu_strength_choices, strength)
           {
-            True, True -> Ok(Settings(seconds, cpu_choice(cpu)))
-            _, _ -> Error(Nil)
+            True, True, True ->
+              Ok(Settings(seconds, cpu_choice(cpu), strength_of(strength)))
+            _, _, _ -> Error(Nil)
           }
         Error(_) -> Error(Nil)
       }
     }
+  }
+}
+
+fn strength_of(value: Int) -> Strength {
+  case value {
+    0 -> oni_cpu.Weak
+    2 -> oni_cpu.Strong
+    _ -> oni_cpu.Normal
   }
 }
 
@@ -129,11 +152,16 @@ fn numbered(from: Int, to: Int) -> List(Int) {
 }
 
 /// 状態機械に渡す CPU の内訳（どの参加者が CPU か）。
-fn cpus_of(cpu: CpuChoice) -> game.Cpus(PlayerId) {
+fn cpus_of(cpu: CpuChoice, strength: Strength) -> game.Cpus(PlayerId) {
   let ids = list.map(cpu_players(cpu), fn(player) { player.id })
   case cpu {
-    OniCpu -> game.Cpus(hiders: [], oni: list.first(ids) |> option.from_result)
-    _ -> game.Cpus(hiders: ids, oni: None)
+    OniCpu ->
+      game.Cpus(
+        hiders: [],
+        oni: list.first(ids) |> option.from_result,
+        strength:,
+      )
+    _ -> game.Cpus(hiders: ids, oni: None, strength:)
   }
 }
 
@@ -161,7 +189,7 @@ pub fn spec_with(
     max_players:,
     authority: None,
     driver: Some(fn(players) {
-      start(players, durations, cpus_of(settings.cpu), pick)
+      start(players, durations, cpus_of(settings.cpu, settings.strength), pick)
     }),
     member_info: Some(room_info(settings)),
     bots: cpu_players(settings.cpu),
@@ -191,7 +219,12 @@ fn wrap(state: Game(PlayerId), pick: fn(Int) -> Int) -> Driver(PlayerId) {
       }
     },
     on_leave: fn(player) { step(state, game.leave(state, player), pick) },
-    on_wake: fn(token) { step(state, game.advance(state, token, pick), pick) },
+    on_wake: fn(token) {
+      case token == tick_token(state) {
+        True -> ticked(state, game.tick(state), pick)
+        False -> step(state, game.advance(state, token, pick), pick)
+      }
+    },
     on_join: fn(player) {
       joined(state, game.join(state, player), player, pick)
     },
@@ -221,6 +254,30 @@ fn step(
       }
   }
   #(wrap(after, pick), effects)
+}
+
+/// 鬼 CPU の tick のタイマーの token。フェーズのタイマー（step、0 以上）と重ならない。
+fn tick_token(state: Game(PlayerId)) -> Int {
+  -1 - state.step
+}
+
+/// 鬼 CPU の tick の後。鬼の状態を全員へ送り、探索が続いていれば次の tick を張る。
+/// 発見で勝敗が決まったら（step が進んだら）、フェーズの通知とタイマーも出す。
+fn ticked(
+  before: Game(PlayerId),
+  after: Game(PlayerId),
+  pick: fn(Int) -> Int,
+) -> #(Driver(PlayerId), List(Effect(PlayerId))) {
+  let #(next, effects) = step(before, after, pick)
+  let oni = case oni_payload(after) {
+    Some(payload) -> [driver.Broadcast(payload)]
+    None -> []
+  }
+  let again = case game.oni_cpu_active(after) && after.step == before.step {
+    True -> [driver.WakeAfter(tick_ms, tick_token(after))]
+    False -> []
+  }
+  #(next, list.flatten([oni, effects, again]))
 }
 
 /// 途中参加。全員への通知が出なかったとき（エリアの色が変わらない等）は、参加した
@@ -272,11 +329,16 @@ fn phase_effects(state: Game(PlayerId)) -> List(Effect(PlayerId)) {
     Exploration -> [driver.Broadcast(hiders_payload(state))]
     _ -> []
   }
+  // 鬼 CPU がいれば、探索の開始から 0.5秒ごとに歩かせる。
+  let walking = case game.oni_cpu_active(state) {
+    True -> [driver.WakeAfter(tick_ms, tick_token(state))]
+    False -> []
+  }
   let timer = case game.phase_duration(state) {
     Some(ms) -> [driver.WakeAfter(ms, state.step)]
     None -> []
   }
-  list.flatten([[notice], snapshot, timer])
+  list.flatten([[notice], snapshot, timer, walking])
 }
 
 // --- 電文 ----------------------------------------------------------------
@@ -371,6 +433,42 @@ fn hiders_payload(state: Game(PlayerId)) -> Dynamic {
     #(dynamic.string("type"), dynamic.string("hiders")),
     #(dynamic.string("hiders"), dynamic.list(hiders)),
   ])
+}
+
+/// 鬼 CPU の状態（人間の鬼も issue-28 で同じ形で送る）。
+/// { type: "oni", playerId, x, z, facing, pose, openDoors: [{ corridor: {x, z}, slot: {x, z} }] }。
+fn oni_payload(state: Game(PlayerId)) -> Option(Dynamic) {
+  case state.oni, state.oni_cpu {
+    Some(PlayerId(id)), Some(walker) -> {
+      let cell = fn(c: stage.Cell) {
+        dynamic.properties([
+          #(dynamic.string("x"), dynamic.int(c.x)),
+          #(dynamic.string("z"), dynamic.int(c.z)),
+        ])
+      }
+      let doors =
+        walker.open_doors
+        |> set.to_list
+        |> list.map(fn(door) {
+          dynamic.properties([
+            #(dynamic.string("corridor"), cell(door.corridor)),
+            #(dynamic.string("slot"), cell(door.slot)),
+          ])
+        })
+      Some(
+        dynamic.properties([
+          #(dynamic.string("type"), dynamic.string("oni")),
+          #(dynamic.string("playerId"), dynamic.string(id)),
+          #(dynamic.string("x"), dynamic.float(walker.position.0)),
+          #(dynamic.string("z"), dynamic.float(walker.position.1)),
+          #(dynamic.string("facing"), dynamic.float(walker.facing)),
+          #(dynamic.string("pose"), dynamic.string("standing")),
+          #(dynamic.string("openDoors"), dynamic.list(doors)),
+        ]),
+      )
+    }
+    _, _ -> None
+  }
 }
 
 fn pose_name(placement: Placement) -> String {
