@@ -166,6 +166,12 @@ export function parseServerMessage(value: unknown): ServerMessage | null {
 			if (!isString(code) || !isString(message)) return null;
 			return { type, code, message };
 		}
+		case "session": {
+			// 接続直後に本人にだけ届く（issue-31）。resumeToken は再接続の秘密の鍵。
+			const { playerId, resumeToken } = value;
+			if (!isString(playerId) || !isString(resumeToken)) return null;
+			return { type, playerId, resumeToken };
+		}
 		default:
 			return null;
 	}

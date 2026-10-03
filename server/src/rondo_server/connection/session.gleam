@@ -6,7 +6,7 @@
 /// 複数のクライアントを模したテストをソケットなしで書ける。
 ///
 /// - 接続時に、プレイヤー識別子と復帰トークンを暗号用の乱数で発行する。識別子はルームの
-///   他の人にも見えるが、復帰トークンは本人にだけ送る（再接続の鍵。復帰は後半で実装する）
+///   他の人にも見えるが、復帰トークンは本人にだけ送る（再接続の鍵 / connection/session_actor）
 /// - 表示名の既定は userN（ADR 0015）。set-name は本人の名前だけを変える
 /// - 1つの接続は同時に1つのルームにだけ入る
 import gleam/dynamic.{type Dynamic}
@@ -89,8 +89,10 @@ pub fn handle(
       create(session, deps, game_type, settings)
     JoinRoom(game_type, room_id) -> join(session, deps, game_type, room_id)
     LeaveRoom(room_id) -> #(leave(session, room_id), [])
+    // 再接続は入口（connection.receive）が先に引き受けて、切断中の接続アクターへ付け替える。
+    // ここまで届くのは付け替えに使えない場合だけなので、失敗として返す。
     Reconnect(..) -> #(session, [
-      error("reconnect-unavailable", "再接続はまだ使えません。"),
+      error("reconnect-failed", "前の接続に戻れませんでした。"),
     ])
     GameEvent(game_type, room_id, payload) -> {
       forward(session, game_type, room_id, payload)
@@ -99,7 +101,7 @@ pub fn handle(
   }
 }
 
-/// 接続が閉じた。参加中のルームから抜ける（再接続猶予は後半で実装する）。
+/// ルームから抜ける。再接続猶予が切れたとき（connection/session_actor）に呼ばれる。
 pub fn close(session: Session) -> Nil {
   case session.room {
     Some(joined) -> room_actor.leave(joined.room, PlayerId(session.player_id))

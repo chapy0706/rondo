@@ -31,3 +31,25 @@ describe("parseServerMessage - game-state-to（限定配信 / ADR 0021）", () =
 		expect(parseServerMessage(broadcast)).toEqual(broadcast);
 	});
 });
+
+describe("parseServerMessage - session（issue-31）", () => {
+	it("プレイヤー識別子と復帰トークンを通す", () => {
+		const session = {
+			type: "session",
+			playerId: "p-1",
+			resumeToken: "token-1",
+		};
+		expect(parseServerMessage(session)).toEqual(session);
+	});
+
+	it.each(["playerId", "resumeToken"])("%s が文字列でなければ捨てる", (key) => {
+		expect(
+			parseServerMessage({
+				type: "session",
+				playerId: "p-1",
+				resumeToken: "token-1",
+				[key]: 1,
+			}),
+		).toBeNull();
+	});
+});

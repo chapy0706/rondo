@@ -73,7 +73,8 @@ pub type ClientMessage {
   CreateRoom(game_type: String, settings: Option(Dynamic))
   JoinRoom(game_type: String, room_id: String)
   LeaveRoom(room_id: String)
-  Reconnect(room_id: String, player_id: String)
+  /// 再接続猶予のうちに同じプレイヤーとして復帰する。resume_token は本人にだけ届いた秘密の値。
+  Reconnect(room_id: String, resume_token: String)
   GameEvent(game_type: String, room_id: String, payload: Dynamic)
 }
 
@@ -231,10 +232,10 @@ fn client_json(message: ClientMessage) -> Json {
       ])
     LeaveRoom(room_id) ->
       typed("leave-room", [#("roomId", json.string(room_id))])
-    Reconnect(room_id, player_id) ->
+    Reconnect(room_id, resume_token) ->
       typed("reconnect", [
         #("roomId", json.string(room_id)),
-        #("playerId", json.string(player_id)),
+        #("resumeToken", json.string(resume_token)),
       ])
     GameEvent(game_type, room_id, payload) ->
       typed("game-event", [
@@ -406,8 +407,8 @@ fn client_decoder() -> Decoder(ClientMessage) {
     }
     "reconnect" -> {
       use room_id <- decode.field("roomId", decode.string)
-      use player_id <- decode.field("playerId", decode.string)
-      decode.success(Reconnect(room_id:, player_id:))
+      use resume_token <- decode.field("resumeToken", decode.string)
+      decode.success(Reconnect(room_id:, resume_token:))
     }
     "game-event" -> {
       use game_type <- decode.field("gameType", decode.string)

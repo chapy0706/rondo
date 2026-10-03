@@ -69,9 +69,14 @@ export type ClientMessage =
 	  }
 	| { readonly type: "leave-room"; readonly roomId: RoomId }
 	| {
+			/**
+			 * 切断から再接続猶予（ADR 0013）のうちに、同じプレイヤーとして同じルームへ
+			 * 復帰する（issue-31）。resumeToken は session で本人にだけ届いた秘密の値。
+			 * 他の人にも見える playerId では復帰できない。
+			 */
 			readonly type: "reconnect";
 			readonly roomId: RoomId;
-			readonly playerId: PlayerId;
+			readonly resumeToken: string;
 	  }
 	| {
 			readonly type: "game-event";

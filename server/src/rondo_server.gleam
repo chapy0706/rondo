@@ -5,7 +5,9 @@ import gleam/http/response.{type Response}
 import gleam/int
 import gleam/io
 import mist.{type Connection, type ResponseData}
-import rondo_server/connection/session.{type Deps, Deps}
+import rondo_server/connection/connection.{type Deps, Deps}
+import rondo_server/connection/session
+import rondo_server/connection/sessions
 import rondo_server/connection/websocket
 import rondo_server/games/catalog
 import rondo_server/room/room_directory
@@ -31,7 +33,13 @@ pub fn main() {
   let assert Ok(supervisor) = room_supervisor.start()
   let assert Ok(directory) =
     room_directory.start(supervisor.data, catalog.room_limits())
-  let deps = Deps(directory: directory.data)
+  let assert Ok(registry) = sessions.start()
+  let deps =
+    Deps(
+      session: session.Deps(directory: directory.data),
+      sessions: registry.data,
+      grace_ms: connection.default_grace_ms,
+    )
 
   let assert Ok(_) =
     fn(req) { handle(req, deps) }

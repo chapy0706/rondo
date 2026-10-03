@@ -20,7 +20,7 @@ export const clientMessageSamples = [
 	},
 	{ type: "join-room", gameType: "veryare", roomId: "room-1" },
 	{ type: "leave-room", roomId: "room-1" },
-	{ type: "reconnect", roomId: "room-1", playerId: "p-1" },
+	{ type: "reconnect", roomId: "room-1", resumeToken: "secret-token" },
 	{
 		type: "game-event",
 		gameType: "veryare",

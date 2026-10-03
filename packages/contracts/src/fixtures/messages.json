@@ -32,7 +32,7 @@
 		{
 			"type": "reconnect",
 			"roomId": "room-1",
-			"playerId": "p-1"
+			"resumeToken": "secret-token"
 		},
 		{
 			"type": "game-event",
