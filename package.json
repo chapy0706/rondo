@@ -8,7 +8,11 @@
 		"dev": "pnpm --filter @rondo/web dev"
 	},
 	"devDependencies": {
-		"@biomejs/biome": "1.9.4"
+		"@biomejs/biome": "1.9.4",
+		"@gltf-transform/core": "^4.5.1",
+		"@gltf-transform/extensions": "^4.5.1",
+		"@gltf-transform/functions": "^4.5.1",
+		"sharp": "^0.35.5"
 	},
 	"pnpm": {
 		"onlyBuiltDependencies": ["@biomejs/biome", "esbuild"]

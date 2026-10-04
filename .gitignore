@@ -55,3 +55,13 @@ $RECYCLE.BIN/
 ### Next.js
 next-env.d.ts
 .reference/
+
+# assets
+/assets-src/
+*.blend
+*.blend1
+*.fbx
+*.fbm/
+*.unitypackage
+/apps/web/public/models/
+*.glb
