@@ -1,7 +1,7 @@
 ---
-status: open
+status: closed
 created_at: 2026-10-02
-closed_at:
+closed_at: 2026-10-04
 ---
 
 # issue-39: rolling の迷路自動生成とお助け

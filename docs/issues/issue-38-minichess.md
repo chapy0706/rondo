@@ -1,7 +1,7 @@
 ---
-status: open
+status: closed
 created_at: 2026-10-02
-closed_at:
+closed_at: 2026-10-04
 ---
 
 # issue-38: チェス（5×5・CPU対戦、表示名は chess）

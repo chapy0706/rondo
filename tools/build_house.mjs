@@ -23,6 +23,16 @@
  * 6. 整理（prune）と、重複の統合（dedup）
  * 7. テクスチャを WebP にし、長辺を 512px / 1024px 以内に縮める（小さいものは拡大しない）
  *
+ * マテリアルの不透明・半透明（テクスチャを変換する前に、グループに分ける前の全マテリアルで決める）:
+ * - 襖・障子・欄間・和紙のマテリアル（名前で見分ける）は、必ず OPAQUE にする（向こう側の隠れ側が
+ *   透けて見えないように）
+ * - それ以外は、ベースカラーの alpha が 1 で、ベースカラーのテクスチャのうち、そのマテリアルの部品が
+ *   UV で参照する画素に透明なものが無い（または、テクスチャが無い）ものを OPAQUE にする。参照する
+ *   画素は、各頂点の UV と各三角形の中心の UV で調べ、透明（alpha 255 未満）が 0.01% 未満なら
+ *   透明な画素が無いとみなす。カラーパレットのように、使っていない区画だけが透明な画像のため
+ * - alpha が 1 未満のもの（ガラス、水など）と、テクスチャに透明な画素があるもの（葉、網戸など）は、
+ *   元のまま（BLEND）残す
+ *
  * 取り除いたノードの名前と数、グループごとのトップレベルのノード、各ファイルの大きさ・メッシュ数・
  * 三角形数・テクスチャ数を出す。
  * 入力は読むだけで、変更しない。
@@ -69,6 +79,9 @@ const GROUPS = [
 ];
 const GROUP_NAMES = ["indoor", "outdoor", "roof"];
 
+/** 必ず OPAQUE にするマテリアル（襖・障子・欄間・和紙）。マテリアルの名前で見分ける。 */
+const PAPER = /襖|障子|欄間|和紙|husuma|washi|shoji|ranma/i;
+
 /** 戸・障子・欄間（1枚ずつ別のノードのまま残すもの）。 */
 const FITTINGS = /ドア|障子|欄間/;
 
@@ -107,6 +120,108 @@ function isFitting(node) {
 		current = current.getParentNode();
 	}
 	return false;
+}
+
+/** 参照する画素のうち、透明なものの割合がこれ未満なら、透明な画素が無いとみなす。 */
+const TRANSPARENT_RATIO = 0.0001;
+
+/**
+ * ベースカラーのテクスチャのうち、そのマテリアルの部品が UV で参照する画素に、透明なものが
+ * 無いか。各頂点の UV と、各三角形の中心の UV で、テクスチャの画素の alpha を調べる。
+ * 戻り値は、透明な画素が無いか（ok）と、調べた数・透明だった数。
+ */
+async function opaqueWhereUsed(material) {
+	const info = material.getBaseColorTextureInfo();
+	const texture = material.getBaseColorTexture();
+	const image = texture?.getImage() ?? null;
+	if (texture === null || image === null)
+		return { ok: true, sampled: 0, transparent: 0 };
+	const { isOpaque } = await sharp(image).stats();
+	if (isOpaque) return { ok: true, sampled: 0, transparent: 0 };
+
+	const { data, info: size } = await sharp(image)
+		.ensureAlpha()
+		.raw()
+		.toBuffer({ resolveWithObject: true });
+	const alphaAt = (u, v) => {
+		const x = Math.min(
+			size.width - 1,
+			Math.floor((u - Math.floor(u)) * size.width),
+		);
+		const y = Math.min(
+			size.height - 1,
+			Math.floor((v - Math.floor(v)) * size.height),
+		);
+		return data[(y * size.width + x) * 4 + 3];
+	};
+	const set = info?.getTexCoord() ?? 0;
+	let sampled = 0;
+	let transparent = 0;
+	const check = (u, v) => {
+		sampled++;
+		if (alphaAt(u, v) < 255) transparent++;
+	};
+	for (const parent of material.listParents()) {
+		if (parent.propertyType !== "Primitive") continue;
+		const uv = parent.getAttribute(`TEXCOORD_${set}`);
+		if (uv === null) continue;
+		const at = (i) => uv.getElement(i, []);
+		for (let i = 0; i < uv.getCount(); i++) check(...at(i));
+		const indices = parent.getIndices();
+		if (indices === null || parent.getMode() !== 4) continue;
+		for (let i = 0; i + 2 < indices.getCount(); i += 3) {
+			const a = at(indices.getScalar(i));
+			const b = at(indices.getScalar(i + 1));
+			const c = at(indices.getScalar(i + 2));
+			check((a[0] + b[0] + c[0]) / 3, (a[1] + b[1] + c[1]) / 3);
+		}
+	}
+	return {
+		ok: sampled === 0 || transparent / sampled < TRANSPARENT_RATIO,
+		sampled,
+		transparent,
+	};
+}
+
+/**
+ * マテリアルの不透明・半透明を決めて直す。決めた結果（報告用）を返す。
+ */
+async function fixAlphaModes(document) {
+	const results = [];
+	for (const material of document.getRoot().listMaterials()) {
+		const name = material.getName();
+		const before = material.getAlphaMode();
+		const alpha = material.getBaseColorFactor()[3];
+		const texture = material.getBaseColorTexture();
+		let after = before;
+		let reason;
+		if (PAPER.test(name)) {
+			after = "OPAQUE";
+			reason = "襖・障子・欄間・和紙";
+		} else if (before === "OPAQUE") {
+			reason = "もとから OPAQUE";
+		} else if (alpha < 1) {
+			reason = `alpha ${alpha.toFixed(2)}`;
+		} else if (texture === null) {
+			after = "OPAQUE";
+			reason = "alpha 1、テクスチャ無し";
+		} else {
+			const used = await opaqueWhereUsed(material);
+			const detail =
+				used.sampled > 0
+					? `（参照 ${used.sampled} のうち透明 ${used.transparent}）`
+					: "";
+			if (used.ok) {
+				after = "OPAQUE";
+				reason = `alpha 1、参照する画素に透明無し${detail}`;
+			} else {
+				reason = `参照する画素に透明あり${detail}`;
+			}
+		}
+		material.setAlphaMode(after);
+		results.push({ name, before, after, reason });
+	}
+	return results;
 }
 
 /**
@@ -171,6 +286,8 @@ async function load() {
 			node.dispose();
 		}
 	}
+	removed.alpha = await fixAlphaModes(document);
+
 	const groups = { indoor: [], outdoor: [], roof: [] };
 	for (const top of scene.listChildren()) {
 		groups[groupOf(top.getName())].push(top.getName());
@@ -268,6 +385,12 @@ for (const group of GROUP_NAMES) {
 		const { path, removed, groups, stats: s } = await build(group, size);
 		if (!reported) {
 			reported = true;
+			console.log("マテリアル\t変更前\t変更後\t理由");
+			for (const row of removed.alpha) {
+				console.log(
+					`ALPHA\t${row.name}\t${row.before}\t${row.after}\t${row.reason}`,
+				);
+			}
 			console.log(`切り抜き用の箱（名前に「 B-」）: ${removed.cutters}`);
 			for (const name of removed.kept) {
 				console.log(`浴室の中にあるので残した: ${name}`);

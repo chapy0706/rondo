@@ -6,7 +6,8 @@
 		"useIgnoreFile": true
 	},
 	"files": {
-		"ignoreUnknown": true
+		"ignoreUnknown": true,
+		"ignore": [".claude/settings.local.json"]
 	},
 	"formatter": {
 		"enabled": true,

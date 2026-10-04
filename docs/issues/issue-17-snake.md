@@ -1,10 +1,12 @@
 ---
-status: open
+status: closed
 created_at: 2026-07-11
-closed_at:
+closed_at: 2026-10-04
 ---
 
 # issue-17: ソロゲーム Snake
+
+切り捨て。issue-38 に置き換え。
 
 ## 背景
 

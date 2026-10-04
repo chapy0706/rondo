@@ -1,7 +1,7 @@
 ---
-status: open
+status: closed
 created_at: 2026-10-02
-closed_at:
+closed_at: 2026-10-04
 ---
 
 # issue-37: 二角消去（1人プレイ、表示名は link）

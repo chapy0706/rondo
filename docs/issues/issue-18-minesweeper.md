@@ -1,10 +1,12 @@
 ---
-status: open
+status: closed
 created_at: 2026-07-11
-closed_at:
+closed_at: 2026-10-04
 ---
 
 # issue-18: ソロゲーム Minesweeper
+
+切り捨て。置き換えなし（作らない）。
 
 ## 背景
 

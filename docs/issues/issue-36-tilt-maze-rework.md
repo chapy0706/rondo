@@ -1,7 +1,7 @@
 ---
-status: open
+status: closed
 created_at: 2026-10-02
-closed_at:
+closed_at: 2026-10-04
 ---
 
 # issue-36: Tilt Maze の作り直し（3ステージ・モード選択・名称変更）
