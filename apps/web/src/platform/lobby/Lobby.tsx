@@ -5,7 +5,7 @@
  *
  * 通信の詳細は useRealtimeLobby（と WebSocketAdapter / Mock）に閉じ込め、ここは
  * 表示と操作だけを受け持つ。既定ではモックが動くため、サーバーなしでも一覧・参加・
- * 作成を確かめられる。参加後のゲーム描画・進行は issue-12 で差し込む。
+ * 作成を確かめられる。参加できたら、そのゲームの画面へ移る（issue-40）。
  */
 
 import type { GameType, RoomOption } from "@rondo/contracts";
@@ -22,7 +22,7 @@ export function Lobby({
 	/** ルーム作成時に選ぶ設定（マニフェストの宣言）。一覧には出さない（ADR 0024）。 */
 	roomOptions?: readonly RoomOption[];
 }) {
-	const { rooms, joined, error, createRoom, joinRoom, leaveRoom, refresh } =
+	const { rooms, entering, waiting, error, createRoom, joinRoom, refresh } =
 		useRealtimeLobby(gameType);
 	const [settings, setSettings] = useState(() => initialSettings(roomOptions));
 
@@ -39,33 +39,8 @@ export function Lobby({
 				</p>
 			)}
 
-			{joined !== null ? (
-				<section className="flex flex-col gap-4">
-					<div className="rounded-2xl bg-slate-800 p-4">
-						<h2 className="font-semibold text-lg text-white">参加中のルーム</h2>
-						<p className="text-slate-400 text-sm">{joined.roomId}</p>
-						<ul className="mt-3 flex flex-col gap-1">
-							{joined.players.map((player) => (
-								<li key={player.playerId} className="text-slate-200 text-sm">
-									{player.name}
-									{player.playerId === joined.you && (
-										<span className="ml-2 text-indigo-400 text-xs">あなた</span>
-									)}
-								</li>
-							))}
-						</ul>
-					</div>
-					<p className="text-slate-500 text-sm">
-						ゲーム本体はここに差し込まれる（issue-12）。
-					</p>
-					<button
-						type="button"
-						onClick={leaveRoom}
-						className="rounded-xl bg-slate-700 px-4 py-3 font-medium text-white transition-transform active:scale-[0.98]"
-					>
-						退出する
-					</button>
-				</section>
+			{entering ? (
+				<p className="text-slate-400 text-sm">ゲーム画面へ移動中...</p>
 			) : (
 				<section className="flex flex-col gap-4">
 					<div className="flex items-center justify-between">
@@ -92,7 +67,7 @@ export function Lobby({
 										<button
 											type="button"
 											onClick={() => joinRoom(room.roomId)}
-											disabled={full || room.status === "playing"}
+											disabled={waiting || full || room.status === "playing"}
 											className="flex w-full items-center justify-between rounded-2xl bg-slate-800 px-4 py-3 text-left transition-transform active:scale-[0.98] disabled:opacity-50"
 										>
 											<span className="font-medium text-white">
@@ -138,7 +113,8 @@ export function Lobby({
 						onClick={() =>
 							createRoom(roomOptions.length > 0 ? settings : undefined)
 						}
-						className="rounded-xl bg-indigo-600 px-4 py-3 font-semibold text-white transition-transform active:scale-[0.98]"
+						disabled={waiting}
+						className="rounded-xl bg-indigo-600 px-4 py-3 font-semibold text-white transition-transform active:scale-[0.98] disabled:opacity-50"
 					>
 						新しいルームを作る
 					</button>

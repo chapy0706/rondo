@@ -10,11 +10,15 @@
  * 間隔でつなぎ直し、つながったら最初に、切断時点のルームと復帰トークンで reconnect を
  * 送る。サーバーの再接続猶予（10秒）のうちなら、同じプレイヤーとして同じルームに戻る。
  * 復帰トークンは本人の秘密の値なので、送る先はこのサーバーだけで、ログにも出さない。
+ *
+ * リロードをまたぐ復帰（issue-40）: resumeStore を渡すと、参加中のルームと復帰トークンを
+ * そこへ覚え、次に作られたとき（リロードの後）に、最初の接続で reconnect を送る。
  */
 
 import type { ClientMessage, RoomId, ServerMessage } from "@rondo/contracts";
 import { MultiplexingAdapter } from "./MultiplexingAdapter";
 import { parseServerMessage, safeJsonParse } from "./parse";
+import type { ResumeStore } from "./resumeStore";
 
 /** アダプタが使うソケットの最小形（ブラウザの WebSocket と、テスト用の偽物）。 */
 export interface SocketLike {
@@ -34,6 +38,8 @@ export interface WebSocketAdapterOptions {
 	readonly retryDelayMs?: number;
 	/** つなぎ直す回数の上限。つながったら数え直す。 */
 	readonly maxAttempts?: number;
+	/** リロードをまたいで復帰先を覚える置き場。渡さなければ、接続の中だけで覚える。 */
+	readonly resumeStore?: ResumeStore;
 }
 
 /** サーバーが発行した、この接続のプレイヤー。 */
@@ -51,6 +57,7 @@ export class WebSocketAdapter extends MultiplexingAdapter {
 	private readonly retryDelayMs: number;
 	private readonly maxAttempts: number;
 	private readonly outbox: ClientMessage[] = [];
+	private readonly resumeStore: ResumeStore | null;
 
 	private socket: SocketLike;
 	private connected = false;
@@ -73,6 +80,15 @@ export class WebSocketAdapter extends MultiplexingAdapter {
 			options.createSocket ?? ((target) => new WebSocket(target));
 		this.retryDelayMs = options.retryDelayMs ?? DEFAULT_RETRY_DELAY_MS;
 		this.maxAttempts = options.maxAttempts ?? DEFAULT_MAX_ATTEMPTS;
+		this.resumeStore = options.resumeStore ?? null;
+		// リロード前のルームがあれば、最初の接続で復帰を頼む。
+		const stored = this.resumeStore?.load() ?? null;
+		if (stored !== null) {
+			this.resumeTarget = {
+				roomId: stored.roomId,
+				resumeToken: stored.resumeToken,
+			};
+		}
 		this.socket = this.connect();
 	}
 
@@ -86,6 +102,7 @@ export class WebSocketAdapter extends MultiplexingAdapter {
 			// 自分で退出したルームには、切断しても戻らない。
 			this.room = null;
 			this.resumeTarget = null;
+			this.resumeStore?.clear();
 		}
 		if (this.connected) {
 			this.socket.send(JSON.stringify(message));
@@ -174,6 +191,11 @@ export class WebSocketAdapter extends MultiplexingAdapter {
 				if (message.you === this.current?.playerId) {
 					this.room = message.roomId;
 					this.resumeTarget = null;
+					this.resumeStore?.save({
+						gameType: message.gameType,
+						roomId: message.roomId,
+						resumeToken: this.current.resumeToken,
+					});
 				}
 				break;
 			case "error":
@@ -181,6 +203,7 @@ export class WebSocketAdapter extends MultiplexingAdapter {
 					// 前のプレイヤーには戻れなかった。新しい接続として続ける。
 					this.room = null;
 					this.resumeTarget = null;
+					this.resumeStore?.clear();
 				}
 				break;
 			default:

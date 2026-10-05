@@ -7,10 +7,12 @@
  * 共通入力（VirtualPad / ADR 0018）を供給する。ここには特定ゲームの記述を持たず、
  * 表を引くだけなので、ゲームを増やしてもこのコードは変わらない。
  *
- * ソロは realtime を持たない（ADR 0004）。リアルタイムゲームには、単一接続の多重化
- * （ADR 0007）を担うアダプタで自動的に部屋へ入り、RealTimePort と roomId を渡す。
- * サーバーが確定した game-ended を受け取ったら結果発表（ADR 0017 / 0014）を出し、
- * 退出でルームの解散へ繋ぐ。既定は Mock（issue-11）なのでサーバーなしでも動く。
+ * ソロは realtime を持たない（ADR 0004）。リアルタイムゲームには、タブで共有する
+ * セッション（issue-40。単一接続の多重化 / ADR 0007）のルームを渡す。ロビーで参加した
+ * ルームや、リロード後に復帰したルームがあればそれを開き、なければ自動で部屋を作る
+ * （選択画面から直接来た場合）。サーバーが確定した game-ended を受け取ったら結果発表
+ * （ADR 0017 / 0014）を出し、退出でルームの解散へ繋いでロビーへ戻る。既定は Mock
+ * （issue-11）なのでサーバーなしでも動く。
  */
 
 import type {
@@ -18,7 +20,6 @@ import type {
 	PlayResult,
 	PlayerId,
 	RealtimeResult,
-	RoomId,
 } from "@rondo/contracts";
 import {
 	type GameHost,
@@ -34,79 +35,80 @@ import {
 	useCallback,
 	useEffect,
 	useMemo,
-	useRef,
 	useState,
 } from "react";
-import { findGameLoader } from "../../games/registry";
-import {
-	type RealtimeAdapter,
-	createLobbyAdapter,
-} from "../../infrastructure/realtime";
+import { findGameLoader, lobbyPathOf } from "../../games/registry";
 import { LaunchGate } from "../launch/LaunchGate";
 import { needsLaunchScreen } from "../launch/launch";
 import { ResultScreen } from "../result/ResultScreen";
+import { playEntry } from "../session/session";
+import {
+	getRealtimeSession,
+	useSessionState,
+} from "../session/useRealtimeSession";
 
 interface RealtimeSession {
 	readonly realtime: RealtimeHost | null;
 	readonly result: RealtimeResult | null;
 	readonly you: PlayerId | null;
+	/** 部屋に入れなかったとき（参加・復帰の失敗）の文言。 */
+	readonly error: string | null;
 	readonly leave: () => void;
 }
 
 /**
  * リアルタイムゲーム用のセッション。gameType が null（ソロ）なら接続しない。
  * 部屋に入るまで realtime は null。サーバーの game-ended を受けたら result に確定結果を持つ。
+ * 画面を開いている間はルームを握り、離れたまま戻らなければ退出する（RealtimeSession.hold）。
  */
 function useRealtimeSession(gameType: string | null): RealtimeSession {
-	const [realtime, setRealtime] = useState<RealtimeHost | null>(null);
-	const [result, setResult] = useState<RealtimeResult | null>(null);
-	const [you, setYou] = useState<PlayerId | null>(null);
-	const adapterRef = useRef<RealtimeAdapter | null>(null);
-	const roomRef = useRef<RoomId | null>(null);
+	const state = useSessionState();
 
 	useEffect(() => {
 		if (gameType === null) return;
-		const adapter = createLobbyAdapter();
-		adapterRef.current = adapter;
-		const unsubscribe = adapter.subscribe((message) => {
-			if (message.type === "room-joined" && message.gameType === gameType) {
-				roomRef.current = message.roomId;
-				setYou(message.you);
-				setRealtime({
-					port: adapter,
-					roomId: message.roomId,
-					you: message.you,
-				});
-			} else if (
-				message.type === "game-ended" &&
-				message.gameType === gameType
-			) {
-				setResult(message.result);
-			}
-		});
-		// 一覧から選ぶ導線（ADR 0016）が入るまでは、遊べるよう自動で部屋を作る。
-		adapter.send({ type: "create-room", gameType });
-		return () => {
-			unsubscribe();
-			adapter.close();
-			adapterRef.current = null;
-			roomRef.current = null;
-			setRealtime(null);
-			setResult(null);
-			setYou(null);
-		};
+		const session = getRealtimeSession();
+		const release = session.hold();
+		switch (playEntry(session.state, gameType)) {
+			case "joined":
+			case "waiting":
+				break;
+			case "leave-and-create":
+				session.leave();
+				session.create(gameType);
+				break;
+			case "create":
+				session.create(gameType);
+				break;
+		}
+		return release;
 	}, [gameType]);
 
+	const room =
+		gameType !== null && state.room?.gameType === gameType ? state.room : null;
+	const roomId = room?.roomId ?? null;
+	const you = room?.you ?? null;
+	const realtime = useMemo<RealtimeHost | null>(
+		() =>
+			roomId === null || you === null
+				? null
+				: { port: getRealtimeSession().gamePort(roomId), roomId, you },
+		[roomId, you],
+	);
+
 	const leave = useCallback(() => {
-		const adapter = adapterRef.current;
-		const roomId = roomRef.current;
-		if (adapter !== null && roomId !== null) {
-			// 退出でルームは解散する（ADR 0017）。
-			adapter.send({ type: "leave-room", roomId });
-		}
+		// 退出でルームは解散する（ADR 0017）。
+		getRealtimeSession().leave();
 	}, []);
 
-	return { realtime, result, you, leave };
+	const waiting = gameType !== null && playEntry(state, gameType) === "waiting";
+
+	return {
+		realtime,
+		result: room === null ? null : state.result,
+		you,
+		error: room === null && !waiting ? state.error : null,
+		leave,
+	};
 }
 
 export function PlayHost({ manifest }: { manifest: GameManifest }) {
@@ -121,7 +123,7 @@ export function PlayHost({ manifest }: { manifest: GameManifest }) {
 
 	const isRealtime = manifest.kind === "realtime";
 	// ルームへの接続は起動してから始める（起動画面で待つ間に部屋を作らない）。
-	const { realtime, result, you, leave } = useRealtimeSession(
+	const { realtime, result, you, error, leave } = useRealtimeSession(
 		isRealtime && launched ? manifest.id : null,
 	);
 
@@ -144,7 +146,13 @@ export function PlayHost({ manifest }: { manifest: GameManifest }) {
 		setPlayKey((key) => key + 1);
 	}, []);
 
+	// リアルタイムのゲームから退出したら、そのゲームのロビーへ戻る（issue-40）。
 	const leaveRoom = useCallback(() => {
+		leave();
+		router.push(lobbyPathOf(manifest.id));
+	}, [leave, router, manifest.id]);
+
+	const backToSelect = useCallback(() => {
 		leave();
 		router.push("/select");
 	}, [leave, router]);
@@ -164,6 +172,16 @@ export function PlayHost({ manifest }: { manifest: GameManifest }) {
 							<p className="text-slate-400">
 								このゲームはまだ起動できません（本体が未登録）。
 							</p>
+						) : connecting && error !== null ? (
+							<div className="flex flex-col items-center gap-3">
+								<p className="text-red-200 text-sm">{error}</p>
+								<Link
+									href={lobbyPathOf(manifest.id)}
+									className="text-indigo-400 text-sm underline"
+								>
+									ロビーへ
+								</Link>
+							</div>
 						) : connecting ? (
 							<p className="text-slate-400">ルームに接続中...</p>
 						) : (
@@ -180,9 +198,29 @@ export function PlayHost({ manifest }: { manifest: GameManifest }) {
 					<ResultScreen result={result} you={you} onLeave={leaveRoom} />
 				)}
 
-				<Link href="/select" className="text-indigo-400 text-sm underline">
-					ゲーム選択へ戻る
-				</Link>
+				{isRealtime && realtime !== null && result === null && (
+					<button
+						type="button"
+						onClick={leaveRoom}
+						className="rounded-xl bg-slate-700 px-4 py-3 font-medium text-white transition-transform active:scale-[0.98]"
+					>
+						退出する
+					</button>
+				)}
+
+				{isRealtime ? (
+					<button
+						type="button"
+						onClick={backToSelect}
+						className="text-indigo-400 text-sm underline"
+					>
+						ゲーム選択へ戻る
+					</button>
+				) : (
+					<Link href="/select" className="text-indigo-400 text-sm underline">
+						ゲーム選択へ戻る
+					</Link>
+				)}
 			</main>
 
 			{soloResult !== null && (

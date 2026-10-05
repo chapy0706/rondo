@@ -3,135 +3,84 @@
 /**
  * ロビーの状態と操作をまとめるフック。
  *
- * アダプタ（既定はモック）を 1 つ持ち、単一接続の多重化（ADR 0007）越しに
- * 一覧・参加・作成・退出を行う（ADR 0016）。受信メッセージは type で振り分け、
- * 自分の gameType / roomId 宛だけを反映する。UI からは状態と操作関数だけを見せ、
- * 接続の都合を持ち込まない。
+ * タブで共有するセッション（issue-40）の接続を使い、単一接続の多重化（ADR 0007）越しに
+ * 一覧・参加・作成を行う（ADR 0016）。参加中のルームはセッションが持ち、ゲーム画面へ
+ * そのまま引き継ぐ。このゲームのルームに参加できたら（復帰を含む）、ゲーム画面へ移る。
+ * UI からは状態と操作関数だけを見せ、接続の都合を持ち込まない。
  */
 
-import type {
-	GameType,
-	PlayerId,
-	PlayerInfo,
-	RoomId,
-	RoomSummary,
-} from "@rondo/contracts";
-import { useCallback, useEffect, useRef, useState } from "react";
+import type { GameType, RoomId, RoomSummary } from "@rondo/contracts";
+import { useRouter } from "next/navigation";
+import { useCallback, useEffect, useState } from "react";
+import { playPathOf } from "../../games/registry";
+import { lobbyShouldEnter } from "../session/session";
 import {
-	type RealtimeAdapter,
-	createLobbyAdapter,
-} from "../../infrastructure/realtime";
-
-/** 参加中のルーム。 */
-export interface JoinedRoom {
-	readonly roomId: RoomId;
-	readonly you: PlayerId;
-	readonly players: readonly PlayerInfo[];
-}
+	getRealtimeSession,
+	useSessionState,
+} from "../session/useRealtimeSession";
 
 /** ロビーUI が使う状態と操作。 */
 export interface LobbyApi {
 	readonly rooms: readonly RoomSummary[];
-	readonly joined: JoinedRoom | null;
+	/** 参加できて、ゲーム画面へ移っているところか。 */
+	readonly entering: boolean;
+	/** 参加・作成の返事を待っているところか。 */
+	readonly waiting: boolean;
 	readonly error: string | null;
 	/** ルームを作る。settings はマニフェストの roomOptions で選んだ値。 */
 	readonly createRoom: (settings?: Readonly<Record<string, number>>) => void;
 	readonly joinRoom: (roomId: RoomId) => void;
-	readonly leaveRoom: () => void;
 	readonly refresh: () => void;
 }
 
 export function useRealtimeLobby(gameType: GameType): LobbyApi {
-	const adapterRef = useRef<RealtimeAdapter | null>(null);
+	const router = useRouter();
+	const state = useSessionState();
 	const [rooms, setRooms] = useState<readonly RoomSummary[]>([]);
-	const [joined, setJoined] = useState<JoinedRoom | null>(null);
-	const [error, setError] = useState<string | null>(null);
+	const entering = lobbyShouldEnter(state, gameType);
 
 	useEffect(() => {
-		const adapter = createLobbyAdapter();
-		adapterRef.current = adapter;
-
-		const unsubscribe = adapter.subscribe((message) => {
-			switch (message.type) {
-				case "room-list":
-					if (message.gameType === gameType) setRooms(message.rooms);
-					break;
-				case "room-joined":
-					if (message.gameType === gameType) {
-						setError(null);
-						setJoined({
-							roomId: message.roomId,
-							you: message.you,
-							players: message.players,
-						});
-					}
-					break;
-				case "player-joined":
-					setJoined((current) =>
-						current === null || current.roomId !== message.roomId
-							? current
-							: { ...current, players: [...current.players, message.player] },
-					);
-					break;
-				case "player-left":
-					setJoined((current) =>
-						current === null || current.roomId !== message.roomId
-							? current
-							: {
-									...current,
-									players: current.players.filter(
-										(player) => player.playerId !== message.playerId,
-									),
-								},
-					);
-					break;
-				case "error":
-					setError(message.message);
-					break;
-				default:
-					// game-started / game-state / game-ended はゲーム進行（issue-12）で扱う。
-					break;
+		const session = getRealtimeSession();
+		const unsubscribe = session.subscribe((message) => {
+			if (message.type === "room-list" && message.gameType === gameType) {
+				setRooms(message.rooms);
 			}
 		});
-
-		adapter.send({ type: "list-rooms", gameType });
-
-		return () => {
-			unsubscribe();
-			adapter.close();
-			adapterRef.current = null;
-		};
+		session.send({ type: "list-rooms", gameType });
+		return unsubscribe;
 	}, [gameType]);
 
+	// 参加できたら、ゲーム画面へ移る。戻るでロビーに戻らないよう、履歴は置き換える
+	// （ロビーに戻ると、参加中のため、またゲーム画面へ移ってしまう）。
+	useEffect(() => {
+		if (entering) router.replace(playPathOf(gameType));
+	}, [entering, gameType, router]);
+
 	const refresh = useCallback(() => {
-		adapterRef.current?.send({ type: "list-rooms", gameType });
+		getRealtimeSession().send({ type: "list-rooms", gameType });
 	}, [gameType]);
 
 	const createRoom = useCallback(
 		(settings?: Readonly<Record<string, number>>) => {
-			adapterRef.current?.send(
-				settings === undefined
-					? { type: "create-room", gameType }
-					: { type: "create-room", gameType, settings },
-			);
+			getRealtimeSession().create(gameType, settings);
 		},
 		[gameType],
 	);
 
 	const joinRoom = useCallback(
 		(roomId: RoomId) => {
-			adapterRef.current?.send({ type: "join-room", gameType, roomId });
+			getRealtimeSession().join(gameType, roomId);
 		},
 		[gameType],
 	);
 
-	const leaveRoom = useCallback(() => {
-		const adapter = adapterRef.current;
-		if (adapter === null || joined === null) return;
-		adapter.send({ type: "leave-room", roomId: joined.roomId });
-		setJoined(null);
-		adapter.send({ type: "list-rooms", gameType });
-	}, [gameType, joined]);
-
-	return { rooms, joined, error, createRoom, joinRoom, leaveRoom, refresh };
+	return {
+		rooms,
+		entering,
+		waiting: state.pending?.gameType === gameType,
+		error: state.error,
+		createRoom,
+		joinRoom,
+		refresh,
+	};
 }

@@ -6,7 +6,8 @@
  * 非同期にし、実接続に近い順序で購読者へ届ける。ゲーム進行は最小限だけ模し、完走の
  * 合図（type: "finished"）を受けたら結果発表（game-ended）を返す（issue-14）。
  * 本物の順位確定はサーバー権威（ADR 0008 / issue-13）が担う。
- * veryare は mockVeryare の台本どおりに、時間でフェーズ通知を流す（issue-24）。
+ * veryare は mockVeryare の台本どおりに、時間でフェーズ通知を流す（issue-24）。一覧から
+ * 参加したときも、作成したときと同じ台本を流す（ロビーからの導線の確認用 / issue-40）。
  */
 
 import type {
@@ -115,16 +116,42 @@ export class MockWebSocketAdapter extends MultiplexingAdapter {
 			you: this.self.playerId,
 			players: [...room.players],
 		});
+		this.startVeryareScript(room.roomId, settings);
+	}
 
-		const script = veryareScript({
+	/**
+	 * 一覧から veryare のルームに参加する。モックは1つのブラウザの中にしかいないので、
+	 * 一覧のルームの顔ぶれを、作成したときと同じ仮のプレイヤーに置き換え、台本を流す。
+	 */
+	private handleJoinVeryareRoom(room: MockRoom): void {
+		room.players = [this.self, ...mockPlayersOf(cpuOf(undefined))];
+		room.status = "playing";
+		this.emit({
+			type: "room-joined",
+			gameType: VERYARE,
 			roomId: room.roomId,
+			you: this.self.playerId,
+			players: [...room.players],
+		});
+		if (!this.scriptTimers.has(room.roomId)) {
+			this.startVeryareScript(room.roomId, undefined);
+		}
+	}
+
+	/** 台本の時刻どおりに、veryare の通知を流し始める。 */
+	private startVeryareScript(
+		roomId: RoomId,
+		settings: Readonly<Record<string, number>> | undefined,
+	): void {
+		const script = veryareScript({
+			roomId,
 			self: this.self.playerId,
 			selfIsOni: nextSelfIsOni(),
 			explorationSeconds: explorationSecondsOf(settings),
 			cpu: cpuOf(settings),
 		});
 		this.scriptTimers.set(
-			room.roomId,
+			roomId,
 			script.map(({ afterMs, message }) =>
 				setTimeout(() => this.dispatch(message), LATENCY_MS * 2 + afterMs),
 			),
@@ -175,6 +202,10 @@ export class MockWebSocketAdapter extends MultiplexingAdapter {
 				code: "room-full",
 				message: "そのルームは満員です。",
 			});
+			return;
+		}
+		if (gameType === VERYARE) {
+			this.handleJoinVeryareRoom(room);
 			return;
 		}
 		if (

@@ -1,6 +1,7 @@
 import type { ClientMessage, ServerMessage } from "@rondo/contracts";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { type SocketLike, WebSocketAdapter } from "./WebSocketAdapter";
+import type { ResumeStore, ResumeTarget } from "./resumeStore";
 
 /** テスト用の偽のソケット。開く・届く・閉じるを手で起こす。 */
 class FakeSocket implements SocketLike {
@@ -222,5 +223,123 @@ describe("WebSocketAdapter - 実接続と再接続（issue-31）", () => {
 		}
 		// 最初の1本 + 上限3回まで。
 		expect(sockets).toHaveLength(4);
+	});
+});
+
+/** 覚えた値をそのまま持つ、テスト用の復帰先の置き場。 */
+function memoryResumeStore(initial: ResumeTarget | null = null) {
+	let value = initial;
+	const store: ResumeStore = {
+		load: () => value,
+		save: (target) => {
+			value = target;
+		},
+		clear: () => {
+			value = null;
+		},
+	};
+	return { store, current: () => value };
+}
+
+describe("WebSocketAdapter - リロードをまたぐ復帰（issue-40）", () => {
+	let sockets: FakeSocket[];
+
+	beforeEach(() => {
+		vi.useFakeTimers();
+		sockets = [];
+	});
+
+	afterEach(() => {
+		vi.useRealTimers();
+	});
+
+	function create(store: ResumeStore) {
+		return new WebSocketAdapter("ws://test/ws", {
+			createSocket: () => {
+				const socket = new FakeSocket();
+				sockets.push(socket);
+				return socket;
+			},
+			retryDelayMs: 1000,
+			maxAttempts: 3,
+			resumeStore: store,
+		});
+	}
+
+	const current = () => sockets.at(-1) as FakeSocket;
+
+	it("自分のルームに入ったら、ゲームの種類・ルーム・復帰トークンを覚える", () => {
+		const memory = memoryResumeStore();
+		create(memory.store);
+		current().open();
+		current().deliver(session("p-1", "token-1"));
+		current().deliver(joined("room-1", "p-1"));
+		expect(memory.current()).toEqual({
+			gameType: "veryare",
+			roomId: "room-1",
+			resumeToken: "token-1",
+		});
+	});
+
+	it("覚えた復帰先があれば、最初の接続で、ほかの電文より先に復帰を頼む", () => {
+		const memory = memoryResumeStore({
+			gameType: "veryare",
+			roomId: "room-1",
+			resumeToken: "token-1",
+		});
+		const adapter = create(memory.store);
+		adapter.send({ type: "list-rooms", gameType: "veryare" });
+		current().open();
+		expect(current().sent).toEqual([
+			{ type: "reconnect", roomId: "room-1", resumeToken: "token-1" },
+			{ type: "list-rooms", gameType: "veryare" },
+		]);
+	});
+
+	it("復帰に成功したら、その後の切断でも同じルームへ復帰を頼む", () => {
+		const memory = memoryResumeStore({
+			gameType: "veryare",
+			roomId: "room-1",
+			resumeToken: "token-1",
+		});
+		create(memory.store);
+		current().open();
+		current().deliver(session("p-new", "token-new"));
+		current().deliver(session("p-1", "token-1"));
+		current().deliver(joined("room-1", "p-1"));
+		current().drop();
+		vi.advanceTimersByTime(1000);
+		current().open();
+		expect(current().sent[0]).toEqual({
+			type: "reconnect",
+			roomId: "room-1",
+			resumeToken: "token-1",
+		});
+	});
+
+	it("退出したら、覚えた復帰先を消す", () => {
+		const memory = memoryResumeStore();
+		const adapter = create(memory.store);
+		current().open();
+		current().deliver(session("p-1", "token-1"));
+		current().deliver(joined("room-1", "p-1"));
+		adapter.send({ type: "leave-room", roomId: "room-1" });
+		expect(memory.current()).toBeNull();
+	});
+
+	it("復帰に失敗したら、覚えた復帰先を消す", () => {
+		const memory = memoryResumeStore({
+			gameType: "veryare",
+			roomId: "room-1",
+			resumeToken: "token-1",
+		});
+		create(memory.store);
+		current().open();
+		current().deliver({
+			type: "error",
+			code: "reconnect-failed",
+			message: "前の接続に戻れませんでした。",
+		});
+		expect(memory.current()).toBeNull();
 	});
 });

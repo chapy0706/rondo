@@ -55,3 +55,16 @@ export function findManifest(id: string): GameManifest | undefined {
 export function findGameLoader(id: string): GameLoader | undefined {
 	return gameComponents[id];
 }
+
+/**
+ * ゲーム画面の場所（issue-40）。ロビーは、参加できたらここへ移る。ゲームの種類ごとの
+ * 行き先はここで決め、ロビーはゲームの中身を知らない。
+ */
+export function playPathOf(id: string): string {
+	return `/play/${encodeURIComponent(id)}`;
+}
+
+/** ロビーの場所。リアルタイムのゲーム画面から退出したら、ここへ戻る。 */
+export function lobbyPathOf(id: string): string {
+	return `/lobby/${encodeURIComponent(id)}`;
+}
