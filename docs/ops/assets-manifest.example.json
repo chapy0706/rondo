@@ -1,0 +1,26 @@
+{
+	"version": 1,
+	"assets": [
+		{
+			"key": "test-cube",
+			"quality": 512,
+			"version": 1,
+			"path": "v1/test/test-cube-512.glb",
+			"bytes": 1536
+		},
+		{
+			"key": "test-cube",
+			"quality": 1024,
+			"version": 1,
+			"path": "v1/test/test-cube-1024.glb",
+			"bytes": 1536
+		},
+		{
+			"key": "hiraya-indoor",
+			"quality": 512,
+			"version": 1,
+			"path": "v1/house/hiraya-indoor-512.glb",
+			"bytes": 30880000
+		}
+	]
+}

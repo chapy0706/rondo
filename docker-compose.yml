@@ -18,6 +18,8 @@ services:
       args:
         # リアルタイム基盤に繋ぐ場合のみ設定する。未設定なら Mock 動作。
         NEXT_PUBLIC_RONDO_WS_URL: "${NEXT_PUBLIC_RONDO_WS_URL:-}"
+        # 素材の配信の基準 URL（issue-43）。未設定なら素材は読み込まず、仮の表示で動く。
+        NEXT_PUBLIC_ASSET_BASE_URL: "${NEXT_PUBLIC_ASSET_BASE_URL:-}"
     ports:
       - "8080:3000"
     restart: unless-stopped

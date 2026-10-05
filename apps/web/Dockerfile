@@ -26,6 +26,10 @@ COPY . .
 # リアルタイム基盤（Gleam）に繋ぐ場合は wss://<server-host>/ws を Coolify のビルド変数で渡す。
 ARG NEXT_PUBLIC_RONDO_WS_URL=""
 ENV NEXT_PUBLIC_RONDO_WS_URL=$NEXT_PUBLIC_RONDO_WS_URL
+# 素材の配信の基準 URL（issue-43）。未指定なら素材は読み込まず、仮の表示で動く。
+# 素材を使うときは https://assets-rondo.chapy0706.com を Coolify のビルド変数で渡す。
+ARG NEXT_PUBLIC_ASSET_BASE_URL=""
+ENV NEXT_PUBLIC_ASSET_BASE_URL=$NEXT_PUBLIC_ASSET_BASE_URL
 ENV NEXT_TELEMETRY_DISABLED=1
 RUN pnpm --filter @rondo/web build
 

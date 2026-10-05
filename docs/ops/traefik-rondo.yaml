@@ -9,6 +9,8 @@
 # - 外からの経路は Cloudflare Tunnel → A1 の Traefik（80 番 / entryPoint: http）。
 #   TLS は Cloudflare 側で終端するので、ここでは http の入口だけを使う
 # - WebSocket（ws-rondo の /ws）は、Traefik が Upgrade をそのまま通すので追加設定は要らない
+# - 素材の配信（assets-rondo、issue-43）は rondo-assets へ。CORS とキャッシュのヘッダは
+#   rondo-assets（nginx）が付けるので、ここでは振り分けだけをする
 
 http:
   routers:
@@ -22,6 +24,11 @@ http:
       entryPoints:
         - http
       service: rondo-ws
+    rondo-assets:
+      rule: Host(`assets-rondo.chapy0706.com`)
+      entryPoints:
+        - http
+      service: rondo-assets
 
   services:
     rondo-app:
@@ -32,4 +39,8 @@ http:
       loadBalancer:
         servers:
           - url: http://rondo-ws:3000
+    rondo-assets:
+      loadBalancer:
+        servers:
+          - url: http://rondo-assets:3000
 

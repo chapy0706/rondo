@@ -1,0 +1,33 @@
+# rondo の素材配信（nginx）の本番（prod）構成（issue-43 / ADR 0040）。
+#
+# Coolify の Build Pack = Docker Compose、Docker Compose Location = /docker-compose.assets.prod.yml
+# で使う。コンテナ名を rondo-assets に固定し（issue-35 と同じ方式）、A1 の Traefik 動的設定
+# （docs/ops/traefik-rondo.yaml）から、コンテナ名で振り分ける。
+#
+# 素材（glb など）は公開リポジトリに入れない。A1 の素材ディレクトリ（既定 /srv/rondo-assets）を、
+# 読み取り専用でマウントして配信する。素材の置き方・手順は docs/assets.md と docs/deploy.md。
+#
+# ルーティングは Traefik の動的設定ファイルで行うため、ここには Traefik のラベルを書かない。
+# ホストへのポート公開もしない（coolify ネットワークの中で、コンテナ名で届く）。
+
+services:
+  rondo-assets:
+    container_name: rondo-assets
+    build:
+      context: ./deploy/assets
+      dockerfile: Dockerfile
+    environment:
+      # 素材を読み込んでよいアプリのオリジン（1つ）。ローカル開発では http://localhost:3000 にする。
+      ASSET_ALLOWED_ORIGIN: "${ASSET_ALLOWED_ORIGIN:-https://rondo.chapy0706.com}"
+    volumes:
+      # A1 の素材ディレクトリ。中身は manifest.json と v1/... の glb。
+      - "${ASSET_HOST_DIR:-/srv/rondo-assets}:/srv/assets:ro"
+    expose:
+      - "3000"
+    networks:
+      - coolify
+    restart: unless-stopped
+
+networks:
+  coolify:
+    external: true

@@ -45,7 +45,8 @@ GitHub のリポジトリは公開なので、ステージとキャラクター�
 | 間取りの断面図 | `assets-src/house/plan.svg` | しない |
 | 平屋の元データの調査結果 | `assets-src/converted/house/source-fbx.json`、`source-blend.json` | しない |
 | ゲームが読み込む glb（各自の手元） | `apps/web/public/models/` | しない |
-| 変換・調査のスクリプト | `tools/fbx_to_glb.py`、`tools/inspect_rig.py`、`tools/inspect_glb.mjs`、`tools/prepare_house.mjs`、`tools/build_house.mjs`、`tools/list_doors.mjs`、`tools/house_plan.mjs`、`tools/inspect_house_source.py` | する |
+| 素材の配信の確認用（立方体と manifest.json） | `assets-src/test/` | しない |
+| 変換・調査のスクリプト | `tools/make_test_glb.mjs`、`tools/fbx_to_glb.py`、`tools/inspect_rig.py`、`tools/inspect_glb.mjs`、`tools/prepare_house.mjs`、`tools/build_house.mjs`、`tools/list_doors.mjs`、`tools/house_plan.mjs`、`tools/inspect_house_source.py` | する |
 
 ## 必要なもの
 
@@ -261,6 +262,64 @@ node tools/house_plan.mjs assets-src/house/hiraya-preview.glb assets-src/house/p
 - `hiraya.glb` の2つの問題は、`.blend` から glTF に書き出すときに、モディファイアーを適用せず、隠したオブジェクト（切り抜き用の箱、別の状態の部品）も含めたために起きたと見られる
 - `平屋和風.fbx` は、どちらの問題も無い。テクスチャは同じフォルダの `textures/`（89 枚）を参照し、すべて見つかる。オブジェクト 978、メッシュ 827、三角形 965,850、マテリアル 49。LineArt は無く、屋根 22・天井 2 を含む
 - FBX は、ガラスの透過などの glTF のマテリアルの拡張を持てない。FBX から作るときは、ガラスのマテリアルを見直す
+
+## 素材の配信（issue-43 / ADR 0040）
+
+素材はリポジトリに入れず、`assets-rondo.chapy0706.com`（コンテナ `rondo-assets`）から配信する。アプリは、ビルド時の環境変数 `NEXT_PUBLIC_ASSET_BASE_URL` を基準 URL として読み込む。未設定なら素材は読み込まず、仮の表示（箱とカプセル）で動く。A1 での手作業の手順は `docs/deploy.md` の「素材の配信の手順」。
+
+### 配信するフォルダの形
+
+```
+<素材ディレクトリ>/            （A1 では /srv/rondo-assets）
+  manifest.json               素材の一覧（短くキャッシュする）
+  v1/house/hiraya-indoor-512.glb
+  v1/house/hiraya-indoor-1024.glb
+  v1/test/test-cube-512.glb
+  ...
+```
+
+- 素材のパスには、版（`v1/` など）を入れる。版付きのパスの中身は変えない（長期キャッシュ・immutable）。中身を変えるときは、新しい版のパス（`v2/...`）に置き、manifest.json を書き換える
+- manifest.json の形（例: `docs/ops/assets-manifest.example.json`）
+
+  | 項目 | 意味 |
+  | --- | --- |
+  | `version` | manifest の形の版（いまは 1） |
+  | `assets[].key` | 論理的な名前（例: `hiraya-indoor`、`x-bot`、`test-cube`）。ゲームのコードは、ファイル名ではなく、この名前で素材を指す |
+  | `assets[].quality` | 品質。テクスチャの長辺の上限（512 / 1024）。アプリは既定で 512 を使う |
+  | `assets[].version` | 素材の版（パスの `v1` と同じ数） |
+  | `assets[].path` | 基準 URL からの相対パス（先頭に `/` を付けない、`..` を使わない） |
+  | `assets[].bytes` | バイト数（目安） |
+
+- 素材をアップロードするときは、先に glb を送り、最後に manifest.json を送る（`docs/deploy.md` の手順 6）
+
+### 読み込みとフォールバック（クライアント）
+
+- 置き場所: `apps/web/src/infrastructure/assets/`。`preloadAsset(key)` で読み込みを始め、`createSwapSlot` で差し替えのタイミングを決める
+- 読み込みは、ゲームの開始を待たせない。仮の表示で先に始め、見た目が急に変わらない時点（待機ルームの間など）で、読み込めていれば本素材に差し替える。その時点に間に合わなければ、その回は仮の表示のまま（差し替えの時点は、素材を使う機能 issue-46・issue-25 が決める）
+- 失敗（基準 URL が未設定、manifest が無い・形が違う、manifest に無い素材、404・接続できない、壊れた glb、タイムアウト）は、利用者に警告を出さず、仮の表示に切り替える。原因は `console.info` に `[assets]` で記録する
+- 素材は別オリジンから、資格情報（Cookie）を付けずに取得する。品質は既定で 512。meshopt は組み込んでいない
+
+### 疎通の確認用の glb
+
+```sh
+node tools/make_test_glb.mjs assets-src/test
+```
+
+- 1辺 1m の立方体の glb（品質 512 は黄、1024 は青）と、それを指す manifest.json を `assets-src/test/` に作る（コミットしない）
+- このフォルダの中身を、そのまま素材ディレクトリに置けば、key `test-cube` で読み込める
+
+### ローカルで素材の配信を試す
+
+本番の rondo-assets は、本番のアプリのオリジンだけを許可する（CORS）。ローカル開発では、同じイメージを手元で起こし、許可するオリジンを `http://localhost:3000` にする。
+
+```sh
+docker build -t rondo-assets deploy/assets
+docker run --rm -p 8081:3000 \
+  -e ASSET_ALLOWED_ORIGIN=http://localhost:3000 \
+  -v "$PWD/assets-src/test:/srv/assets:ro" rondo-assets
+# 別のターミナルで
+NEXT_PUBLIC_ASSET_BASE_URL=http://localhost:8081 pnpm --filter @rondo/web dev
+```
 
 ## 利用規約
 

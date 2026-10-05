@@ -1,0 +1,47 @@
+# rondo の素材配信（rondo-assets）の nginx 設定（issue-43 / ADR 0040）。
+#
+# 公式 nginx イメージの templates の仕組みで、起動時に ${ASSET_ALLOWED_ORIGIN} だけを
+# 環境変数の値に置き換えて /etc/nginx/conf.d/default.conf にする（nginx の $uri などは定義されて
+# いない環境変数なので、置き換わらない）。
+#
+# - 素材のディレクトリ（ホストの素材ディレクトリを読み取り専用でマウント）を /srv/assets に置く
+# - CORS: Access-Control-Allow-Origin は、要求の Origin で変えず、常に設定した1つのオリジンを返す。
+#   Cloudflare は既定で Vary を見ず、Origin をキャッシュの鍵に入れるのは Enterprise だけなので、
+#   要求ごとに変えると、ある Origin 向けの応答が別の Origin に配られてしまうため。
+#   本番は https://rondo.chapy0706.com、ローカル開発は別に起こした同じコンテナで http://localhost:3000
+# - キャッシュ: バージョン付きのパス（/v1/...）は1年・immutable。manifest.json は60秒。
+#   失敗の応答（404 など）には長期キャッシュを付けない（add_header に always を付けない）
+# - GET と HEAD だけ。ディレクトリの一覧は出さない
+
+server {
+    listen 3000;
+    server_tokens off;
+    root /srv/assets;
+    autoindex off;
+
+    # 素材の一覧。中身が変わるので短くする。
+    location = /manifest.json {
+        limit_except GET HEAD { deny all; }
+        types { }
+        default_type application/json;
+        add_header Access-Control-Allow-Origin "${ASSET_ALLOWED_ORIGIN}" always;
+        add_header X-Content-Type-Options nosniff always;
+        add_header Cache-Control "public, max-age=60";
+    }
+
+    # バージョン付きのパスの glb。中身は変えない（変えるときは版を上げる）ので長期キャッシュ。
+    location ~ "^/v[0-9]+/.+\.glb$" {
+        limit_except GET HEAD { deny all; }
+        types { }
+        default_type model/gltf-binary;
+        add_header Access-Control-Allow-Origin "${ASSET_ALLOWED_ORIGIN}" always;
+        add_header X-Content-Type-Options nosniff always;
+        add_header Cache-Control "public, max-age=31536000, immutable";
+    }
+
+    # それ以外は配信しない。
+    location / {
+        add_header Access-Control-Allow-Origin "${ASSET_ALLOWED_ORIGIN}" always;
+        return 404;
+    }
+}
