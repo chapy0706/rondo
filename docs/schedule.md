@@ -80,7 +80,7 @@
 ## 人手作業（Claude Code ではできないこと）
 
 - issue-21 の実機確認（縦画面、タッチ、音）。`.reference/czz/` の削除（自分のターミナルで）
-- issue-35: A1 での構文確認（docker compose config）、Coolify・Traefik の切り替え
+- issue-35: A1 での構文確認（docker compose config）、手動の docker compose への切り替え（Coolify の古いアプリの停止）、Traefik の動的設定の書き換え
 - issue-43: A1 の素材ディレクトリ、Cloudflare Tunnel の公開ホスト名、Traefik の設定、素材のアップロード
 - Mixamo の規約の写しの保存、平屋の入手先の記入、制作者への確認
 - 平屋・キャラの素材は、公開リポジトリに入れない（`docs/assets.md` 参照）

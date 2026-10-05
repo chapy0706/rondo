@@ -45,7 +45,7 @@
 | ORM                | Drizzle ORM                       | 型安全なDB操作（Phase 2以降）                 |
 | データベース       | PostgreSQL                        | ランキング、対戦履歴（Phase 2以降）           |
 | パッケージ管理     | pnpm (workspaces)                 | モノレポのパッケージ管理                      |
-| デプロイ           | A1 + Coolify + Cloudflare Tunnel  | セルフホスト。スリープなし、公開IP不要        |
+| デプロイ           | A1 + Docker Compose + Cloudflare Tunnel | セルフホスト。スリープなし、公開IP不要  |
 
 リアルタイム基盤の言語選択について補足する。
 バックエンドにGleam/OTPを選ぶのは、ルームと接続をそれぞれ独立した軽量プロセスとして扱えるためで、これはマルチプレイヤーのルーム管理に本質的に向いている。nagomi-wsで確立したGleam/OTP + mistの構成をそのまま土台として再利用する。
@@ -302,8 +302,8 @@ npm install -g pnpm
 
 ## デプロイ
 
-A1 + Coolify + Cloudflare Tunnel のセルフホスト構成にデプロイする。
-フロント（Next.js）と Gleam サーバーをそれぞれ Coolify のサービスとして配置し、Cloudflare Tunnel 経由で公開する。A1 は公開IPを持たないため、外部公開はすべて Tunnel を通す。
+A1 + Docker Compose + Cloudflare Tunnel のセルフホスト構成にデプロイする。
+フロント（Next.js）、Gleam サーバー、素材の配信（nginx）を、A1 で docker compose によりそれぞれ起動し（`deploy/a1-deploy.sh`）、A1 の Traefik（Coolify のプロキシを流用）で振り分けて、Cloudflare Tunnel 経由で公開する。A1 は公開IPを持たないため、外部公開はすべて Tunnel を通す。手順は `docs/deploy.md`。
 
 ## 開発フェーズ
 

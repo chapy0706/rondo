@@ -3,7 +3,7 @@
 # pnpm ワークスペースのモノレポ（ADR 0011）から web だけを本番ビルドする。
 # ビルド段で standalone 出力（next.config の output: "standalone"）を作り、実行段には
 # その最小成果物だけを載せてイメージを薄く保つ。ビルドコンテキストはリポジトリのルート。
-# Coolify では「Base Directory = リポジトリ直下」「Dockerfile = apps/web/Dockerfile」に設定する。
+# 本番は docker-compose.web.prod.yml から、リポジトリ直下を起点にこの Dockerfile でビルドする（docs/deploy.md）。
 
 # ---- 依存の解決とビルド ----
 FROM node:22-slim AS builder
@@ -23,11 +23,11 @@ RUN pnpm install --frozen-lockfile
 COPY . .
 
 # NEXT_PUBLIC_* はビルド時にコードへ埋め込まれる。未指定なら Mock 動作（サーバー不要）。
-# リアルタイム基盤（Gleam）に繋ぐ場合は wss://<server-host>/ws を Coolify のビルド変数で渡す。
+# リアルタイム基盤（Gleam）に繋ぐ場合は wss://<server-host>/ws をビルド引数で渡す（docker-compose.web.prod.yml）。
 ARG NEXT_PUBLIC_RONDO_WS_URL=""
 ENV NEXT_PUBLIC_RONDO_WS_URL=$NEXT_PUBLIC_RONDO_WS_URL
 # 素材の配信の基準 URL（issue-43）。未指定なら素材は読み込まず、仮の表示で動く。
-# 素材を使うときは https://assets-rondo.chapy0706.com を Coolify のビルド変数で渡す。
+# 素材を使うときは https://assets-rondo.chapy0706.com をビルド引数で渡す（docker-compose.web.prod.yml）。
 ARG NEXT_PUBLIC_ASSET_BASE_URL=""
 ENV NEXT_PUBLIC_ASSET_BASE_URL=$NEXT_PUBLIC_ASSET_BASE_URL
 ENV NEXT_TELEMETRY_DISABLED=1

@@ -1,7 +1,7 @@
 # rondo リアルタイム基盤（Gleam / mist）の本番（prod）構成（issue-35）。
 #
-# Coolify の Build Pack = Docker Compose、Docker Compose Location = /docker-compose.server.prod.yml
-# で使う。コンテナ名を rondo-ws に固定し、再デプロイしても A1 の Traefik 動的設定
+# A1 のリポジトリの作業コピーで、docker compose を直接実行して使う（deploy/a1-deploy.sh ws）。
+# Coolify のアプリにはしない。コンテナ名を rondo-ws に固定し、再デプロイしても A1 の Traefik 動的設定
 # （docs/ops/traefik-rondo.yaml）が外れないようにする。
 #
 # ルーティングは Traefik の動的設定ファイルで行うため、ここには Traefik のラベルを書かない。

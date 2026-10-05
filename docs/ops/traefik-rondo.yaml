@@ -1,11 +1,12 @@
 # rondo の Traefik 動的設定の見本（issue-35）。
 #
-# A1 の /data/coolify/proxy/dynamic/rondo.yaml に、この内容を置く（docs/deploy.md の手順 5）。
+# A1 の /data/coolify/proxy/dynamic/rondo.yaml に、この内容を置く（docs/deploy.md の「初回の起動手順」）。
+# Traefik は Coolify のプロキシ（coolify-proxy）をそのまま使う。rondo 自体は Coolify のアプリにしない。
 # ファイルの末尾には空行を1つ残すこと。
 #
 # - compose（docker-compose.*.prod.yml）でコンテナ名を rondo-app / rondo-ws に固定している
 #   ので、再デプロイしてもこの設定は書き換えなくてよい
-# - Coolify の自動ラベル（Host が空になって壊れることがある）には頼らず、ここで振り分ける
+# - compose のラベルには頼らず、ここで振り分ける（設定を1か所にまとめるため）
 # - 外からの経路は Cloudflare Tunnel → A1 の Traefik（80 番 / entryPoint: http）。
 #   TLS は Cloudflare 側で終端するので、ここでは http の入口だけを使う
 # - WebSocket（ws-rondo の /ws）は、Traefik が Upgrade をそのまま通すので追加設定は要らない
