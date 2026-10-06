@@ -15,6 +15,7 @@ export const CLIENT_MESSAGE_TYPES = [
 	"leave-room",
 	"reconnect",
 	"game-event",
+	"pong",
 ] as const satisfies readonly ClientMessage["type"][];
 
 export const SERVER_MESSAGE_TYPES = [
@@ -28,6 +29,7 @@ export const SERVER_MESSAGE_TYPES = [
 	"game-ended",
 	"error",
 	"session",
+	"ping",
 ] as const satisfies readonly ServerMessage["type"][];
 
 // 一覧に漏れがあれば、ここが never 以外になって型エラーになる。

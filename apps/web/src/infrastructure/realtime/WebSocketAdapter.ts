@@ -11,6 +11,10 @@
  * 送る。サーバーの再接続猶予（10秒）のうちなら、同じプレイヤーとして同じルームに戻る。
  * 復帰トークンは本人の秘密の値なので、送る先はこのサーバーだけで、ログにも出さない。
  *
+ * ハートビート（issue-41 / ADR 0041）: サーバーの ping には pong を返し、購読者には渡さない。
+ * つながっている間に、サーバーから何も届かない時間が待ち時間（既定 50 秒）を超えたら、
+ * 接続を失ったとみなして古いソケットを見捨て、つなぎ直す（ルームにいれば復帰を頼む）。
+ *
  * リロードをまたぐ復帰（issue-40）: resumeStore を渡すと、参加中のルームと復帰トークンを
  * そこへ覚え、次に作られたとき（リロードの後）に、最初の接続で reconnect を送る。
  */
@@ -40,6 +44,8 @@ export interface WebSocketAdapterOptions {
 	readonly maxAttempts?: number;
 	/** リロードをまたいで復帰先を覚える置き場。渡さなければ、接続の中だけで覚える。 */
 	readonly resumeStore?: ResumeStore;
+	/** サーバーから何も届かないとき、接続を失ったとみなすまでの時間（ミリ秒）。 */
+	readonly silenceTimeoutMs?: number;
 }
 
 /** サーバーが発行した、この接続のプレイヤー。 */
@@ -52,12 +58,18 @@ export interface SessionInfo {
 const DEFAULT_RETRY_DELAY_MS = 1000;
 const DEFAULT_MAX_ATTEMPTS = 8;
 
+/** サーバーの ping の間隔（20 秒）の 2 回分に余裕を足した時間。サーバーの待ち時間と同じ。 */
+const DEFAULT_SILENCE_TIMEOUT_MS = 50_000;
+
 export class WebSocketAdapter extends MultiplexingAdapter {
 	private readonly createSocket: (url: string) => SocketLike;
 	private readonly retryDelayMs: number;
 	private readonly maxAttempts: number;
 	private readonly outbox: ClientMessage[] = [];
 	private readonly resumeStore: ResumeStore | null;
+	private readonly silenceTimeoutMs: number;
+	/** 無通信の検知のタイマー。届くたびに張り直す。 */
+	private silenceTimer: ReturnType<typeof setTimeout> | null = null;
 
 	private socket: SocketLike;
 	private connected = false;
@@ -83,6 +95,8 @@ export class WebSocketAdapter extends MultiplexingAdapter {
 		this.retryDelayMs = options.retryDelayMs ?? DEFAULT_RETRY_DELAY_MS;
 		this.maxAttempts = options.maxAttempts ?? DEFAULT_MAX_ATTEMPTS;
 		this.resumeStore = options.resumeStore ?? null;
+		this.silenceTimeoutMs =
+			options.silenceTimeoutMs ?? DEFAULT_SILENCE_TIMEOUT_MS;
 		// リロード前のルームがあれば、最初の接続で復帰を頼む。
 		const stored = this.resumeStore?.load() ?? null;
 		if (stored !== null) {
@@ -115,6 +129,7 @@ export class WebSocketAdapter extends MultiplexingAdapter {
 
 	close(): void {
 		this.closedByClient = true;
+		this.clearSilence();
 		this.socket.close();
 	}
 
@@ -124,6 +139,7 @@ export class WebSocketAdapter extends MultiplexingAdapter {
 			if (socket !== this.socket) return;
 			this.connected = true;
 			this.attempts = 0;
+			this.armSilence();
 			// 復帰を先に頼んでから、切断中にためた電文を流す。
 			if (this.resumeTarget !== null) {
 				socket.send(
@@ -138,11 +154,14 @@ export class WebSocketAdapter extends MultiplexingAdapter {
 		});
 		socket.addEventListener("message", (event) => {
 			if (socket !== this.socket) return;
+			// 何か届けば（ping を含む）、まだつながっている。
+			this.armSilence();
 			this.receive(event.data);
 		});
 		socket.addEventListener("close", () => {
 			if (socket !== this.socket) return;
 			this.connected = false;
+			this.clearSilence();
 			if (this.closedByClient) return;
 			this.scheduleReconnect();
 		});
@@ -151,12 +170,7 @@ export class WebSocketAdapter extends MultiplexingAdapter {
 
 	/** 自分で閉じたのではない切断。ルームにいれば復帰先を覚えて、つなぎ直す。 */
 	private scheduleReconnect(): void {
-		if (this.room !== null && this.current !== null) {
-			this.resumeTarget = {
-				roomId: this.room,
-				resumeToken: this.current.resumeToken,
-			};
-		}
+		this.rememberResume();
 		if (this.attempts >= this.maxAttempts) {
 			this.giveUp();
 			return;
@@ -189,6 +203,45 @@ export class WebSocketAdapter extends MultiplexingAdapter {
 		this.notifyConnectionFailed();
 	}
 
+	/** ルームにいれば、切断時点のルームと復帰トークンを、次の接続で使う復帰先にする。 */
+	private rememberResume(): void {
+		if (this.room !== null && this.current !== null) {
+			this.resumeTarget = {
+				roomId: this.room,
+				resumeToken: this.current.resumeToken,
+			};
+		}
+	}
+
+	/** 無通信の検知を張り直す。待ち時間のあいだ何も届かなければ、接続を見捨てる。 */
+	private armSilence(): void {
+		this.clearSilence();
+		this.silenceTimer = setTimeout(() => {
+			this.silenceTimer = null;
+			this.abandon();
+		}, this.silenceTimeoutMs);
+	}
+
+	private clearSilence(): void {
+		if (this.silenceTimer !== null) {
+			clearTimeout(this.silenceTimer);
+			this.silenceTimer = null;
+		}
+	}
+
+	/**
+	 * 応答のない接続を見捨てて、すぐにつなぎ直す（issue-41）。応答のない接続の close は
+	 * いつ届くか分からないので待たない。古いソケットのその後の通知は、接続の照合で無視する。
+	 */
+	private abandon(): void {
+		if (this.closedByClient) return;
+		const old = this.socket;
+		this.connected = false;
+		this.rememberResume();
+		this.socket = this.connect();
+		old.close();
+	}
+
 	private flush(): void {
 		for (const message of this.outbox.splice(0)) {
 			this.socket.send(JSON.stringify(message));
@@ -200,6 +253,15 @@ export class WebSocketAdapter extends MultiplexingAdapter {
 		if (typeof data !== "string") return;
 		const parsed = parseServerMessage(safeJsonParse(data));
 		if (parsed === null) return;
+		if (parsed.type === "ping") {
+			// ハートビートは接続の層で答え、購読者（ゲーム・画面）には渡さない。
+			if (this.connected) {
+				this.socket.send(
+					JSON.stringify({ type: "pong" } satisfies ClientMessage),
+				);
+			}
+			return;
+		}
 		this.track(parsed);
 		this.dispatch(parsed);
 	}

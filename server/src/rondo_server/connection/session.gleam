@@ -20,8 +20,8 @@ import rondo_server/games/catalog.{
 }
 import rondo_server/protocol/message.{
   type ClientMessage, type ServerMessage, CreateRoom, ErrorMessage, GameEvent,
-  JoinRoom, LeaveRoom, ListRooms, PlayerInfo, Playing, Reconnect, RoomJoined,
-  RoomList, RoomSummary, Session as SessionMessage, SetName, Waiting,
+  JoinRoom, LeaveRoom, ListRooms, PlayerInfo, Playing, Pong, Reconnect,
+  RoomJoined, RoomList, RoomSummary, Session as SessionMessage, SetName, Waiting,
 }
 import rondo_server/room/room_actor.{
   type RoomState, AlreadyJoined, GameAlreadyStarted, Player, PlayerId, RoomFull,
@@ -98,6 +98,9 @@ pub fn handle(
       forward(session, game_type, room_id, payload)
       #(session, [])
     }
+    // ハートビートの応答は接続の層（connection.receive）で受け取り、ここへは来ない。
+    // 来ても何もしない（issue-41）。
+    Pong -> #(session, [])
   }
 }
 

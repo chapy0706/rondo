@@ -53,3 +53,9 @@ describe("parseServerMessage - session（issue-31）", () => {
 		).toBeNull();
 	});
 });
+
+describe("parseServerMessage - ping（ハートビート / issue-41）", () => {
+	it("ping を通す（接続の層で pong を返すため）", () => {
+		expect(parseServerMessage({ type: "ping" })).toEqual({ type: "ping" });
+	});
+});

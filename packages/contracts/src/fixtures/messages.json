@@ -43,6 +43,9 @@
 				"x": 1.5,
 				"z": -2
 			}
+		},
+		{
+			"type": "pong"
 		}
 	],
 	"server": [
@@ -164,6 +167,9 @@
 			"type": "session",
 			"playerId": "p-2",
 			"resumeToken": "secret-token"
+		},
+		{
+			"type": "ping"
 		}
 	]
 }

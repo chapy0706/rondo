@@ -5,14 +5,15 @@ import gleam/list
 import gleam/option.{None}
 import gleeunit/should
 import rondo_server/connection/connection
+import rondo_server/connection/heartbeat
 import rondo_server/connection/session
 import rondo_server/connection/session_actor
 import rondo_server/connection/sessions
 import rondo_server/games/catalog
 import rondo_server/protocol/message.{
   type ClientMessage, type ServerMessage, CreateRoom, ErrorMessage, GameEvent,
-  GameState, GameStateTo, JoinRoom, LeaveRoom, PlayerLeft, Reconnect, RoomJoined,
-  Session,
+  GameState, GameStateTo, JoinRoom, LeaveRoom, Ping, PlayerLeft, Pong, Reconnect,
+  RoomJoined, Session,
 }
 import rondo_server/room/room_actor.{PlayerId}
 import rondo_server/room/room_directory
@@ -44,6 +45,7 @@ fn server() -> connection.Deps {
     session: session.Deps(directory: directory.data),
     sessions: registry.data,
     grace_ms:,
+    heartbeat: heartbeat.Config(interval_ms: 10_000, timeout_ms: 80),
   )
 }
 
@@ -298,4 +300,62 @@ fn is_player_left(m: ServerMessage) -> Bool {
     PlayerLeft(..) -> True
     _ -> False
   }
+}
+
+// --- ハートビート（issue-41） ----------------------------------------------------------
+
+/// pong は接続の層で受け取るだけで、返信も、ルームへの影響もない。
+pub fn pong_is_absorbed_by_the_connection_layer_test() {
+  let deps = server()
+  let #(a, b, room_id) = room_with_two(deps)
+  let a = send(deps, a, Pong)
+  drain(a) |> should.equal([])
+  drain(b) |> should.equal([])
+  // その後もルームの電文は通る。
+  let _ = send(deps, a, touch_area(room_id))
+  areas(drain(b)) |> should.equal(["counting"])
+}
+
+/// 応答のない接続は、ハートビートがソケットを閉じ、猶予に入る。猶予内に戻れば同じルームで
+/// 続けられ、他の人には離脱が伝わらない（ハートビートの失敗が、ルームの進行を止めない）。
+pub fn silent_socket_is_closed_and_enters_grace_test() {
+  let deps = server()
+  let #(a, b, room_id) = room_with_two(deps)
+  let timed_out = process.new_subject()
+  let assert Ok(hb) = connection.start_heartbeat(deps, a.socket, timed_out)
+  // a は何も送らない。待ち時間の後、ソケットを閉じるよう頼まれる。
+  let assert Ok(Nil) = process.receive(timed_out, 500)
+  process.is_alive(heartbeat.pid(hb)) |> should.be_false
+  // ソケットの殻は、閉じたら接続アクターへ伝える（websocket の on_close と同じ）。
+  connection.close(a.actor, a.socket)
+
+  // 猶予の間も、b はルームで進められる。
+  let _ = send(deps, b, touch_area(room_id))
+  areas(drain(b)) |> should.equal(["counting"])
+  drain(b) |> list.any(is_player_left) |> should.be_false
+
+  // a は猶予内に戻れる。切断中の通知も届く。
+  let a2 = connect(deps)
+  let a2 = send(deps, a2, Reconnect(room_id, a.resume_token))
+  let received = drain(a2)
+  list.contains(received, Session(a.player_id, a.resume_token))
+  |> should.be_true
+  areas(received) |> should.equal(["counting"])
+}
+
+/// 切断中の一時保管に ping は入れない（復帰したときに古い ping を流さない）。
+pub fn pings_are_not_buffered_while_disconnected_test() {
+  let deps = server()
+  let #(a, b, room_id) = room_with_two(deps)
+  connection.close(a.actor, a.socket)
+  process.send(a.actor, session_actor.FromRoom(Ping))
+  let _ = send(deps, b, touch_area(room_id))
+  let _ = drain(b)
+  process.send(a.actor, session_actor.FromRoom(Ping))
+
+  let a2 = connect(deps)
+  let a2 = send(deps, a2, Reconnect(room_id, a.resume_token))
+  let received = drain(a2)
+  list.contains(received, Ping) |> should.be_false
+  areas(received) |> should.equal(["counting"])
 }

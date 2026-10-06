@@ -6,6 +6,7 @@ import gleam/int
 import gleam/io
 import mist.{type Connection, type ResponseData}
 import rondo_server/connection/connection.{type Deps, Deps}
+import rondo_server/connection/heartbeat
 import rondo_server/connection/session
 import rondo_server/connection/sessions
 import rondo_server/connection/websocket
@@ -39,6 +40,7 @@ pub fn main() {
       session: session.Deps(directory: directory.data),
       sessions: registry.data,
       grace_ms: connection.default_grace_ms,
+      heartbeat: heartbeat.default_config(),
     )
 
   let assert Ok(_) =

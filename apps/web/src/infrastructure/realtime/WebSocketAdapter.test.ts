@@ -462,3 +462,96 @@ describe("WebSocketAdapter - つなぎ直しをあきらめたとき（issue-47�
 		expect(sockets).toHaveLength(1);
 	});
 });
+
+describe("WebSocketAdapter - ハートビート（issue-41）", () => {
+	let sockets: FakeSocket[];
+
+	beforeEach(() => {
+		vi.useFakeTimers();
+		sockets = [];
+	});
+
+	afterEach(() => {
+		vi.useRealTimers();
+	});
+
+	const current = () => sockets.at(-1) as FakeSocket;
+
+	function create() {
+		return new WebSocketAdapter("ws://test/ws", {
+			createSocket: () => {
+				const socket = new FakeSocket();
+				sockets.push(socket);
+				return socket;
+			},
+			retryDelayMs: 1000,
+			maxAttempts: 3,
+			silenceTimeoutMs: 500,
+		});
+	}
+
+	it("ping を受けたら pong を返し、購読者（ゲーム・画面）には渡さない", () => {
+		const adapter = create();
+		const received: ServerMessage[] = [];
+		adapter.subscribe((m) => received.push(m));
+		current().open();
+		current().deliver({ type: "ping" });
+		expect(current().sent).toEqual([{ type: "pong" }]);
+		expect(received).toEqual([]);
+	});
+
+	it("サーバーから何も届かない時間が待ち時間を超えたら、接続を失ったとみなして、つなぎ直す", () => {
+		create();
+		current().open();
+		current().deliver(session("p-1", "token-1"));
+		current().deliver(joined("room-1", "p-1"));
+		const first = current();
+		vi.advanceTimersByTime(499);
+		expect(sockets).toHaveLength(1);
+		vi.advanceTimersByTime(1);
+		// 古いソケットは閉じ、新しいソケットで、元のルームへの復帰を頼む。
+		expect(first.closedByClient).toBe(true);
+		expect(sockets).toHaveLength(2);
+		current().open();
+		expect(current().sent[0]).toEqual({
+			type: "reconnect",
+			roomId: "room-1",
+			resumeToken: "token-1",
+		});
+	});
+
+	it("ping を含め、何か届いていれば、つなぎ直さない", () => {
+		create();
+		current().open();
+		for (let i = 0; i < 10; i++) {
+			vi.advanceTimersByTime(300);
+			current().deliver({ type: "ping" });
+		}
+		expect(sockets).toHaveLength(1);
+	});
+
+	it("見捨てた古いソケットの close が後から届いても、二重につなぎ直さない", () => {
+		create();
+		current().open();
+		const first = current();
+		vi.advanceTimersByTime(500);
+		expect(sockets).toHaveLength(2);
+		first.drop();
+		vi.advanceTimersByTime(5000);
+		expect(sockets).toHaveLength(2);
+	});
+
+	it("自分で閉じた後は、無通信でもつなぎ直さない", () => {
+		const adapter = create();
+		current().open();
+		adapter.close();
+		vi.advanceTimersByTime(5000);
+		expect(sockets).toHaveLength(1);
+	});
+
+	it("つながる前は、無通信の検知をしない（つなぎ直しの仕組みに任せる）", () => {
+		create();
+		vi.advanceTimersByTime(5000);
+		expect(sockets).toHaveLength(1);
+	});
+});

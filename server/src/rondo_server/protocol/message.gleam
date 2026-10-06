@@ -76,6 +76,8 @@ pub type ClientMessage {
   /// 再接続猶予のうちに同じプレイヤーとして復帰する。resume_token は本人にだけ届いた秘密の値。
   Reconnect(room_id: String, resume_token: String)
   GameEvent(game_type: String, room_id: String, payload: Dynamic)
+  /// ハートビートの応答（issue-41 / ADR 0041）。接続の層だけで扱う。
+  Pong
 }
 
 /// サーバー → クライアント。
@@ -99,18 +101,20 @@ pub type ServerMessage {
   ErrorMessage(code: String, message: String)
   /// 接続直後に本人にだけ送る。resume_token は再接続の復帰キーで、本人以外に送らない。
   Session(player_id: String, resume_token: String)
+  /// ハートビート（issue-41 / ADR 0041）。固定の間隔で全接続に送る。接続の層だけで扱う。
+  Ping
 }
 
 /// 契約の ClientMessage の type 一覧（contracts の CLIENT_MESSAGE_TYPES と一致させる）。
 pub const client_message_types = [
   "set-name", "list-rooms", "create-room", "join-room", "leave-room",
-  "reconnect", "game-event",
+  "reconnect", "game-event", "pong",
 ]
 
 /// 契約の ServerMessage の type 一覧（contracts の SERVER_MESSAGE_TYPES と一致させる）。
 pub const server_message_types = [
   "room-list", "room-joined", "player-joined", "player-left", "game-started",
-  "game-state", "game-state-to", "game-ended", "error", "session",
+  "game-state", "game-state-to", "game-ended", "error", "session", "ping",
 ]
 
 /// 電文の type。contracts の ServerMessage の type と一致させる。
@@ -126,6 +130,7 @@ pub fn type_name(message: ServerMessage) -> String {
     GameEnded(..) -> "game-ended"
     ErrorMessage(..) -> "error"
     Session(..) -> "session"
+    Ping -> "ping"
   }
 }
 
@@ -202,6 +207,7 @@ fn server_json(message: ServerMessage) -> Json {
         #("playerId", json.string(player_id)),
         #("resumeToken", json.string(resume_token)),
       ])
+    Ping -> typed(kind, [])
   }
 }
 
@@ -243,6 +249,7 @@ fn client_json(message: ClientMessage) -> Json {
         #("roomId", json.string(room_id)),
         #("payload", json_of_dynamic(payload)),
       ])
+    Pong -> typed("pong", [])
   }
 }
 
@@ -416,6 +423,7 @@ fn client_decoder() -> Decoder(ClientMessage) {
       use payload <- decode.field("payload", decode.dynamic)
       decode.success(GameEvent(game_type:, room_id:, payload:))
     }
+    "pong" -> decode.success(Pong)
     _ -> decode.failure(ListRooms(""), "ClientMessage")
   }
 }
@@ -479,6 +487,7 @@ fn server_decoder() -> Decoder(ServerMessage) {
       use resume_token <- decode.field("resumeToken", decode.string)
       decode.success(Session(player_id:, resume_token:))
     }
+    "ping" -> decode.success(Ping)
     _ -> decode.failure(ErrorMessage("", ""), "ServerMessage")
   }
 }

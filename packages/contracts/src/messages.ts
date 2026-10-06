@@ -83,7 +83,12 @@ export type ClientMessage =
 			readonly gameType: GameType;
 			readonly roomId: RoomId;
 			readonly payload: unknown;
-	  };
+	  }
+	/**
+	 * ハートビートの応答（issue-41 / ADR 0041）。サーバーの ping を受けたら返す。
+	 * 接続の層だけで扱い、ルームとゲームには渡さない。
+	 */
+	| { readonly type: "pong" };
 
 /**
  * サーバー -> クライアント メッセージ。
@@ -152,4 +157,9 @@ export type ServerMessage =
 			readonly type: "session";
 			readonly playerId: PlayerId;
 			readonly resumeToken: string;
-	  };
+	  }
+	/**
+	 * ハートビート（issue-41 / ADR 0041）。通信の有無にかかわらず、固定の間隔で全接続に
+	 * 送る。クライアントは pong を返す。接続の層だけで扱い、ゲームには渡さない。
+	 */
+	| { readonly type: "ping" };

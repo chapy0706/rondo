@@ -172,6 +172,9 @@ export function parseServerMessage(value: unknown): ServerMessage | null {
 			if (!isString(playerId) || !isString(resumeToken)) return null;
 			return { type, playerId, resumeToken };
 		}
+		case "ping":
+			// ハートビート（issue-41）。接続の層（WebSocketAdapter）で pong を返す。
+			return { type };
 		default:
 			return null;
 	}

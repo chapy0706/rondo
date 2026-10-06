@@ -27,6 +27,7 @@ export const clientMessageSamples = [
 		roomId: "room-1",
 		payload: { type: "move", x: 1.5, z: -2 },
 	},
+	{ type: "pong" },
 ] satisfies ClientMessage[];
 
 export const serverMessageSamples = [
@@ -108,4 +109,5 @@ export const serverMessageSamples = [
 	},
 	{ type: "error", code: "room-full", message: "そのルームは満員です。" },
 	{ type: "session", playerId: "p-2", resumeToken: "secret-token" },
+	{ type: "ping" },
 ] satisfies ServerMessage[];

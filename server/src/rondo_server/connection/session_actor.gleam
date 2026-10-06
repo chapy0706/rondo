@@ -16,7 +16,7 @@ import gleam/option.{type Option, None, Some}
 import gleam/otp/actor
 import rondo_server/connection/session.{type Deps, type Session}
 import rondo_server/protocol/message.{
-  type ClientMessage, type ServerMessage, PlayerInfo, RoomJoined,
+  type ClientMessage, type ServerMessage, Ping, PlayerInfo, RoomJoined,
   Session as SessionMessage,
 }
 import rondo_server/room/room_actor.{PlayerId}
@@ -242,9 +242,14 @@ fn deliver(state: State, outgoing: ServerMessage) -> Nil {
   }
 }
 
+/// 切断中の配信をためる。ハートビート（ping）はためない（復帰後に古い ping を流さない /
+/// issue-41）。
 fn keep(
   buffer: List(ServerMessage),
   outgoing: ServerMessage,
 ) -> List(ServerMessage) {
-  list.take([outgoing, ..buffer], buffer_limit)
+  case outgoing {
+    Ping -> buffer
+    _ -> list.take([outgoing, ..buffer], buffer_limit)
+  }
 }
