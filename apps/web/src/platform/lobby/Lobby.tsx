@@ -10,7 +10,9 @@
 
 import type { GameType, RoomOption } from "@rondo/contracts";
 import Link from "next/link";
+import { useRouter } from "next/navigation";
 import { useState } from "react";
+import { ConnectionFailed } from "../session/ConnectionFailed";
 import { choiceLabel, chooseOption, initialSettings } from "./roomOptions";
 import { useRealtimeLobby } from "./useRealtimeLobby";
 
@@ -22,8 +24,18 @@ export function Lobby({
 	/** ルーム作成時に選ぶ設定（マニフェストの宣言）。一覧には出さない（ADR 0024）。 */
 	roomOptions?: readonly RoomOption[];
 }) {
-	const { rooms, entering, waiting, error, createRoom, joinRoom, refresh } =
-		useRealtimeLobby(gameType);
+	const router = useRouter();
+	const {
+		rooms,
+		entering,
+		waiting,
+		error,
+		failed,
+		retry,
+		createRoom,
+		joinRoom,
+		refresh,
+	} = useRealtimeLobby(gameType);
 	const [settings, setSettings] = useState(() => initialSettings(roomOptions));
 
 	return (
@@ -41,6 +53,11 @@ export function Lobby({
 
 			{entering ? (
 				<p className="text-slate-400 text-sm">ゲーム画面へ移動中...</p>
+			) : failed ? (
+				<ConnectionFailed
+					onRetry={retry}
+					onSelect={() => router.push("/select")}
+				/>
 			) : (
 				<section className="flex flex-col gap-4">
 					<div className="flex items-center justify-between">

@@ -37,11 +37,16 @@ import {
 	useMemo,
 	useState,
 } from "react";
-import { findGameLoader, lobbyPathOf } from "../../games/registry";
+import {
+	findGameLoader,
+	isRealtimeMatch,
+	lobbyPathOf,
+} from "../../games/registry";
 import { LaunchGate } from "../launch/LaunchGate";
 import { needsLaunchScreen } from "../launch/launch";
 import { ResultScreen } from "../result/ResultScreen";
-import { playEntry } from "../session/session";
+import { ConnectionFailed } from "../session/ConnectionFailed";
+import { playEntry, playStatus } from "../session/session";
 import {
 	getRealtimeSession,
 	useSessionState,
@@ -54,7 +59,28 @@ interface RealtimeSession {
 	readonly you: PlayerId | null;
 	/** 部屋に入れなかったとき（参加・復帰の失敗）の文言。 */
 	readonly error: string | null;
+	/** つながらなかった（返事が届かない・つなぎ直しをすべて失敗した / issue-47）。 */
+	readonly failed: boolean;
+	/** もう一度、部屋に入るところからやり直す。 */
+	readonly retry: () => void;
 	readonly leave: () => void;
+}
+
+/** 開いたゲーム画面に合わせて、部屋を作るか、待つか、そのまま開くかを決めて動く。 */
+function enterRoom(gameType: string): void {
+	const session = getRealtimeSession();
+	switch (playEntry(session.state, gameType)) {
+		case "joined":
+		case "waiting":
+			break;
+		case "leave-and-create":
+			session.leave();
+			session.create(gameType);
+			break;
+		case "create":
+			session.create(gameType);
+			break;
+	}
 }
 
 /**
@@ -67,20 +93,8 @@ function useRealtimeSession(gameType: string | null): RealtimeSession {
 
 	useEffect(() => {
 		if (gameType === null) return;
-		const session = getRealtimeSession();
-		const release = session.hold();
-		switch (playEntry(session.state, gameType)) {
-			case "joined":
-			case "waiting":
-				break;
-			case "leave-and-create":
-				session.leave();
-				session.create(gameType);
-				break;
-			case "create":
-				session.create(gameType);
-				break;
-		}
+		const release = getRealtimeSession().hold();
+		enterRoom(gameType);
 		return release;
 	}, [gameType]);
 
@@ -101,13 +115,22 @@ function useRealtimeSession(gameType: string | null): RealtimeSession {
 		getRealtimeSession().leave();
 	}, []);
 
+	const retry = useCallback(() => {
+		if (gameType === null) return;
+		getRealtimeSession().dismiss();
+		enterRoom(gameType);
+	}, [gameType]);
+
 	const waiting = gameType !== null && playEntry(state, gameType) === "waiting";
+	const failed = gameType !== null && playStatus(state, gameType) === "failed";
 
 	return {
 		realtime,
 		result: room === null ? null : state.result,
 		you,
-		error: room === null && !waiting ? state.error : null,
+		error: room === null && !waiting && !failed ? state.error : null,
+		failed,
+		retry,
 		leave,
 	};
 }
@@ -124,9 +147,8 @@ export function PlayHost({ manifest }: { manifest: GameManifest }) {
 
 	const isRealtime = manifest.kind === "realtime";
 	// ルームへの接続は起動してから始める（起動画面で待つ間に部屋を作らない）。
-	const { realtime, result, you, error, leave } = useRealtimeSession(
-		isRealtime && launched ? manifest.id : null,
-	);
+	const { realtime, result, you, error, failed, retry, leave } =
+		useRealtimeSession(isRealtime && launched ? manifest.id : null);
 
 	const reportResult = useCallback((value: PlayResult) => {
 		setSoloResult(value);
@@ -158,6 +180,11 @@ export function PlayHost({ manifest }: { manifest: GameManifest }) {
 		router.push("/select");
 	}, [leave, router]);
 
+	const toLobby = useCallback(() => {
+		leave();
+		router.push(lobbyPathOf(manifest.id));
+	}, [leave, router, manifest.id]);
+
 	const connecting = isRealtime && realtime === null;
 	const view = resultView(manifest, result);
 
@@ -177,6 +204,12 @@ export function PlayHost({ manifest }: { manifest: GameManifest }) {
 								<p className="text-slate-400">
 									このゲームはまだ起動できません（本体が未登録）。
 								</p>
+							) : connecting && failed ? (
+								<ConnectionFailed
+									onRetry={retry}
+									onLobby={isRealtimeMatch(manifest.id) ? toLobby : undefined}
+									onSelect={backToSelect}
+								/>
 							) : connecting && error !== null ? (
 								<div className="flex flex-col items-center gap-3">
 									<p className="text-red-200 text-sm">{error}</p>

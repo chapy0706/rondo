@@ -1,8 +1,10 @@
 "use client";
 
 import type { GameManifest } from "@rondo/contracts";
+import Link from "next/link";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { GameCard } from "./GameCard";
+import { entriesOf } from "./entries";
 import { nearestIndex, playerLabel } from "./selection";
 
 /**
@@ -12,6 +14,8 @@ import { nearestIndex, playerLabel } from "./selection";
  * 拡大・強調する。選択中のカードを押すとゲームホスト（/play/<id>）へ遷移し、
  * それ以外のカードを押すと中央へ寄せて選択中にする（誤って起動しにくくする）。
  * マニフェストの一覧を受け取るだけで、特定のゲームを知らない（ADR 0003）。
+ * リアルタイム対戦のゲームを選んでいるときは、「新しく遊ぶ」と「ルームに参加する」の
+ * 入口も出す（issue-47。どのゲームが対象かは registry が決める）。
  */
 export function Shelf({ manifests }: { manifests: readonly GameManifest[] }) {
 	const scrollerRef = useRef<HTMLDivElement | null>(null);
@@ -60,6 +64,7 @@ export function Shelf({ manifests }: { manifests: readonly GameManifest[] }) {
 	};
 
 	const current = manifests[selected];
+	const entries = current === undefined ? [] : entriesOf(current);
 
 	return (
 		<div className="flex flex-col items-center gap-6">
@@ -100,6 +105,24 @@ export function Shelf({ manifests }: { manifests: readonly GameManifest[] }) {
 					</>
 				) : null}
 			</div>
+
+			{entries.length > 0 && (
+				<div className="flex w-full max-w-xs flex-col gap-2 px-6">
+					{entries.map((entry, index) => (
+						<Link
+							key={entry.href}
+							href={entry.href}
+							className={`rounded-xl px-4 py-3 text-center font-semibold transition-transform active:scale-[0.98] ${
+								index === 0
+									? "bg-accent text-accent-fg"
+									: "bg-surface text-fg ring-1 ring-line"
+							}`}
+						>
+							{entry.label}
+						</Link>
+					))}
+				</div>
+			)}
 		</div>
 	);
 }

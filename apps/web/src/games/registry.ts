@@ -79,3 +79,13 @@ const resultInsteadOfGame: ReadonlySet<string> = new Set([veryareManifest.id]);
 export function showsResultInsteadOfGame(id: string): boolean {
 	return resultInsteadOfGame.has(id);
 }
+
+/**
+ * リアルタイム対戦のゲーム（issue-47）。選択画面で「新しく遊ぶ」と「ルームに参加する」の
+ * 入口を分け、ロビーを出す。rolling（tilt-maze）の対戦モードは準備中のため、まだ入れない。
+ */
+const realtimeMatches: ReadonlySet<string> = new Set([veryareManifest.id]);
+
+export function isRealtimeMatch(id: string): boolean {
+	return realtimeMatches.has(id);
+}

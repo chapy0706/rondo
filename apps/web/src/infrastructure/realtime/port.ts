@@ -11,4 +11,11 @@ import type { RealTimePort } from "@rondo/contracts";
 export interface RealtimeAdapter extends RealTimePort {
 	/** 接続を閉じ、購読を解く。 */
 	close(): void;
+	/**
+	 * つなぎ直しをすべて失敗し、あきらめたときに呼ばれる（issue-47）。購読解除の関数を返す。
+	 * モックは失敗しないので呼ばない。
+	 */
+	onConnectionFailed(listener: () => void): () => void;
+	/** あきらめた接続を、新しくつなぎ直す。つながっている間は何もしない。 */
+	reconnect(): void;
 }

@@ -63,6 +63,8 @@ export class WebSocketAdapter extends MultiplexingAdapter {
 	private connected = false;
 	private closedByClient = false;
 	private attempts = 0;
+	/** つなぎ直しをあきらめたか。reconnect で戻す。 */
+	private gaveUp = false;
 
 	/** 最新の session。復帰に成功すると元の値が届き直す。 */
 	private current: SessionInfo | null = null;
@@ -155,12 +157,36 @@ export class WebSocketAdapter extends MultiplexingAdapter {
 				resumeToken: this.current.resumeToken,
 			};
 		}
-		if (this.attempts >= this.maxAttempts) return;
+		if (this.attempts >= this.maxAttempts) {
+			this.giveUp();
+			return;
+		}
 		this.attempts += 1;
 		setTimeout(() => {
 			if (this.closedByClient) return;
 			this.socket = this.connect();
 		}, this.retryDelayMs);
+	}
+
+	/** あきらめた接続を、新しくつなぎ直す（issue-47）。つながっている・つなぎ直し中は何もしない。 */
+	override reconnect(): void {
+		if (!this.gaveUp || this.closedByClient) return;
+		this.gaveUp = false;
+		this.attempts = 0;
+		this.socket = this.connect();
+	}
+
+	/**
+	 * つなぎ直しをあきらめる。猶予（ADR 0013）を過ぎているので、元のルームには戻れない。
+	 * 復帰先を消し、画面へ知らせる。
+	 */
+	private giveUp(): void {
+		if (this.gaveUp) return;
+		this.gaveUp = true;
+		this.room = null;
+		this.resumeTarget = null;
+		this.resumeStore?.clear();
+		this.notifyConnectionFailed();
 	}
 
 	private flush(): void {

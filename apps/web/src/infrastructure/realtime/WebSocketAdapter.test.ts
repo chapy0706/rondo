@@ -378,3 +378,87 @@ describe("WebSocketAdapter - リロードをまたぐ復帰（issue-40）", () =
 		expect(memory.current()).toBeNull();
 	});
 });
+
+describe("WebSocketAdapter - つなぎ直しをあきらめたとき（issue-47）", () => {
+	let sockets: FakeSocket[];
+
+	beforeEach(() => {
+		vi.useFakeTimers();
+		sockets = [];
+	});
+
+	afterEach(() => {
+		vi.useRealTimers();
+	});
+
+	const current = () => sockets.at(-1) as FakeSocket;
+
+	function create(store?: ResumeStore) {
+		return new WebSocketAdapter("ws://test/ws", {
+			createSocket: () => {
+				const socket = new FakeSocket();
+				sockets.push(socket);
+				return socket;
+			},
+			retryDelayMs: 1000,
+			maxAttempts: 2,
+			...(store === undefined ? {} : { resumeStore: store }),
+		});
+	}
+
+	it("上限までつなぎ直してもつながらなければ、1回だけ知らせ、復帰先を消す", () => {
+		const memory = memoryResumeStore();
+		const adapter = create(memory.store);
+		const failed = vi.fn();
+		adapter.onConnectionFailed(failed);
+		current().open();
+		current().deliver(session("p-1", "token-1"));
+		current().deliver(joined("room-1", "p-1"));
+		current().drop();
+		vi.advanceTimersByTime(1000);
+		current().drop();
+		vi.advanceTimersByTime(1000);
+		expect(failed).not.toHaveBeenCalled();
+		current().drop();
+		expect(failed).toHaveBeenCalledTimes(1);
+		expect(memory.current()).toBeNull();
+		vi.advanceTimersByTime(10_000);
+		expect(failed).toHaveBeenCalledTimes(1);
+	});
+
+	it("最初の接続からつながらないときも、上限で知らせる", () => {
+		const adapter = create();
+		const failed = vi.fn();
+		adapter.onConnectionFailed(failed);
+		current().drop();
+		vi.advanceTimersByTime(1000);
+		current().drop();
+		vi.advanceTimersByTime(1000);
+		current().drop();
+		expect(failed).toHaveBeenCalledTimes(1);
+	});
+
+	it("あきらめた後に reconnect すると、新しくつなぎ、ためた電文を送る", () => {
+		const adapter = create();
+		current().drop();
+		vi.advanceTimersByTime(1000);
+		current().drop();
+		vi.advanceTimersByTime(1000);
+		current().drop();
+		const before = sockets.length;
+		adapter.send({ type: "list-rooms", gameType: "veryare" });
+		adapter.reconnect();
+		expect(sockets).toHaveLength(before + 1);
+		current().open();
+		expect(current().sent).toEqual([
+			{ type: "list-rooms", gameType: "veryare" },
+		]);
+	});
+
+	it("つながっている間の reconnect は何もしない", () => {
+		const adapter = create();
+		current().open();
+		adapter.reconnect();
+		expect(sockets).toHaveLength(1);
+	});
+});

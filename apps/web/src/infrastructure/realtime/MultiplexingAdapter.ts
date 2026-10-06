@@ -12,6 +12,7 @@ import type { RealtimeAdapter } from "./port";
 
 export abstract class MultiplexingAdapter implements RealtimeAdapter {
 	private readonly subscribers = new Set<(message: ServerMessage) => void>();
+	private readonly failureListeners = new Set<() => void>();
 
 	/** サーバーへ送る。実装は接続先に応じて与える。 */
 	abstract send(message: ClientMessage): void;
@@ -24,6 +25,21 @@ export abstract class MultiplexingAdapter implements RealtimeAdapter {
 		return () => {
 			this.subscribers.delete(handler);
 		};
+	}
+
+	onConnectionFailed(listener: () => void): () => void {
+		this.failureListeners.add(listener);
+		return () => {
+			this.failureListeners.delete(listener);
+		};
+	}
+
+	/** 既定は何もしない（失敗しない接続）。実接続が上書きする。 */
+	reconnect(): void {}
+
+	/** つなぎ直しをあきらめたことを知らせる。 */
+	protected notifyConnectionFailed(): void {
+		for (const listener of [...this.failureListeners]) listener();
 	}
 
 	/**

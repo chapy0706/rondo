@@ -6,7 +6,9 @@ import {
 	type SessionState,
 	lobbyShouldEnter,
 	playEntry,
+	playStatus,
 	reduceSession,
+	roomJoinedAction,
 } from "./session";
 
 const joined = (
@@ -285,5 +287,112 @@ describe("ReplayBuffer - 画面が開く前に届いた通知を取りこぼさ�
 		buffer.record(state("room-1", { type: "phase" }));
 		buffer.reset();
 		expect(buffer.size).toBe(0);
+	});
+});
+
+describe("reduceSession - タイムアウトと接続の失敗（issue-47）", () => {
+	const pending = (kind: "create" | "join" | "resume" = "create") =>
+		reduceSession(INITIAL_SESSION, {
+			type: "request",
+			kind,
+			gameType: "veryare",
+		});
+
+	it("返事を待っている間に時間切れになると、待ちを解いて失敗にする", () => {
+		const timedOut = reduceSession(pending(), { type: "timeout" });
+		expect(timedOut.pending).toBeNull();
+		expect(timedOut.failure).toBe("timeout");
+	});
+
+	it("待っていなければ、時間切れは何もしない", () => {
+		const joined = server(pending(), joined_("room-1"));
+		expect(reduceSession(joined, { type: "timeout" })).toBe(joined);
+	});
+
+	it("再接続がすべて失敗したら、ルームと待ちを忘れて失敗にする", () => {
+		const lost = reduceSession(inRoom(), { type: "connection-lost" });
+		expect(lost.room).toBeNull();
+		expect(lost.pending).toBeNull();
+		expect(lost.failure).toBe("connection-lost");
+	});
+
+	it("ルームにも入らず、何も待っていなければ、接続の失敗は表示しない（次の頼みで分かる）", () => {
+		expect(
+			reduceSession(INITIAL_SESSION, { type: "connection-lost" }).failure,
+		).toBeNull();
+	});
+
+	it("新しく頼むと、失敗の表示を消す", () => {
+		const failed = reduceSession(pending(), { type: "timeout" });
+		expect(
+			reduceSession(failed, {
+				type: "request",
+				kind: "create",
+				gameType: "veryare",
+			}).failure,
+		).toBeNull();
+	});
+
+	it("dismiss で、失敗とエラーの表示を消す", () => {
+		const failed = reduceSession(pending(), { type: "timeout" });
+		const cleared = reduceSession(failed, { type: "dismiss" });
+		expect(cleared.failure).toBeNull();
+		expect(cleared.error).toBeNull();
+	});
+
+	it("room-joined が届いたら、失敗の表示を消す（遅れて届いた返事を受け入れた）", () => {
+		const failed = reduceSession(pending(), { type: "timeout" });
+		expect(server(failed, joined_("room-1")).failure).toBeNull();
+	});
+});
+
+/** 名前の重なりを避けるための別名。 */
+function joined_(roomId: string): ServerMessage {
+	return joined(roomId);
+}
+
+describe("roomJoinedAction - 届いた room-joined を受け入れるか（取り残しの防止）", () => {
+	it("待っている画面があれば受け入れる", () => {
+		expect(roomJoinedAction(INITIAL_SESSION, "room-1", true)).toBe("accept");
+	});
+
+	it("画面がなければ、すぐに出る（返事の前に画面を離れた）", () => {
+		expect(roomJoinedAction(INITIAL_SESSION, "room-1", false)).toBe("leave");
+	});
+
+	it("すでに別のルームにいれば、新しく届いたほうから出る", () => {
+		expect(roomJoinedAction(inRoom("room-1"), "room-2", true)).toBe("leave");
+	});
+
+	it("同じルームの room-joined（再接続での復帰）は受け入れる", () => {
+		expect(roomJoinedAction(inRoom("room-1"), "room-1", true)).toBe("accept");
+	});
+});
+
+describe("playStatus - ゲーム画面に何を出すか", () => {
+	it("このゲームのルームに入っていれば joined", () => {
+		expect(playStatus(inRoom(), "veryare")).toBe("joined");
+	});
+
+	it("失敗していれば failed（ルームに入っていなければ）", () => {
+		const failed = reduceSession(
+			reduceSession(INITIAL_SESSION, {
+				type: "request",
+				kind: "create",
+				gameType: "veryare",
+			}),
+			{ type: "timeout" },
+		);
+		expect(playStatus(failed, "veryare")).toBe("failed");
+		expect(
+			playStatus(
+				reduceSession(inRoom(), { type: "connection-lost" }),
+				"veryare",
+			),
+		).toBe("failed");
+	});
+
+	it("それ以外は connecting（返事を待っている、またはこれから頼む）", () => {
+		expect(playStatus(INITIAL_SESSION, "veryare")).toBe("connecting");
 	});
 });

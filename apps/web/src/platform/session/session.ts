@@ -29,12 +29,20 @@ export interface PendingRequest {
 	readonly gameType: GameType;
 }
 
+/**
+ * つながらなかった理由（issue-47）。画面は理由ごとに文言を変えず、次の操作を示す。
+ * - timeout: 参加・作成・復帰の返事が時間内に届かなかった
+ * - connection-lost: つなぎ直しをすべて失敗した
+ */
+export type SessionFailure = "timeout" | "connection-lost";
+
 export interface SessionState {
 	readonly room: RoomSession | null;
 	readonly pending: PendingRequest | null;
 	/** 参加中のルームの確定結果（game-ended）。 */
 	readonly result: RealtimeResult | null;
 	readonly error: string | null;
+	readonly failure: SessionFailure | null;
 }
 
 export type SessionEvent =
@@ -44,13 +52,20 @@ export type SessionEvent =
 			readonly kind: PendingRequest["kind"];
 			readonly gameType: GameType;
 	  }
-	| { readonly type: "left" };
+	| { readonly type: "left" }
+	/** 返事を待つ時間が過ぎた。 */
+	| { readonly type: "timeout" }
+	/** つなぎ直しをすべて失敗した。 */
+	| { readonly type: "connection-lost" }
+	/** 失敗とエラーの表示を消す。 */
+	| { readonly type: "dismiss" };
 
 export const INITIAL_SESSION: SessionState = {
 	room: null,
 	pending: null,
 	result: null,
 	error: null,
+	failure: null,
 };
 
 export function reduceSession(
@@ -63,9 +78,24 @@ export function reduceSession(
 				...state,
 				pending: { kind: event.kind, gameType: event.gameType },
 				error: null,
+				failure: null,
 			};
 		case "left":
 			return INITIAL_SESSION;
+		case "timeout":
+			if (state.pending === null) return state;
+			return { ...state, pending: null, failure: "timeout" };
+		case "connection-lost":
+			if (state.room === null && state.pending === null) return state;
+			return {
+				...state,
+				room: null,
+				pending: null,
+				result: null,
+				failure: "connection-lost",
+			};
+		case "dismiss":
+			return { ...state, error: null, failure: null };
 		case "server":
 			return reduceServer(state, event.message);
 	}
@@ -88,6 +118,7 @@ function reduceServer(
 				pending: null,
 				result: state.room?.roomId === message.roomId ? state.result : null,
 				error: null,
+				failure: null,
 			};
 		case "player-joined": {
 			const room = state.room;
@@ -125,6 +156,32 @@ function reduceServer(
 		default:
 			return state;
 	}
+}
+
+/**
+ * 届いた room-joined を受け入れるか、すぐに出るか（取り残しの防止 / issue-47）。
+ * 返事を待つ画面（ロビー・ゲーム画面）がなければ出る。返事の前に画面を離れた場合で、
+ * 接続は切れていないので再接続の猶予（ADR 0013）も働かず、出なければ枠を塞ぐ。
+ * すでに別のルームにいれば、新しく届いたほうから出る（時間切れの後の、遅れた返事など）。
+ */
+export function roomJoinedAction(
+	state: SessionState,
+	roomId: RoomId,
+	hasScreen: boolean,
+): "accept" | "leave" {
+	if (!hasScreen) return "leave";
+	if (state.room !== null && state.room.roomId !== roomId) return "leave";
+	return "accept";
+}
+
+/** ゲーム画面に出すもの。joined はゲーム、failed は失敗の表示、connecting は接続中。 */
+export function playStatus(
+	state: SessionState,
+	gameType: GameType,
+): "joined" | "failed" | "connecting" {
+	if (state.room?.gameType === gameType) return "joined";
+	if (state.failure !== null) return "failed";
+	return "connecting";
 }
 
 /** ロビーが、このゲームの画面へ移るべきか（このゲームのルームに参加中）。 */
@@ -204,6 +261,11 @@ export class ReplayBuffer {
 			this.delivered.add(roomId);
 			for (const message of mine) handler(message);
 		});
+	}
+
+	/** このルームの分を捨てる（出たルーム）。 */
+	drop(roomId: RoomId): void {
+		this.messages = this.messages.filter((m) => m.roomId !== roomId);
 	}
 
 	reset(): void {
