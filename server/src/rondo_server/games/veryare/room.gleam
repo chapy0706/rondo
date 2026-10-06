@@ -34,6 +34,7 @@ import rondo_server/games/veryare/hider_cpu.{
 }
 import rondo_server/games/veryare/oni_cpu.{type Strength}
 import rondo_server/games/veryare/palette
+import rondo_server/games/veryare/result as final_result
 import rondo_server/games/veryare/stage
 import rondo_server/room/driver.{type Driver, type Effect}
 import rondo_server/room/room_actor.{
@@ -275,7 +276,20 @@ fn step(
     True -> []
     False -> [driver.Broadcast(hiding_payload(after))]
   }
-  #(wrap(after, pick), list.append(effects, hiding))
+  #(wrap(after, pick), list.flatten([effects, hiding, finish(before, after)]))
+}
+
+/// 終了（Ended）に入った瞬間に、結果を全員へ送る（issue-42）。終了経路はすべて
+/// ここを通る（答え合わせの満了、不成立）。終了の通知（phase: ended）の後に出す。
+fn finish(
+  before: Game(PlayerId),
+  after: Game(PlayerId),
+) -> List(Effect(PlayerId)) {
+  case before.phase, final_result.of(after) {
+    Ended(_), _ -> []
+    _, Ok(#(order, standings)) -> [driver.Finish(order, standings)]
+    _, Error(Nil) -> []
+  }
 }
 
 /// 人間の鬼が探索中に動いたら、鬼の状態を全員へ送る（位置か向きが変わったときだけ）。

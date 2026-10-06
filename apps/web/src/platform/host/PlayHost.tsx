@@ -46,6 +46,7 @@ import {
 	getRealtimeSession,
 	useSessionState,
 } from "../session/useRealtimeSession";
+import { resultView } from "./resultView";
 
 interface RealtimeSession {
 	readonly realtime: RealtimeHost | null;
@@ -158,6 +159,7 @@ export function PlayHost({ manifest }: { manifest: GameManifest }) {
 	}, [leave, router]);
 
 	const connecting = isRealtime && realtime === null;
+	const view = resultView(manifest, result);
 
 	return (
 		<GameHostProvider value={host}>
@@ -166,35 +168,39 @@ export function PlayHost({ manifest }: { manifest: GameManifest }) {
 					<h1 className="font-bold text-2xl text-white">{manifest.title}</h1>
 				)}
 
-				<VirtualPadProvider>
-					<LaunchGate manifest={manifest} launched={launched} onStart={start}>
-						{Game === null ? (
-							<p className="text-slate-400">
-								このゲームはまだ起動できません（本体が未登録）。
-							</p>
-						) : connecting && error !== null ? (
-							<div className="flex flex-col items-center gap-3">
-								<p className="text-red-200 text-sm">{error}</p>
-								<Link
-									href={lobbyPathOf(manifest.id)}
-									className="text-indigo-400 text-sm underline"
+				{view === "instead-of-game" && result !== null ? (
+					<ResultScreen result={result} you={you} onLeave={leaveRoom} />
+				) : (
+					<VirtualPadProvider>
+						<LaunchGate manifest={manifest} launched={launched} onStart={start}>
+							{Game === null ? (
+								<p className="text-slate-400">
+									このゲームはまだ起動できません（本体が未登録）。
+								</p>
+							) : connecting && error !== null ? (
+								<div className="flex flex-col items-center gap-3">
+									<p className="text-red-200 text-sm">{error}</p>
+									<Link
+										href={lobbyPathOf(manifest.id)}
+										className="text-indigo-400 text-sm underline"
+									>
+										ロビーへ
+									</Link>
+								</div>
+							) : connecting ? (
+								<p className="text-slate-400">ルームに接続中...</p>
+							) : (
+								<Suspense
+									fallback={<p className="text-slate-400">読み込み中...</p>}
 								>
-									ロビーへ
-								</Link>
-							</div>
-						) : connecting ? (
-							<p className="text-slate-400">ルームに接続中...</p>
-						) : (
-							<Suspense
-								fallback={<p className="text-slate-400">読み込み中...</p>}
-							>
-								<Game key={playKey} />
-							</Suspense>
-						)}
-					</LaunchGate>
-				</VirtualPadProvider>
+									<Game key={playKey} />
+								</Suspense>
+							)}
+						</LaunchGate>
+					</VirtualPadProvider>
+				)}
 
-				{result !== null && (
+				{view === "below-game" && result !== null && (
 					<ResultScreen result={result} you={you} onLeave={leaveRoom} />
 				)}
 

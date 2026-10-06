@@ -5,6 +5,7 @@
 /// 箱は新しい箱と「指示」の一覧を返す。ルームは指示どおりに配信し、タイマーを張る。
 /// 判定の中身は各ゲームが games/<id>/ に持つ。順位だけを扱う Authority とは別の口。
 import gleam/dynamic.{type Dynamic}
+import rondo_server/protocol/message.{type ScoreOrder}
 
 /// ゲームからルームへの指示。
 pub type Effect(id) {
@@ -14,6 +15,15 @@ pub type Effect(id) {
   Deliver(targets: List(id), payload: Dynamic)
   /// ms ミリ秒後に token を持ってゲームを起こす。token はゲームが古いタイマーを見分けるのに使う。
   WakeAfter(ms: Int, token: Int)
+  /// ゲームの終了（issue-42）。ルームは参加者全員へ game-ended を送り、Finished に移る。
+  /// 名前はルームが持つ表示名で埋める（離脱した人も、ルームが控えた名前で残る）。
+  Finish(order: ScoreOrder, standings: List(Standing(id)))
+}
+
+/// 結果の1行（名前を除く）。同じ順位を複数人で共有してよい。details は表示用の補助で、
+/// キーは画面にそのまま出る短い語にする。
+pub type Standing(id) {
+  Standing(player: id, rank: Int, score: Int, details: List(#(String, String)))
 }
 
 /// 箱。中身（ゲーム固有の状態）は閉じ、操作だけを公開する。

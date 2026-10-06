@@ -198,6 +198,14 @@ export class WebSocketAdapter extends MultiplexingAdapter {
 					});
 				}
 				break;
+			case "game-ended":
+				if (message.roomId === this.room) {
+					// 終わったルームには戻らない（issue-42）。結果は画面が持つ。
+					this.room = null;
+					this.resumeTarget = null;
+					this.resumeStore?.clear();
+				}
+				break;
 			case "error":
 				if (message.code === "reconnect-failed") {
 					// 前のプレイヤーには戻れなかった。新しい接続として続ける。

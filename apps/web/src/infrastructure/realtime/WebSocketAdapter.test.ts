@@ -327,6 +327,41 @@ describe("WebSocketAdapter - リロードをまたぐ復帰（issue-40）", () =
 		expect(memory.current()).toBeNull();
 	});
 
+	it("ゲームが終わったら（game-ended）、覚えた復帰先を消し、切れても復帰を頼まない（issue-42）", () => {
+		const memory = memoryResumeStore();
+		create(memory.store);
+		current().open();
+		current().deliver(session("p-1", "token-1"));
+		current().deliver(joined("room-1", "p-1"));
+		current().deliver({
+			type: "game-ended",
+			gameType: "veryare",
+			roomId: "room-1",
+			result: { order: "higher-is-better", rankings: [] },
+		});
+		expect(memory.current()).toBeNull();
+
+		current().drop();
+		vi.advanceTimersByTime(1000);
+		current().open();
+		expect(current().sent).toEqual([]);
+	});
+
+	it("ほかのルームの game-ended では、復帰先を消さない", () => {
+		const memory = memoryResumeStore();
+		create(memory.store);
+		current().open();
+		current().deliver(session("p-1", "token-1"));
+		current().deliver(joined("room-1", "p-1"));
+		current().deliver({
+			type: "game-ended",
+			gameType: "veryare",
+			roomId: "room-2",
+			result: { order: "higher-is-better", rankings: [] },
+		});
+		expect(memory.current()?.roomId).toBe("room-1");
+	});
+
 	it("復帰に失敗したら、覚えた復帰先を消す", () => {
 		const memory = memoryResumeStore({
 			gameType: "veryare",

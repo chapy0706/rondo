@@ -68,3 +68,14 @@ export function playPathOf(id: string): string {
 export function lobbyPathOf(id: string): string {
 	return `/lobby/${encodeURIComponent(id)}`;
 }
+
+/**
+ * game-ended を受けたら、ゲームの代わりに基盤の結果画面を出すゲーム（issue-42）。
+ * 勝敗をゲームの画面に出さず、基盤の結果画面に任せるゲームだけを並べる。ほかの
+ * リアルタイムのゲーム（tilt-maze）は、これまでどおりゲームの下に結果を並べる。
+ */
+const resultInsteadOfGame: ReadonlySet<string> = new Set([veryareManifest.id]);
+
+export function showsResultInsteadOfGame(id: string): boolean {
+	return resultInsteadOfGame.has(id);
+}

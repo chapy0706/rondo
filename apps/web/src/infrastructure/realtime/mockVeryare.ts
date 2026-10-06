@@ -8,7 +8,8 @@
  * 鬼希望エリアの色（赤・待機 → 緑・開始 → 青・鬼希望）も、位置を見ずに時刻で進める
  * （自分がエリアに入っても台本は変わらない）。
  * 発見（issue-27）がまだないため、終わり方は常に「探索の時間切れで隠れ側の勝ち」で、
- * 答え合わせタイム（20秒）を経て終了する。
+ * 答え合わせタイム（20秒）を経て終了する。終了の通知の直後に、サーバーと同じ形の
+ * game-ended（issue-42。勝ちを 1 位、負けを 2 位、隠れ側はチーム）を送る。
  *
  * CPU（ADR 0038 / issue-33）を選ぶと、仮のプレイヤーの代わりに CPU N を参加させる。
  * 隠れ側 CPU のときは自分が鬼、鬼 CPU のときは CPU 1 が鬼になる。探索開始時には、
@@ -99,6 +100,8 @@ export function veryareScript(options: {
 	readonly explorationSeconds: number;
 	/** CPU の選択（省略時はなし）。 */
 	readonly cpu?: number;
+	/** 結果に載せる自分の表示名。 */
+	readonly selfName: string;
 }): ScriptedMessage[] {
 	const { roomId, self, selfIsOni, explorationSeconds } = options;
 	const cpu = options.cpu ?? 0;
@@ -227,7 +230,65 @@ export function veryareScript(options: {
 			message: phase("reveal", REVEAL_MS, oni, "hiders-win"),
 		},
 		{ afterMs: endedAt, message: phase("ended", null, oni, "hiders-win") },
+		{
+			afterMs: endedAt,
+			message: hidersWinResult({
+				roomId,
+				oni,
+				players: [{ playerId: self, name: options.selfName }, ...others],
+				// 自分が隠れ側の回は、探索中に見つかる台本なので、逃げ切りではない。
+				escaped: (id) => !(selfHides && id === self),
+			}),
+		},
 	];
+}
+
+/**
+ * 隠れ側の勝ちの結果（サーバーの games/veryare/result.gleam と同じ写し方）。
+ * 隠れ側はチームとして全員 1 位（score 1）、鬼が 2 位（score 0）。
+ */
+function hidersWinResult(options: {
+	readonly roomId: RoomId;
+	readonly oni: PlayerId;
+	readonly players: readonly PlayerInfo[];
+	readonly escaped: (id: PlayerId) => boolean;
+}): ServerMessage {
+	const { roomId, oni, players, escaped } = options;
+	const hiders = players.filter((p) => p.playerId !== oni);
+	const oniPlayer = players.find((p) => p.playerId === oni);
+	return {
+		type: "game-ended",
+		gameType: VERYARE,
+		roomId,
+		result: {
+			order: "higher-is-better",
+			rankings: [
+				...hiders.map((p) => ({
+					playerId: p.playerId,
+					name: p.name,
+					rank: 1,
+					result: {
+						score: 1,
+						details: {
+							役割: "隠れる側",
+							結果: "勝ち",
+							状態: escaped(p.playerId) ? "逃げ切り" : "発見・失格・離脱",
+						},
+					},
+				})),
+				...(oniPlayer === undefined
+					? []
+					: [
+							{
+								playerId: oniPlayer.playerId,
+								name: oniPlayer.name,
+								rank: 2,
+								result: { score: 0, details: { 役割: "鬼", 結果: "負け" } },
+							},
+						]),
+			],
+		},
+	};
 }
 
 /** これまでに始めた veryare の回数。ゲームに入るたびにアダプタが作り直されるため、モジュールで数える。 */

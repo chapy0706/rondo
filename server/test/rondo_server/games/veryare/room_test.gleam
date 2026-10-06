@@ -571,3 +571,209 @@ pub fn human_oni_state_is_broadcast_during_exploration_test() {
   let _ = room_actor.snapshot(room)
   process.receive(a, 50) |> should.equal(Error(Nil))
 }
+
+// --- ゲーム終了の通知（issue-42） ------------------------------------------------
+
+/// 次に届く game-ended の結果。それまでの通知は読み飛ばす。
+fn next_ended(outbox: Subject(ServerMessage)) -> message.RealtimeResult {
+  case process.receive(outbox, 2000) {
+    Ok(message.GameEnded(game_type: "veryare", room_id: "v", result:)) -> result
+    Ok(_) -> next_ended(outbox)
+    Error(Nil) -> panic as "game-ended が届かない"
+  }
+}
+
+/// 受信箱に game-ended が無い（届いている通知をすべて読んで確かめる）。
+fn no_ended(outbox: Subject(ServerMessage)) -> Nil {
+  case process.receive(outbox, 0) {
+    Ok(message.GameEnded(..)) -> panic as "game-ended が届いた"
+    Ok(_) -> no_ended(outbox)
+    Error(Nil) -> Nil
+  }
+}
+
+/// 結果の各行を (playerId, name, rank, 結果) にする。
+fn rows(
+  result: message.RealtimeResult,
+) -> List(#(String, String, Int, String)) {
+  list.map(result.rankings, fn(entry) {
+    let outcome = case entry.result.details {
+      Some(details) ->
+        case list.key_find(details, "結果") {
+          Ok(message.DetailText(text)) -> text
+          _ -> ""
+        }
+      None -> ""
+    }
+    #(entry.player_id, entry.name, entry.rank, outcome)
+  })
+}
+
+/// 状態の値（隠れ側だけ）を playerId ごとに返す。
+fn statuses(result: message.RealtimeResult) -> List(#(String, String)) {
+  list.filter_map(result.rankings, fn(entry) {
+    case entry.result.details {
+      Some(details) ->
+        case list.key_find(details, "状態") {
+          Ok(message.DetailText(text)) -> Ok(#(entry.player_id, text))
+          _ -> Error(Nil)
+        }
+      None -> Error(Nil)
+    }
+  })
+}
+
+/// 表示名つきで部屋を開き、全員の送信先を登録する（案内は読み飛ばす）。
+fn open_named(
+  ids: List(String),
+  durations: game.Durations,
+) -> #(Subject(Message), List(#(String, Subject(ServerMessage)))) {
+  let spec =
+    veryare.spec_with(
+      RoomId("v"),
+      Settings(exploration_seconds: 60, cpu: NoCpu, strength: oni_cpu.Normal),
+      durations,
+      fn(_size) { 0 },
+    )
+  let assert Ok(started) = room_actor.start(spec)
+  let room = started.data
+  let outboxes =
+    list.map(ids, fn(id) {
+      let assert Ok(Nil) =
+        room_actor.join(room, Player(PlayerId(id), "name-" <> id))
+      let outbox = subscribe(room, id)
+      // 入室後の案内（room-info）を読み飛ばす。
+      let _info = next_state(outbox)
+      #(id, outbox)
+    })
+  #(room, outboxes)
+}
+
+fn outbox_of(
+  outboxes: List(#(String, Subject(ServerMessage))),
+  id: String,
+) -> Subject(ServerMessage) {
+  let assert Ok(outbox) = list.key_find(outboxes, id)
+  outbox
+}
+
+/// 指定のフェーズの通知が届くまで読む（鬼選出の色の変化などは読み飛ばす）。
+fn until_phase(outbox: Subject(ServerMessage), name: String) -> Nil {
+  case next_phase(outbox) == name {
+    True -> Nil
+    False -> until_phase(outbox, name)
+  }
+}
+
+/// a がエリアに触れて鬼になるまで進める。
+fn start_with_oni_a(room: Subject(Message)) -> Nil {
+  let assert Ok(Nil) = room_actor.start_game(room)
+  room_actor.game_event(room, PlayerId("a"), move(0.0, 0.0))
+}
+
+fn durations(preparation_ms: Int, exploration_ms: Int) -> game.Durations {
+  game.Durations(
+    oni_selection_ms: 30,
+    preparation_ms:,
+    painting_ms: 30,
+    exploration_ms:,
+    reveal_ms: 30,
+  )
+}
+
+/// 時間切れ（隠れ側の勝ち）: 答え合わせの後に、全員のソケットへ同じ結果が届く。
+/// 順位は勝ちの隠れ側チームが 1 位、鬼が 2 位。名前はルームの表示名。
+pub fn game_ended_reaches_everyone_after_reveal_on_time_up_test() {
+  let #(room, outboxes) = open_named(["a", "b", "c"], quick(30))
+  start_with_oni_a(room)
+  let results = list.map(outboxes, fn(entry) { next_ended(entry.1) })
+  let assert [first, ..] = results
+  list.each(results, fn(r) { r |> should.equal(first) })
+  first.order |> should.equal(message.HigherIsBetter)
+  rows(first)
+  |> should.equal([
+    #("b", "name-b", 1, "勝ち"),
+    #("c", "name-c", 1, "勝ち"),
+    #("a", "name-a", 2, "負け"),
+  ])
+  statuses(first) |> should.equal([#("b", "逃げ切り"), #("c", "逃げ切り")])
+  room_actor.snapshot(room).status |> should.equal(room_actor.Finished)
+}
+
+/// 全員失格（準備移動の終わりの被り）: 鬼の勝ちで、全員へ届く。
+pub fn game_ended_is_sent_when_all_hiders_are_disqualified_test() {
+  let #(room, outboxes) = open_named(["a", "b", "c"], durations(200, 60_000))
+  start_with_oni_a(room)
+  until_phase(outbox_of(outboxes, "a"), "preparation")
+  room_actor.game_event(room, PlayerId("b"), move(1.0, 1.0))
+  room_actor.game_event(room, PlayerId("c"), move(1.0, 1.0))
+  list.each(outboxes, fn(entry) {
+    let r = next_ended(entry.1)
+    rows(r)
+    |> should.equal([
+      #("a", "name-a", 1, "勝ち"),
+      #("b", "name-b", 2, "負け"),
+      #("c", "name-c", 2, "負け"),
+    ])
+    statuses(r)
+    |> should.equal([#("b", "発見・失格・離脱"), #("c", "発見・失格・離脱")])
+  })
+}
+
+/// 隠れ側全員の離脱: 鬼の勝ち。残った鬼に届き、離脱した人には届かない。
+/// 離脱した人も、名前つきで結果に残る。
+pub fn game_ended_is_sent_when_all_hiders_leave_test() {
+  let #(room, outboxes) = open_named(["a", "b", "c"], durations(60_000, 60_000))
+  start_with_oni_a(room)
+  until_phase(outbox_of(outboxes, "a"), "preparation")
+  room_actor.leave(room, PlayerId("b"))
+  room_actor.leave(room, PlayerId("c"))
+  rows(next_ended(outbox_of(outboxes, "a")))
+  |> should.equal([
+    #("a", "name-a", 1, "勝ち"),
+    #("b", "name-b", 2, "負け"),
+    #("c", "name-c", 2, "負け"),
+  ])
+  let _ = room_actor.snapshot(room)
+  no_ended(outbox_of(outboxes, "b"))
+  no_ended(outbox_of(outboxes, "c"))
+}
+
+/// 鬼の離脱: 隠れ側の勝ちで、残った全員へ届く。離脱した鬼も 2 位で残る。
+pub fn game_ended_is_sent_when_the_oni_leaves_test() {
+  let #(room, outboxes) = open_named(["a", "b", "c"], durations(60_000, 60_000))
+  start_with_oni_a(room)
+  until_phase(outbox_of(outboxes, "b"), "preparation")
+  room_actor.leave(room, PlayerId("a"))
+  list.each(["b", "c"], fn(id) {
+    rows(next_ended(outbox_of(outboxes, id)))
+    |> should.equal([
+      #("b", "name-b", 1, "勝ち"),
+      #("c", "name-c", 1, "勝ち"),
+      #("a", "name-a", 2, "負け"),
+    ])
+  })
+  let _ = room_actor.snapshot(room)
+  no_ended(outbox_of(outboxes, "a"))
+}
+
+/// 不成立（鬼選出の時点で2人未満）: 答え合わせを挟まずに届く。全員 1 位・score 0。
+pub fn game_ended_is_sent_when_the_game_is_void_test() {
+  let #(room, outboxes) = open_named(["a", "b"], durations(60_000, 60_000))
+  start_with_oni_a(room)
+  room_actor.leave(room, PlayerId("b"))
+  let r = next_ended(outbox_of(outboxes, "a"))
+  rows(r) |> should.equal([#("a", "name-a", 1, "不成立")])
+  let assert [entry] = r.rankings
+  entry.result.score |> should.equal(message.IntNumber(0))
+}
+
+/// 参加者でない接続には届かない（限定配信と同じく、宛先でない接続には送らない）。
+pub fn game_ended_is_not_sent_to_outsiders_test() {
+  let #(room, outboxes) = open_named(["a", "b"], quick(30))
+  let outsider = subscribe(room, "outsider")
+  start_with_oni_a(room)
+  let _ = next_ended(outbox_of(outboxes, "a"))
+  let _ = room_actor.snapshot(room)
+  no_ended(outsider)
+}

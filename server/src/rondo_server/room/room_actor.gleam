@@ -5,7 +5,7 @@ import gleam/list
 import gleam/option.{type Option, None, Some}
 import gleam/otp/actor
 import rondo_server/protocol/message.{
-  type ServerMessage, GameStarted, GameState, GameStateTo, PlayerInfo,
+  type ServerMessage, GameEnded, GameStarted, GameState, GameStateTo, PlayerInfo,
   PlayerJoined, PlayerLeft,
 }
 import rondo_server/room/authority.{type Authority, type Outcome}
@@ -155,6 +155,9 @@ type State {
     driver: Option(Driver(PlayerId)),
     /// ルームを作ったプレイヤー（最初の参加者）。
     host: Option(PlayerId),
+    /// これまでに参加した人の表示名（CPU を含む）。離脱しても消さない。ゲーム終了の
+    /// 結果に、途中で離脱した人の名前も載せるため（issue-42）。
+    names: Dict(PlayerId, String),
   )
 }
 
@@ -174,6 +177,9 @@ pub fn start(spec: RoomSpec) -> actor.StartResult(Subject(Message)) {
       result: None,
       driver: None,
       host: None,
+      names: spec.bots
+        |> list.map(fn(bot) { #(bot.id, bot.name) })
+        |> dict.from_list,
     )
     |> actor.initialised
     |> actor.returning(self)
@@ -299,7 +305,11 @@ fn handle_join(
       notify_joined(state, player)
       let assert Some(current) = state.driver
       let state =
-        State(..state, players: dict.insert(state.players, player.id, player))
+        State(
+          ..state,
+          players: dict.insert(state.players, player.id, player),
+          names: dict.insert(state.names, player.id, player.name),
+        )
         |> register(player.id, outbox)
       run_driver(state, driver.join(current, player.id))
     }
@@ -322,6 +332,7 @@ fn handle_join(
         State(
           ..state,
           players: dict.insert(state.players, player.id, player),
+          names: dict.insert(state.names, player.id, player.name),
           host:,
         )
         |> register(player.id, outbox),
@@ -568,7 +579,51 @@ fn apply(state: State, effect: Effect(PlayerId)) -> Nil {
       let _ = process.send_after(state.self, ms, Wake(token))
       Nil
     }
+    // 送信先を登録している参加者全員へ送る。参加者でない接続には送らない。
+    driver.Finish(order, standings) ->
+      broadcast(
+        state,
+        GameEnded(
+          game_type: state.spec.game_type,
+          room_id: room_id_of(state),
+          result: realtime_result(state, order, standings),
+        ),
+      )
   }
+}
+
+/// ゲームが返した結果の行に、ルームが控えた表示名を付ける。
+fn realtime_result(
+  state: State,
+  order: message.ScoreOrder,
+  standings: List(driver.Standing(PlayerId)),
+) -> message.RealtimeResult {
+  message.RealtimeResult(
+    order:,
+    rankings: list.map(standings, fn(standing) {
+      let PlayerId(id) = standing.player
+      let name = case dict.get(state.names, standing.player) {
+        Ok(name) -> name
+        Error(Nil) -> id
+      }
+      let details = case standing.details {
+        [] -> None
+        some ->
+          Some(
+            list.map(some, fn(pair) { #(pair.0, message.DetailText(pair.1)) }),
+          )
+      }
+      message.RankingEntry(
+        player_id: id,
+        name:,
+        rank: standing.rank,
+        result: message.PlayResult(
+          score: message.IntNumber(standing.score),
+          details:,
+        ),
+      )
+    }),
+  )
 }
 
 fn game_state(state: State, payload: Dynamic) -> ServerMessage {

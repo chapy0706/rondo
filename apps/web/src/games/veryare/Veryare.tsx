@@ -408,13 +408,7 @@ export default function Veryare() {
 						</p>
 					</div>
 				) : null}
-				{notice?.outcome != null && phase === "ended" ? (
-					<div className="absolute inset-0 flex items-center justify-center bg-ink/70 p-6 text-center">
-						<p className="font-semibold text-fg text-xl">
-							{outcomeText(notice.outcome, role)}
-						</p>
-					</div>
-				) : null}
+				{/* 終了後の勝敗は、基盤の結果画面（game-ended）に任せる（issue-42）。 */}
 			</div>
 
 			{painting ? (

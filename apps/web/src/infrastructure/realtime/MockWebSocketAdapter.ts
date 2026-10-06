@@ -149,6 +149,7 @@ export class MockWebSocketAdapter extends MultiplexingAdapter {
 			selfIsOni: nextSelfIsOni(),
 			explorationSeconds: explorationSecondsOf(settings),
 			cpu: cpuOf(settings),
+			selfName: this.self.name,
 		});
 		this.scriptTimers.set(
 			roomId,

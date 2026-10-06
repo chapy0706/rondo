@@ -3,9 +3,19 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import { MockWebSocketAdapter } from "./MockWebSocketAdapter";
 import { MOCK_BOTS, veryareScript } from "./mockVeryare";
 
+/** game-state の payload。ほかの通知（game-ended）は空として扱う。 */
 function payloadOf(message: ServerMessage): Record<string, unknown> {
-	if (message.type !== "game-state") throw new Error(message.type);
+	if (message.type !== "game-state") return {};
 	return message.payload as Record<string, unknown>;
+}
+
+/** フェーズ通知を名前で引く。 */
+function phaseMessage(
+	messages: readonly { message: ServerMessage }[],
+	name: string,
+): ServerMessage | undefined {
+	return messages.find(({ message }) => payloadOf(message).phase === name)
+		?.message;
 }
 
 describe("veryareScript - 時間で進む簡易な台本", () => {
@@ -15,6 +25,7 @@ describe("veryareScript - 時間で進む簡易な台本", () => {
 			self: "me",
 			selfIsOni,
 			explorationSeconds: 60,
+			selfName: "user1",
 		});
 
 	it("入室後の案内で探索時間を伝える", () => {
@@ -115,8 +126,8 @@ describe("veryareScript - 時間で進む簡易な台本", () => {
 	});
 
 	it("通知の形はサーバーと同じ（type / phase / durationMs / oni / outcome / area）", () => {
-		const reveal = script(true).at(-2);
-		expect(payloadOf(reveal?.message as ServerMessage)).toEqual({
+		const reveal = phaseMessage(script(true), "reveal");
+		expect(payloadOf(reveal as ServerMessage)).toEqual({
 			type: "phase",
 			phase: "reveal",
 			durationMs: 20_000,
@@ -124,8 +135,8 @@ describe("veryareScript - 時間で進む簡易な台本", () => {
 			outcome: "hiders-win",
 			area: null,
 		});
-		const ended = script(true).at(-1);
-		expect(payloadOf(ended?.message as ServerMessage)).toEqual({
+		const ended = phaseMessage(script(true), "ended");
+		expect(payloadOf(ended as ServerMessage)).toEqual({
 			type: "phase",
 			phase: "ended",
 			durationMs: null,
@@ -133,6 +144,65 @@ describe("veryareScript - 時間で進む簡易な台本", () => {
 			outcome: "hiders-win",
 			area: null,
 		});
+	});
+});
+
+describe("veryareScript - 終了の通知（issue-42）", () => {
+	const script = (selfIsOni: boolean) =>
+		veryareScript({
+			roomId: "room-1",
+			self: "me",
+			selfIsOni,
+			explorationSeconds: 60,
+			selfName: "user1",
+		});
+
+	it("終了の通知の直後に、サーバーと同じ形の game-ended を送る", () => {
+		const messages = script(true);
+		const last = messages.at(-1);
+		expect(last?.afterMs).toBe(136_000);
+		expect(last?.message.type).toBe("game-ended");
+		const ended = messages.at(-2);
+		expect(payloadOf(ended?.message as ServerMessage).phase).toBe("ended");
+	});
+
+	it("自分が鬼の回: 隠れ側の勝ちで、隠れ側全員が 1 位（逃げ切り）、鬼の自分が 2 位", () => {
+		const message = script(true).at(-1)?.message;
+		if (message?.type !== "game-ended") throw new Error("game-ended がない");
+		expect(message.result.order).toBe("higher-is-better");
+		expect(
+			message.result.rankings.map((r) => [
+				r.playerId,
+				r.name,
+				r.rank,
+				r.result.score,
+				r.result.details,
+			]),
+		).toEqual([
+			...MOCK_BOTS.map((bot) => [
+				bot.playerId,
+				bot.name,
+				1,
+				1,
+				{ 役割: "隠れる側", 結果: "勝ち", 状態: "逃げ切り" },
+			]),
+			["me", "user1", 2, 0, { 役割: "鬼", 結果: "負け" }],
+		]);
+	});
+
+	it("自分が隠れ側の回: 見つかった自分もチームとして 1 位で、状態で区別する", () => {
+		const message = script(false).at(-1)?.message;
+		if (message?.type !== "game-ended") throw new Error("game-ended がない");
+		const me = message.result.rankings.find((r) => r.playerId === "me");
+		expect(me?.rank).toBe(1);
+		expect(me?.result.details).toEqual({
+			役割: "隠れる側",
+			結果: "勝ち",
+			状態: "発見・失格・離脱",
+		});
+		const oni = message.result.rankings.at(-1);
+		expect(oni?.playerId).toBe(MOCK_BOTS[0]?.playerId);
+		expect(oni?.rank).toBe(2);
 	});
 });
 
