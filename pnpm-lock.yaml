@@ -73,6 +73,22 @@ importers:
         specifier: ^2.1.8
         version: 2.1.9(@types/node@20.17.6)(lightningcss@1.32.0)
 
+  bots:
+    dependencies:
+      '@rondo/contracts':
+        specifier: workspace:*
+        version: link:../packages/contracts
+    devDependencies:
+      '@types/node':
+        specifier: 20.17.6
+        version: 20.17.6
+      typescript:
+        specifier: 5.9.3
+        version: 5.9.3
+      vitest:
+        specifier: 2.1.9
+        version: 2.1.9(@types/node@20.17.6)(lightningcss@1.32.0)
+
   e2e:
     devDependencies:
       '@playwright/test':

@@ -7,6 +7,7 @@ import gleam/dict.{type Dict}
 import gleam/dynamic.{type Dynamic}
 import gleam/option.{type Option, None, Some}
 import rondo_server/games/tilt_maze/authority as tilt_maze
+import rondo_server/games/timing.{type Timing}
 import rondo_server/games/veryare/room as veryare
 import rondo_server/room/room_actor.{type RoomId, type RoomSpec, RoomSpec}
 
@@ -29,15 +30,18 @@ pub fn room_limits() -> Dict(String, Int) {
 }
 
 /// ルームの設定と開始の仕方。settings は create-room の settings（未検証）。
+/// timing はテスト用のフェーズ時間の短縮（issue-49）。本番は Normal。
 pub fn spec_for(
   game_type: String,
   id: RoomId,
   settings: Option(Dynamic),
+  timing: Timing,
 ) -> Result(#(RoomSpec, StartPolicy), CatalogError) {
   case game_type {
     "veryare" ->
       case veryare.parse_settings(settings) {
-        Ok(parsed) -> Ok(#(veryare.spec(id, parsed), StartOnCreate))
+        Ok(parsed) ->
+          Ok(#(veryare.spec_timed(id, parsed, timing), StartOnCreate))
         Error(Nil) -> Error(InvalidSettings)
       }
     "tilt-maze" ->

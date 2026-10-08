@@ -1,0 +1,19 @@
+{
+	"name": "@rondo/bots",
+	"version": "0.0.0",
+	"private": true,
+	"type": "module",
+	"scripts": {
+		"bots": "node src/main.ts",
+		"test": "vitest run",
+		"type-check": "tsc --noEmit"
+	},
+	"dependencies": {
+		"@rondo/contracts": "workspace:*"
+	},
+	"devDependencies": {
+		"@types/node": "20.17.6",
+		"typescript": "5.9.3",
+		"vitest": "2.1.9"
+	}
+}

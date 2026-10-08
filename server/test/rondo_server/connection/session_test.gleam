@@ -7,6 +7,7 @@ import gleam/string
 import gleeunit/should
 import rondo_server/connection/session.{type Session}
 import rondo_server/games/catalog
+import rondo_server/games/timing
 import rondo_server/protocol/message.{
   type ServerMessage, CreateRoom, ErrorMessage, GameEvent, GameStarted,
   GameState, JoinRoom, LeaveRoom, ListRooms, PlayerJoined, PlayerLeft,
@@ -29,7 +30,7 @@ fn server() -> session.Deps {
   let assert Ok(supervisor) = room_supervisor.start()
   let assert Ok(directory) =
     room_directory.start(supervisor.data, catalog.room_limits())
-  session.Deps(directory: directory.data)
+  session.Deps(directory: directory.data, timing: timing.Normal)
 }
 
 fn connect(deps: session.Deps) -> #(Client, List(ServerMessage)) {

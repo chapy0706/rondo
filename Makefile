@@ -16,6 +16,7 @@ help:
 	@echo "  simulate       veryare の CPU 対戦シミュレーション（集計を表で出す）"
 	@echo "  e2e            2タブの E2E スモーク（Playwright。verify には含めない）"
 	@echo "  e2e/result     E2E の結果画面までのシナリオ（約2分）"
+	@echo "  bots           ボット同士の対戦（ブラウザなし。サーバーを :3300 で起動。ARGS=\"--seed N\"）"
 	@echo ""
 	@echo "  lint           静的解析（Biome）"
 	@echo "  type-check     型チェック（tsc）"
@@ -87,6 +88,12 @@ e2e:
 .PHONY: e2e/result
 e2e/result:
 	pnpm --filter @rondo/e2e e2e:result
+
+# ボット同士の対戦（issue-49）。サーバーの起動を伴うので verify には含めない。
+# 例: make bots ARGS="--seed 123"  /  make bots ARGS="--only 不成立"
+.PHONY: bots
+bots:
+	./tools/bots.sh $(ARGS)
 
 # ------------------------
 # Lint / Format / Types

@@ -10,6 +10,7 @@ import rondo_server/connection/session
 import rondo_server/connection/session_actor
 import rondo_server/connection/sessions
 import rondo_server/games/catalog
+import rondo_server/games/timing
 import rondo_server/protocol/message.{
   type ClientMessage, type ServerMessage, CreateRoom, ErrorMessage, GameEvent,
   GameState, GameStateTo, JoinRoom, LeaveRoom, Ping, PlayerLeft, Pong, Reconnect,
@@ -42,7 +43,7 @@ fn server() -> connection.Deps {
     room_directory.start(supervisor.data, catalog.room_limits())
   let assert Ok(registry) = sessions.start()
   connection.Deps(
-    session: session.Deps(directory: directory.data),
+    session: session.Deps(directory: directory.data, timing: timing.Normal),
     sessions: registry.data,
     grace_ms:,
     heartbeat: heartbeat.Config(interval_ms: 10_000, timeout_ms: 80),

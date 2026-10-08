@@ -18,6 +18,7 @@ import gleam/string
 import rondo_server/games/catalog.{
   InvalidSettings, StartAtMinimum, StartOnCreate, UnknownGame,
 }
+import rondo_server/games/timing.{type Timing}
 import rondo_server/protocol/message.{
   type ClientMessage, type ServerMessage, CreateRoom, ErrorMessage, GameEvent,
   JoinRoom, LeaveRoom, ListRooms, PlayerInfo, Playing, Pong, Reconnect,
@@ -34,7 +35,11 @@ const max_name_length = 20
 
 /// 接続が使うサーバー側の部品。
 pub type Deps {
-  Deps(directory: Subject(room_directory.Message))
+  Deps(
+    directory: Subject(room_directory.Message),
+    /// テスト用のフェーズ時間の短縮（issue-49）。本番は timing.Normal。
+    timing: Timing,
+  )
 }
 
 /// 参加中のルーム。
@@ -157,7 +162,7 @@ fn create(
 ) -> #(Session, List(ServerMessage)) {
   use <- not_in_room(session)
   let id = RoomId("room-" <> random_hex(8))
-  case catalog.spec_for(game_type, id, settings) {
+  case catalog.spec_for(game_type, id, settings, deps.timing) {
     Error(UnknownGame) -> #(session, [
       error("unknown-game", "そのゲームはありません。"),
     ])

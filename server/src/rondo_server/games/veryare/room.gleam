@@ -24,6 +24,7 @@ import gleam/list
 import gleam/option.{type Option, None, Some}
 import gleam/result
 import gleam/set
+import rondo_server/games/timing.{type Timing}
 import rondo_server/games/veryare/game.{
   type AreaState, type Game, type Outcome, type Phase, AreaCounting, AreaReady,
   AreaWaiting, Ended, Exploration, HidersWin, NotEnoughPlayers, OniSelection,
@@ -174,10 +175,16 @@ fn cpus_of(cpu: CpuChoice, strength: Strength) -> game.Cpus(PlayerId) {
 
 /// 本番のルーム設定。フェーズの長さは ADR 0024 の値、鬼選出の乱数は int.random。
 pub fn spec(id: RoomId, settings: Settings) -> RoomSpec {
+  spec_timed(id, settings, timing.Normal)
+}
+
+/// フェーズの長さにテスト用の短縮（issue-49）を当てはめたルーム設定。Normal なら spec と同じ。
+pub fn spec_timed(id: RoomId, settings: Settings, timing: Timing) -> RoomSpec {
   spec_with(
     id,
     settings,
-    game.durations(exploration_ms: settings.exploration_seconds * 1000),
+    game.durations(exploration_ms: settings.exploration_seconds * 1000)
+      |> timing.apply(timing),
     int.random,
   )
 }
