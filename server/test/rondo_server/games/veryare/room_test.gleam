@@ -25,6 +25,7 @@ fn quick(exploration_ms: Int) -> game.Durations {
     painting_ms: 30,
     exploration_ms:,
     reveal_ms: 30,
+    reload_ms: 3000,
   )
 }
 
@@ -260,6 +261,7 @@ pub fn oni_leaving_ends_with_hiders_win_immediately_test() {
       painting_ms: 60_000,
       exploration_ms: 60_000,
       reveal_ms: 60_000,
+      reload_ms: 3000,
     )
   let #(room, _) = open_room(["a", "b", "c"], durations)
   let b = subscribe(room, "b")
@@ -462,6 +464,7 @@ pub fn oni_cpu_broadcasts_its_state_during_exploration_test() {
       painting_ms: 30,
       exploration_ms: 60_000,
       reveal_ms: 60_000,
+      reload_ms: 3000,
     )
   let #(room, _) =
     open_room_with(["a"], durations, Settings(60, OniCpu, oni_cpu.Normal))
@@ -516,6 +519,7 @@ fn to_exploration(ids: List(String)) {
       painting_ms: 30,
       exploration_ms: 60_000,
       reveal_ms: 60_000,
+      reload_ms: 3000,
     )
   let #(room, _) = open_room(ids, durations)
   let a = subscribe(room, "a")
@@ -678,6 +682,7 @@ fn durations(preparation_ms: Int, exploration_ms: Int) -> game.Durations {
     painting_ms: 30,
     exploration_ms:,
     reveal_ms: 30,
+    reload_ms: 3000,
   )
 }
 
@@ -776,4 +781,87 @@ pub fn game_ended_is_not_sent_to_outsiders_test() {
   let _ = next_ended(outbox_of(outboxes, "a"))
   let _ = room_actor.snapshot(room)
   no_ended(outsider)
+}
+
+// --- 射撃（issue-27） -------------------------------------------------------------
+
+fn shoot(target: Dynamic) -> Dynamic {
+  dynamic.properties([
+    #(dynamic.string("type"), dynamic.string("shoot")),
+    #(dynamic.string("target"), target),
+  ])
+}
+
+/// a が鬼の部屋を、探索フェーズが始まるまで進める（隠れ側の一括配信まで読む）。
+/// 撃つ間隔は 200 ms に縮める。
+fn to_shooting(
+  ids: List(String),
+) -> #(Subject(Message), Subject(ServerMessage)) {
+  let durations =
+    game.Durations(
+      oni_selection_ms: 30,
+      preparation_ms: 30,
+      painting_ms: 30,
+      exploration_ms: 60_000,
+      reveal_ms: 30,
+      reload_ms: 200,
+    )
+  let #(room, _) = open_room(ids, durations)
+  let a = subscribe(room, "a")
+  let _info = next_state(a)
+  let assert Ok(Nil) = room_actor.start_game(room)
+  room_actor.game_event(room, PlayerId("a"), move(0.0, 0.0))
+  until_phase(a, "exploration")
+  field(next_state(a), "type", decode.string) |> should.equal("hiders")
+  #(room, a)
+}
+
+/// 鬼の射撃の申告（game-event の shoot）で、射程の内側の隠れ側が見つかり、まだ隠れている
+/// 一覧が全員へ届く。全員を見つけると鬼の勝ちで終わり、game-ended が届く。
+pub fn shooting_finds_hiders_and_ends_with_oni_win_test() {
+  let #(room, a) = to_shooting(["a", "b", "c"])
+  room_actor.game_event(room, PlayerId("a"), shoot(dynamic.string("b")))
+  hiding_ids(next_state(a)) |> should.equal(["c"])
+  // 間隔（200 ms）の中の申告は無効。
+  room_actor.game_event(room, PlayerId("a"), shoot(dynamic.string("c")))
+  let _ = room_actor.snapshot(room)
+  process.receive(a, 50) |> should.equal(Error(Nil))
+  process.sleep(200)
+  room_actor.game_event(room, PlayerId("a"), shoot(dynamic.string("c")))
+  let reveal = next_state(a)
+  field(reveal, "phase", decode.string) |> should.equal("reveal")
+  field(reveal, "outcome", decode.string) |> should.equal("oni-wins")
+  let result = next_ended(a)
+  rows(result)
+  |> should.equal([
+    #("a", "a", 1, "勝ち"),
+    #("b", "b", 2, "負け"),
+    #("c", "c", 2, "負け"),
+  ])
+}
+
+/// 隠れ側の申告・形の違う申告（target が文字列でも null でもない）は無視する。
+pub fn invalid_shots_are_ignored_test() {
+  let #(room, a) = to_shooting(["a", "b", "c"])
+  room_actor.game_event(room, PlayerId("b"), shoot(dynamic.string("c")))
+  room_actor.game_event(room, PlayerId("a"), shoot(dynamic.int(1)))
+  room_actor.game_event(
+    room,
+    PlayerId("a"),
+    dynamic.properties([#(dynamic.string("type"), dynamic.string("shoot"))]),
+  )
+  let _ = room_actor.snapshot(room)
+  process.receive(a, 50) |> should.equal(Error(Nil))
+  // 形の違う申告では間隔も始まらないので、続けて正しく撃てば当たる。
+  room_actor.game_event(room, PlayerId("a"), shoot(dynamic.string("b")))
+  hiding_ids(next_state(a)) |> should.equal(["c"])
+}
+
+/// 狙いなし（null）の申告は外れとして受け付け、間隔を始める。
+pub fn shooting_nothing_starts_the_reload_test() {
+  let #(room, a) = to_shooting(["a", "b", "c"])
+  room_actor.game_event(room, PlayerId("a"), shoot(dynamic.nil()))
+  room_actor.game_event(room, PlayerId("a"), shoot(dynamic.string("b")))
+  let _ = room_actor.snapshot(room)
+  process.receive(a, 50) |> should.equal(Error(Nil))
 }

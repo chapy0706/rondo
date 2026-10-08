@@ -268,6 +268,68 @@ describe("runScenario - シナリオの動かし方", () => {
 	});
 });
 
+describe("runScenario - 撃つ（issue-27）", () => {
+	it("撃つ相手はボットの名前で書き、サーバーの識別子に直して、間を空けて送る", async () => {
+		const server = new FakeServer();
+		server.onEvent = (s, player, message) => {
+			if (message.type !== "game-event") return;
+			const payload = message.payload as { type: string; target?: unknown };
+			if (payload.type === "move") s.phase("exploration");
+			if (payload.type === "shoot" && payload.target === "p-3") {
+				s.ended([
+					{ player: "p-1", rank: 1, score: 1, details: details.oniWon },
+					{ player: "p-2", rank: 2, score: 0, details: details.hiderLost },
+					{ player: "p-3", rank: 2, score: 0, details: details.hiderLost },
+				]);
+			}
+		};
+		const started = Date.now();
+		const result = await run(server, {
+			name: "全員発見",
+			bots: ["bot-a", "bot-b", "bot-c"],
+			steps: [
+				{ on: "joined", bot: "bot-a", action: { type: "touch-area" } },
+				{
+					on: { phase: "exploration" },
+					bot: "bot-a",
+					action: { type: "shoot", target: null },
+				},
+				{
+					on: { phase: "exploration" },
+					bot: "bot-a",
+					action: { type: "shoot", target: "bot-b" },
+					delayMs: 60,
+				},
+				{
+					on: { phase: "exploration" },
+					bot: "bot-a",
+					action: { type: "shoot", target: "bot-c" },
+					delayMs: 120,
+				},
+			],
+			receivers: ["bot-a", "bot-b", "bot-c"],
+			rankings: [
+				{ bot: "bot-a", rank: 1, score: 1, details: details.oniWon },
+				{ bot: "bot-b", rank: 2, score: 0, details: details.hiderLost },
+				{ bot: "bot-c", rank: 2, score: 0, details: details.hiderLost },
+			],
+		});
+		expect(result.problems).toEqual([]);
+		const shots = server.log
+			.filter(({ message }) => message.type === "game-event")
+			.map(({ player, message }) =>
+				message.type === "game-event" ? [player, message.payload] : [],
+			)
+			.filter(([, payload]) => (payload as { type: string }).type === "shoot");
+		expect(shots).toEqual([
+			["p-1", { type: "shoot", target: null }],
+			["p-1", { type: "shoot", target: "p-2" }],
+			["p-1", { type: "shoot", target: "p-3" }],
+		]);
+		expect(Date.now() - started).toBeGreaterThanOrEqual(120);
+	});
+});
+
 describe("runScenario - 後片付け", () => {
 	it("終わったら、まだルームにいるボットは退出してから閉じる（ルームを猶予の間残さない）", async () => {
 		const server = new FakeServer();

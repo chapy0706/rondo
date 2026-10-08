@@ -25,6 +25,9 @@
 ///
 /// 鬼 CPU（issue-34）は、探索の開始時に玄関から出て、0.5秒ごとの tick で歩いて探す
 /// （oni_cpu）。見つけた隠れ側は、人間の鬼が当てたときと同じ found を通る。
+///
+/// 人間の鬼の射撃（issue-27 / ADR 0022）は shoot で受ける。判定はここ（サーバー）が行い、
+/// 命中したら found を通る。勝敗の判定は増やさない。
 import gleam/dict.{type Dict}
 import gleam/float
 import gleam/int
@@ -51,6 +54,12 @@ pub const painting_ms = 20_000
 
 /// 答え合わせタイムの長さ（ミリ秒 / ADR 0033）。
 pub const reveal_ms = 20_000
+
+/// 鬼が撃つ間隔（ミリ秒 / issue-27・ADR 0022 のリロード）。
+pub const reload_ms = 3000
+
+/// 射撃の射程（メートル / issue-27）。調整できるよう定数にする。
+pub const shot_range = 8.0
 
 /// 最小人数（鬼1 + 隠れ側1 / ADR 0030）。鬼選出のカウントダウンの開始と成立に使う。
 pub const min_players = 2
@@ -124,6 +133,8 @@ pub type Durations {
     painting_ms: Int,
     exploration_ms: Int,
     reveal_ms: Int,
+    /// 鬼が撃つ間隔（issue-27）。前の射撃からこれだけ空かないと、次の申告は無効。
+    reload_ms: Int,
   )
 }
 
@@ -163,6 +174,10 @@ pub type Game(id) {
     oni_cpu: Option(OniCpu),
     /// 直前の tick で鬼 CPU の視界に入っていた隠れ側（見逃しポイント / issue-32 で使う）。
     seen: List(id),
+    /// 最後に受け付けた射撃の時刻（ミリ秒。呼び出し側の時計）。撃つ間隔の判定に使う。
+    last_shot: Option(Int),
+    /// 射撃の判定で見通し（壁）を見るか。ステージの座標が統一される issue-29 まで False。
+    shot_sight: Bool,
   )
 }
 
@@ -176,6 +191,7 @@ pub fn durations(exploration_ms exploration_ms: Int) -> Durations {
     painting_ms: painting_ms,
     exploration_ms: exploration_ms,
     reveal_ms: reveal_ms,
+    reload_ms: reload_ms,
   )
 }
 
@@ -218,6 +234,8 @@ pub fn new_with(
     sight_map: sight.map_of(layout),
     oni_cpu: None,
     seen: [],
+    last_shot: None,
+    shot_sight: False,
   )
 }
 
@@ -337,6 +355,71 @@ pub fn found(game: Game(id), player: id) -> Game(id) {
   case game.phase, set.contains(game.still_hiding, player) {
     Exploration, True -> remove_hider(game, player)
     _, _ -> game
+  }
+}
+
+/// 人間の鬼の射撃の申告（issue-27 / ADR 0022）。now_ms は受け取った時刻（呼び出し側の時計）。
+/// 探索フェーズの鬼の申告だけを受け付ける。前の射撃から reload_ms 空いていなければ、申告ごと
+/// 無視する（間隔も始め直さない / ADR 0014 の受信順の延長）。受け付けたら、当たり外れに
+/// 関わらず、その時刻から次の間隔が始まる。命中なら found（発見）を通る。
+pub fn shoot(
+  game: Game(id),
+  shooter: id,
+  target: Option(id),
+  now_ms: Int,
+) -> Game(id) {
+  case game.phase, game.oni == Some(shooter), reloaded(game, now_ms) {
+    Exploration, True, True -> {
+      let game = Game(..game, last_shot: Some(now_ms))
+      case target {
+        Some(id) ->
+          case hits(game, shooter, id) {
+            True -> found(game, id)
+            False -> game
+          }
+        None -> game
+      }
+    }
+    _, _, _ -> game
+  }
+}
+
+/// 射撃の見通し。襖は開いている扱いで、壁だけが遮る（人間の鬼が開けた襖は、まだサーバーに
+/// 届かないため / issue-29）。
+pub fn shot_line_clear(
+  map: sight.Map,
+  from: #(Float, Float),
+  to: #(Float, Float),
+) -> Bool {
+  sight.line_of_sight(map, set.from_list(sight.doors(map)), from, to)
+}
+
+fn reloaded(game: Game(id), now_ms: Int) -> Bool {
+  case game.last_shot {
+    None -> True
+    Some(last) -> now_ms - last >= game.durations.reload_ms
+  }
+}
+
+/// 命中か。狙った相手がまだ隠れていて、2人ともステージにいて、射程の内側で、（有効なら）
+/// 見通しが通ること。
+fn hits(game: Game(id), oni: id, target: id) -> Bool {
+  case
+    set.contains(game.still_hiding, target),
+    dict.get(game.positions, oni),
+    dict.get(game.positions, target)
+  {
+    True, Ok(Position(Stage, ox, oz)), Ok(Position(Stage, tx, tz)) -> {
+      let dx = tx -. ox
+      let dz = tz -. oz
+      let in_range = dx *. dx +. dz *. dz <=. shot_range *. shot_range
+      in_range
+      && {
+        !game.shot_sight
+        || shot_line_clear(game.sight_map, #(ox, oz), #(tx, tz))
+      }
+    }
+    _, _, _ -> False
   }
 }
 

@@ -42,4 +42,5 @@ export type {
 	VeryareOniNotice,
 	VeryarePaint,
 	VeryarePose,
+	VeryareShootEvent,
 } from "./veryare";

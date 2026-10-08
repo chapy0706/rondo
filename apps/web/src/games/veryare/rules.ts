@@ -12,6 +12,7 @@ import type {
 	VeryareHidersNotice,
 	VeryareOniNotice,
 	VeryarePose,
+	VeryareShootEvent,
 } from "@rondo/contracts";
 
 export type Phase =
@@ -346,4 +347,48 @@ export function stepPosition(
 		x: position.x + dx * dtSeconds,
 		z: position.z + dz * dtSeconds,
 	});
+}
+
+// --- 射撃（issue-27 / ADR 0022） ------------------------------------------------
+
+/**
+ * 撃つ間隔（ミリ秒）。サーバーの既定（3 秒）と同じ。外れでも撃てば始まる。
+ * 画面はこの間、撃つボタンを無効にして見せるだけで、有効な申告かどうかはサーバーが決める。
+ */
+export const SHOT_RELOAD_MS = 3000;
+
+/** 撃つボタンを出すか。探索フェーズの鬼で、観戦中でないときだけ。 */
+export function canShoot(
+	phase: Phase,
+	role: Role,
+	spectator: boolean,
+): boolean {
+	return phase === "exploration" && role === "oni" && !spectator;
+}
+
+/** 撃ってからの残りの間隔（ミリ秒）。撃っていなければ 0。 */
+export function reloadRemainingMs(
+	lastShotAt: number | null,
+	now: number,
+): number {
+	if (lastShotAt === null) return 0;
+	return Math.max(0, SHOT_RELOAD_MS - (now - lastShotAt));
+}
+
+/** 射撃の申告（契約の VeryareShootEvent）。照準に何も重なっていなければ target は null。 */
+export function shootEvent(target: string | null): VeryareShootEvent {
+	return { type: "shoot", target };
+}
+
+/**
+ * 撃った相手が見つかったか。撃った後に、まだ隠れている一覧から、その相手が外れたとき。
+ * 命中の知らせは専用の電文を作らず、既存の一覧の更新で分かる（issue-27）。
+ */
+export function foundByShot(
+	target: string | null,
+	hidingBefore: readonly string[] | null,
+	hidingNow: readonly string[],
+): boolean {
+	if (target === null || hidingBefore === null) return false;
+	return hidingBefore.includes(target) && !hidingNow.includes(target);
 }

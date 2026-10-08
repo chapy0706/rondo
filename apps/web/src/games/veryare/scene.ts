@@ -61,6 +61,8 @@ export interface VeryareScene {
 	setOni(oni: SceneOni | null): void;
 	/** 隠れ側（自分を除く）。color は "#rrggbb"。 */
 	setHiders(hiders: readonly SceneHider[]): void;
+	/** 画面の中央（照準）に重なっている隠れ側の ID。重なっていなければ null（issue-27）。 */
+	pickHider(): string | null;
 	resize(width: number, height: number): void;
 	render(): void;
 	dispose(): void;
@@ -324,8 +326,19 @@ export function createScene(canvas: HTMLCanvasElement): VeryareScene {
 					new THREE.MeshStandardMaterial({ color: hider.color }),
 				);
 				mesh.position.set(hider.x, 0.5, hider.z);
+				mesh.userData.playerId = hider.id;
 				hiderGroup.add(mesh);
 			}
+		},
+		pickHider() {
+			// 照準は画面の中央。鬼自身の体は当てる対象に入れず、隠れ側だけを見る。
+			// 壁越しかどうかはここでは見ない（サーバーの判定に任せる / ADR 0022）。
+			placeCamera();
+			const raycaster = new THREE.Raycaster();
+			raycaster.setFromCamera(new THREE.Vector2(0, 0), camera);
+			const [hit] = raycaster.intersectObjects(hiderGroup.children, false);
+			const id: unknown = hit?.object.userData.playerId;
+			return typeof id === "string" ? id : null;
 		},
 		resize(width, height) {
 			renderer.setSize(width, height, false);

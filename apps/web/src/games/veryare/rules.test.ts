@@ -1,14 +1,18 @@
+import type { VeryareShootEvent } from "@rondo/contracts";
 import { describe, expect, it } from "vitest";
 import {
 	ONI_AREA_RADIUS,
 	type Phase,
+	SHOT_RELOAD_MS,
 	STAGE_HALF,
 	WAITING_ROOM_RADIUS,
 	areaLook,
 	canMove,
 	canPaintWhileWaiting,
+	canShoot,
 	clampToSpace,
 	facingOfYaw,
+	foundByShot,
 	isSpectator,
 	moveReport,
 	parseHidersNotice,
@@ -16,7 +20,9 @@ import {
 	parseOniNotice,
 	parsePhaseNotice,
 	parseRoomInfo,
+	reloadRemainingMs,
 	roleOf,
+	shootEvent,
 	spaceOf,
 	spawnOf,
 	stepPosition,
@@ -411,5 +417,46 @@ describe("観戦（issue-28）", () => {
 			facing: 0.5,
 		});
 		expect(moveReport({ x: 1, z: 2 })).toEqual({ type: "move", x: 1, z: 2 });
+	});
+});
+
+describe("射撃（issue-27）- 鬼の画面の判断", () => {
+	it("撃てるのは、探索フェーズの鬼だけ（観戦中は撃てない）", () => {
+		expect(canShoot("exploration", "oni", false)).toBe(true);
+		expect(canShoot("exploration", "hider", false)).toBe(false);
+		expect(canShoot("exploration", "oni", true)).toBe(false);
+		for (const phase of [
+			"oni-selection",
+			"preparation",
+			"painting",
+			"reveal",
+			"ended",
+		] as const) {
+			expect(canShoot(phase, "oni", false)).toBe(false);
+		}
+	});
+
+	it("撃つ間隔は 3 秒。撃ってからの残りを、自分のタイマーで数える", () => {
+		expect(SHOT_RELOAD_MS).toBe(3000);
+		expect(reloadRemainingMs(null, 10_000)).toBe(0);
+		expect(reloadRemainingMs(10_000, 10_000)).toBe(3000);
+		expect(reloadRemainingMs(10_000, 11_500)).toBe(1500);
+		expect(reloadRemainingMs(10_000, 13_000)).toBe(0);
+		expect(reloadRemainingMs(10_000, 20_000)).toBe(0);
+	});
+
+	it("申告は契約の形（VeryareShootEvent）。照準に何もなければ target は null", () => {
+		const hit: VeryareShootEvent = shootEvent("p-2");
+		expect(hit).toEqual({ type: "shoot", target: "p-2" });
+		expect(shootEvent(null)).toEqual({ type: "shoot", target: null });
+	});
+
+	it("撃った相手が、まだ隠れている一覧から外れたら、見つけたと分かる", () => {
+		expect(foundByShot("p-2", ["p-2", "p-3"], ["p-3"])).toBe(true);
+		// 狙いなし・もともと外れていた・まだ一覧にいる、は見つけたことにしない。
+		expect(foundByShot(null, ["p-2"], [])).toBe(false);
+		expect(foundByShot("p-2", ["p-3"], ["p-3"])).toBe(false);
+		expect(foundByShot("p-2", ["p-2", "p-3"], ["p-2", "p-3"])).toBe(false);
+		expect(foundByShot("p-2", null, ["p-3"])).toBe(false);
 	});
 });

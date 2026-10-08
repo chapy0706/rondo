@@ -31,7 +31,9 @@ import {
 	areaLook,
 	canMove,
 	canPaintWhileWaiting,
+	canShoot,
 	facingOfYaw,
+	foundByShot,
 	isSpectator,
 	moveReport,
 	parseHidersNotice,
@@ -39,7 +41,9 @@ import {
 	parseOniNotice,
 	parsePhaseNotice,
 	parseRoomInfo,
+	reloadRemainingMs,
 	roleOf,
+	shootEvent,
 	spaceOf,
 	spawnOf,
 	stepPosition,
@@ -48,6 +52,9 @@ import {
 import type { SceneHider, SceneOni, VeryareScene } from "./scene";
 
 /** 歩く速さ（m/秒）。 */
+/** 「見つけた！」を出しておく時間（ミリ秒 / issue-27）。 */
+const FOUND_NOTICE_MS = 1500;
+
 const WALK_SPEED = 1.6;
 /** 視点パッドを倒しきったときの回転の速さ（ラジアン/秒）。 */
 const TURN_SPEED = 2.2;
@@ -115,6 +122,13 @@ export default function Veryare() {
 	/** 探索中の隠れ側が、鬼 TPS 視点を選んでいるか。 */
 	const [choseOni, setChoseOni] = useState(false);
 	const [now, setNow] = useState(0);
+	/** 最後に撃った時刻（自分のタイマー。撃つボタンの無効の表示に使う / issue-27）。 */
+	const [lastShotAt, setLastShotAt] = useState<number | null>(null);
+	/** 「見つけた！」を出した時刻。 */
+	const [foundAt, setFoundAt] = useState<number | null>(null);
+	/** 最後に撃った相手と、直前の隠れている一覧（命中を一覧の更新で知るため）。 */
+	const shotTargetRef = useRef<string | null>(null);
+	const hidingRef = useRef<readonly string[] | null>(null);
 
 	// サーバーの通知を購読する（全員宛てのフェーズ通知と、入室後の案内）。
 	useEffect(() => {
@@ -138,7 +152,15 @@ export default function Veryare() {
 		});
 		const offHiding = on("hiding", (payload) => {
 			const next = parseHidingNotice(payload);
-			if (next !== null) setHiding(next.playerIds);
+			if (next === null) return;
+			if (
+				foundByShot(shotTargetRef.current, hidingRef.current, next.playerIds)
+			) {
+				shotTargetRef.current = null;
+				setFoundAt(performance.now());
+			}
+			hidingRef.current = next.playerIds;
+			setHiding(next.playerIds);
 		});
 		return () => {
 			offPhase();
@@ -180,6 +202,19 @@ export default function Veryare() {
 					}))
 			: [];
 	const painting = canPaintWhileWaiting(phase, role);
+	// 射撃（issue-27）。撃てるのは探索フェーズの鬼だけ。間隔は自分のタイマーで見せる。
+	const shootable = canShoot(phase, role, spectator);
+	const reloadMs = reloadRemainingMs(lastShotAt, now);
+	const showFound = foundAt !== null && now - foundAt < FOUND_NOTICE_MS;
+	const shoot = () => {
+		const at = performance.now();
+		if (reloadRemainingMs(lastShotAt, at) > 0) return;
+		const target = sceneRef.current?.pickHider() ?? null;
+		shotTargetRef.current = target;
+		setLastShotAt(at);
+		setNow(at);
+		send(shootEvent(target));
+	};
 	// 待機中ペイントは待機ルームの中だけで見せる。ステージの見た目には一切持ち込まない。
 	const avatarColor =
 		role === "oni" && space === "waiting-room" ? waitingColor : DEFAULT_COLOR;
@@ -416,6 +451,25 @@ export default function Veryare() {
 						</p>
 					</div>
 				) : null}
+				{shootable ? (
+					// 照準（画面の中央）。この向きの先に重なった隠れ側を狙う。
+					<div
+						aria-hidden="true"
+						className="pointer-events-none absolute inset-0 flex items-center justify-center"
+					>
+						<span className="font-bold text-2xl text-fg/80">＋</span>
+					</div>
+				) : null}
+				{showFound ? (
+					<div className="pointer-events-none absolute inset-x-0 top-1/3 text-center">
+						<p
+							className="font-bold text-2xl text-fg"
+							data-testid="veryare-found"
+						>
+							見つけた！
+						</p>
+					</div>
+				) : null}
 				{/* 終了後の勝敗は、基盤の結果画面（game-ended）に任せる（issue-42）。 */}
 			</div>
 
@@ -454,6 +508,17 @@ export default function Veryare() {
 					// 動けない間（観戦中を含む）は移動パッドを出さない。
 					<div aria-hidden="true" className="size-[120px]" />
 				)}
+				{shootable ? (
+					<button
+						type="button"
+						onClick={shoot}
+						disabled={reloadMs > 0}
+						data-testid="veryare-shoot"
+						className="size-20 rounded-full bg-accent font-bold text-accent-fg transition-transform active:scale-95 disabled:opacity-50"
+					>
+						{reloadMs > 0 ? `${Math.ceil(reloadMs / 1000)}` : "撃つ"}
+					</button>
+				) : null}
 				<div className="flex flex-col items-center gap-1">
 					<div className="rounded-full bg-surface ring-1 ring-line ring-inset">
 						<VirtualPad name="look" size={120} />

@@ -2,7 +2,7 @@
  * シナリオの書き方（issue-49）。ボットの動きと、期待する結果を、宣言として並べる。
  *
  * - bots: 参加するボットの名前。先頭がルームを作り、残りは順に参加する
- * - steps: 「いつ（on）」「誰が（bot）」「何をする（action）」の並び。いつは、全員が
+ * - steps: 「いつ（on）」「誰が（bot）」「何をする（action）」「どれだけ待って（delayMs）」の並び。いつは、全員が
  *   そろった直後（"joined"）か、そのボット自身にフェーズ（と鬼希望エリアの色）の通知が
  *   届いたとき。1つの手順は1回だけ動く
  * - receivers: game-ended が届くべきボット（ゲームの終わりに部屋にいる参加者）
@@ -20,7 +20,9 @@ export type Action =
 	/** ルームから退出する（leave-room。猶予を待たずに離脱が確定する）。 */
 	| { readonly type: "leave" }
 	/** その場にとどまる（何も送らない。宣言として書くため）。 */
-	| { readonly type: "stay" };
+	| { readonly type: "stay" }
+	/** 鬼として撃つ（issue-27。契約の VeryareShootEvent）。target はボットの名前、null は狙いなし。 */
+	| { readonly type: "shoot"; readonly target: string | null };
 
 /** 手順を動かす時点。 */
 export type Trigger =
@@ -34,6 +36,8 @@ export interface Step {
 	readonly on: Trigger;
 	readonly bot: string;
 	readonly action: Action;
+	/** 引き金から動くまでの待ち（ミリ秒）。撃つ間隔を空けるときなどに使う。既定は 0。 */
+	readonly delayMs?: number;
 }
 
 export interface ExpectedRow {

@@ -3,7 +3,8 @@
 /// ボット同士の対戦（`make bots`）で、ゲームの最初から最後までを数秒で通すために、
 /// 環境変数 RONDO_TEST_PHASE_DIVISOR で、veryare のフェーズ時間を割る。
 /// 環境変数が無い・正しくない値なら短縮しない（本番の既定は変えない）。
-/// 時間は状態機械（game）の外のタイマーにだけ効くので、フェーズの順序と勝敗は変わらない。
+/// 時間は状態機械（game）の外のタイマーと、撃つ間隔（issue-27）にだけ効くので、フェーズの
+/// 順序と勝敗は変わらない。
 /// 再接続猶予（ADR 0013）とハートビート（issue-41）の時間は、ここでは縮めない。
 import gleam/int
 import gleam/string
@@ -47,6 +48,7 @@ pub fn apply(durations: Durations, timing: Timing) -> Durations {
         painting_ms: scale(durations.painting_ms),
         exploration_ms: scale(durations.exploration_ms),
         reveal_ms: scale(durations.reveal_ms),
+        reload_ms: scale(durations.reload_ms),
       )
     }
   }

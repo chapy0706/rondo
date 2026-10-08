@@ -10,7 +10,7 @@
  * 乱数の種（seed）は、参加の間隔の揺らぎに使う。失敗したら同じ種で再現できる。
  */
 
-import type { ServerMessage } from "@rondo/contracts";
+import type { ServerMessage, VeryareShootEvent } from "@rondo/contracts";
 import { Bot, type CreateSocket } from "./client.ts";
 import {
 	type ScenarioResult,
@@ -64,6 +64,9 @@ export async function runScenario(
 		);
 		if (created.type !== "room-joined") throw new Error("ルームを作れない");
 		const roomId = created.roomId;
+		// ボットの名前から、サーバーが発行したプレイヤー識別子へ（撃つ相手の指定に使う）。
+		const idOf = (name: string): string | null =>
+			bots.get(name)?.playerId ?? null;
 
 		for (const name of joinerNames) {
 			await sleep(Math.floor(random() * 50));
@@ -87,12 +90,13 @@ export async function runScenario(
 				if (!matchesTrigger(trigger, message.payload)) return;
 				done = true;
 				off();
-				act(bot, step.action, roomId);
+				later(step.delayMs, () => act(bot, step.action, roomId, idOf));
 			});
 		}
 		for (const step of scenario.steps) {
-			if (step.on === "joined")
-				act(bots.get(step.bot) as Bot, step.action, roomId);
+			if (step.on !== "joined") continue;
+			const bot = bots.get(step.bot) as Bot;
+			later(step.delayMs, () => act(bot, step.action, roomId, idOf));
 		}
 
 		// 届くべきボット全員に game-ended が届くのを待つ。
@@ -154,7 +158,12 @@ export async function runScenario(
 	}
 }
 
-function act(bot: Bot, action: Action, roomId: string): void {
+function act(
+	bot: Bot,
+	action: Action,
+	roomId: string,
+	idOf: (name: string) => string | null,
+): void {
 	switch (action.type) {
 		case "touch-area":
 			move(bot, roomId, 0, 0);
@@ -167,7 +176,24 @@ function act(bot: Bot, action: Action, roomId: string): void {
 			break;
 		case "stay":
 			break;
+		case "shoot": {
+			const payload: VeryareShootEvent = {
+				type: "shoot",
+				target: action.target === null ? null : idOf(action.target),
+			};
+			bot.send({ type: "game-event", gameType: GAME_TYPE, roomId, payload });
+			break;
+		}
 	}
+}
+
+/** delayMs だけ待ってから動かす（0 か無しなら、すぐ）。 */
+function later(delayMs: number | undefined, run: () => void): void {
+	if (delayMs === undefined || delayMs <= 0) {
+		run();
+		return;
+	}
+	setTimeout(run, delayMs);
 }
 
 function move(bot: Bot, roomId: string, x: number, z: number): void {

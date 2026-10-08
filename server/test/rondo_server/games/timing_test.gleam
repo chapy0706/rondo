@@ -45,6 +45,7 @@ pub fn faster_divides_every_phase_test() {
     painting_ms: 1000,
     exploration_ms: 2000,
     reveal_ms: 1000,
+    reload_ms: 150,
   ))
   timing.apply(
     Durations(
@@ -53,6 +54,7 @@ pub fn faster_divides_every_phase_test() {
       painting_ms: 3,
       exploration_ms: 3,
       reveal_ms: 3,
+      reload_ms: 3,
     ),
     Faster(divisor: 1000),
   )
@@ -62,6 +64,7 @@ pub fn faster_divides_every_phase_test() {
     painting_ms: 1,
     exploration_ms: 1,
     reveal_ms: 1,
+    reload_ms: 1,
   ))
 }
 
@@ -129,4 +132,17 @@ fn wait_until_finished(room, tries: Int) -> Nil {
       wait_until_finished(room, tries - 1)
     }
   }
+}
+
+/// 撃つ間隔も同じ数で割る。本番の既定（短縮しない）は 3 秒のまま。どれだけ縮めても 0 には
+/// ならない（0 だと間隔の判定が効かなくなる）。
+pub fn reload_is_scaled_but_never_zero_test() {
+  let durations = game.durations(exploration_ms: 40_000)
+  timing.apply(durations, Normal).reload_ms |> should.equal(3000)
+  timing.apply(durations, Faster(divisor: 20)).reload_ms |> should.equal(150)
+  timing.apply(durations, Faster(divisor: 1000)).reload_ms |> should.equal(3)
+  list.each([2, 7, 20, 999, 1000], fn(divisor) {
+    let reload = timing.apply(durations, Faster(divisor:)).reload_ms
+    { reload >= 1 } |> should.be_true
+  })
 }

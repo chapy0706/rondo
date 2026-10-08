@@ -1,5 +1,5 @@
 /**
- * veryare のシナリオ（issue-49）。全員発見は issue-27（撃つ）ができてから足す。
+ * veryare のシナリオ（issue-49 / issue-27）。
  *
  * サーバーは、フェーズ時間を縮めて動かす（RONDO_TEST_PHASE_DIVISOR）。手順の引き金は
  * 時間ではなく、通知（フェーズ・鬼希望エリアの色）にしてあるので、縮め方に依らない。
@@ -83,6 +83,35 @@ export const scenarios: readonly Scenario[] = [
 				on: { phase: "preparation" },
 				bot: "bot-c",
 				action: { type: "move", x: 1, z: 1 },
+			},
+		],
+		receivers: ["bot-a", "bot-b", "bot-c"],
+		rankings: [
+			oni("bot-a", true),
+			hider("bot-b", false),
+			hider("bot-c", false),
+		],
+	},
+	{
+		// 人間の鬼役の A が、探索の始まりに隠れ側を1人ずつ撃って、全員を見つける（issue-27）。
+		// 隠れ側は待機の輪（半径 3 m）に並び、鬼は (0, 4.5) から始まるので、どちらも射程 8 m の
+		// 内側。撃つ間隔（縮めて 150 ms）を空け、縮めた探索（2 秒）が終わる前に撃ち終える
+		// （scenarios.test.ts で確かめる）。
+		name: "全員発見で鬼の勝ち",
+		bots: ["bot-a", "bot-b", "bot-c"],
+		steps: [
+			{ on: "joined", bot: "bot-a", action: { type: "touch-area" } },
+			{
+				on: { phase: "exploration" },
+				bot: "bot-a",
+				action: { type: "shoot", target: "bot-b" },
+				delayMs: 100,
+			},
+			{
+				on: { phase: "exploration" },
+				bot: "bot-a",
+				action: { type: "shoot", target: "bot-c" },
+				delayMs: 600,
 			},
 		],
 		receivers: ["bot-a", "bot-b", "bot-c"],

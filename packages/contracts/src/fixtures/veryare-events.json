@@ -1,0 +1,14 @@
+{
+	"shoot": {
+		"valid": [
+			{ "type": "shoot", "target": "p-2" },
+			{ "type": "shoot", "target": null }
+		],
+		"invalid": [
+			{ "type": "shoot" },
+			{ "type": "shoot", "target": 1 },
+			{ "type": "shoot", "target": ["p-2"] },
+			{ "type": "move", "target": "p-2" }
+		]
+	}
+}

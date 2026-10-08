@@ -71,3 +71,14 @@ export interface VeryareHidingNotice {
 	readonly type: "hiding";
 	readonly playerIds: readonly PlayerId[];
 }
+
+/**
+ * 鬼の射撃の申告（issue-27 / ADR 0022）。鬼のクライアントが game-event の payload として送る。
+ * target は照準に重なった隠れ側。何にも重なっていなければ null（外れとして、撃つ間隔は始まる）。
+ * 当たったかどうかはサーバーが判定する（探索フェーズ・鬼・まだ隠れている・射程 8 m・撃つ間隔
+ * 3 秒）。命中は、まだ隠れている一覧（VeryareHidingNotice）の更新で全員に伝わる。
+ */
+export interface VeryareShootEvent {
+	readonly type: "shoot";
+	readonly target: PlayerId | null;
+}

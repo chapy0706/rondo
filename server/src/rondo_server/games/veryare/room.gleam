@@ -16,6 +16,9 @@
 /// 観戦（issue-28）: 人間の鬼も、探索中に動くたびに同じ形で鬼の状態を全員へ送る。
 /// 「まだ隠れている」隠れ側の一覧が変わったら（発見・失格・離脱）、一覧を全員へ送る。
 /// 一覧から外れた隠れ側のクライアントは、観戦（鬼 TPS 視点）に切り替える。
+///
+/// 射撃（issue-27）: 鬼の game-event { type: "shoot", target } を受けた時刻を付けて、状態機械の
+/// shoot に渡す。命中の知らせは、上の一覧の更新で全員に届く（専用の電文は作らない）。
 import gleam/dict
 import gleam/dynamic.{type Dynamic}
 import gleam/dynamic/decode
@@ -227,20 +230,11 @@ fn start(
 fn wrap(state: Game(PlayerId), pick: fn(Int) -> Int) -> Driver(PlayerId) {
   driver.new(
     on_event: fn(player, payload) {
-      case decode.run(payload, move_decoder()) {
-        Ok(#(x, z, facing)) -> {
-          let moved = game.move(state, player, x, z)
-          let turned = case facing {
-            Some(f) -> game.turn(moved, player, f)
-            None -> moved
-          }
-          let #(next, effects) = step(state, turned, pick)
-          #(
-            next,
-            list.append(effects, human_oni_effects(state, turned, player)),
-          )
-        }
-        Error(_) -> #(wrap(state, pick), [])
+      case decode.run(payload, shoot_decoder()) {
+        // 鬼の射撃の申告（issue-27）。判定は状態機械が行い、時刻はここで付ける。
+        Ok(target) ->
+          step(state, game.shoot(state, player, target, now_ms()), pick)
+        Error(_) -> moved(state, player, payload, pick)
       }
     },
     on_leave: fn(player) { step(state, game.leave(state, player), pick) },
@@ -261,6 +255,27 @@ fn wrap(state: Game(PlayerId), pick: fn(Int) -> Int) -> Driver(PlayerId) {
       }
     },
   )
+}
+
+/// 移動の報告（move）。形の違う電文は無視する。
+fn moved(
+  state: Game(PlayerId),
+  player: PlayerId,
+  payload: Dynamic,
+  pick: fn(Int) -> Int,
+) -> #(Driver(PlayerId), List(Effect(PlayerId))) {
+  case decode.run(payload, move_decoder()) {
+    Ok(#(x, z, facing)) -> {
+      let moved = game.move(state, player, x, z)
+      let turned = case facing {
+        Some(f) -> game.turn(moved, player, f)
+        None -> moved
+      }
+      let #(next, effects) = step(state, turned, pick)
+      #(next, list.append(effects, human_oni_effects(state, turned, player)))
+    }
+    Error(_) -> #(wrap(state, pick), [])
+  }
 }
 
 /// 通知の中身（フェーズ・鬼・エリアの色）が変わったときだけ全員へ通知する。
@@ -407,6 +422,17 @@ fn phase_effects(state: Game(PlayerId)) -> List(Effect(PlayerId)) {
 
 /// 移動の報告 { type: "move", x, z, facing? }。数値は整数でも受け付ける。
 /// facing（向き）は任意で、観戦者へ送る鬼の向きに使う（issue-28）。
+/// 射撃の申告 { type: "shoot", target: playerId | null }（issue-27。契約: VeryareShootEvent）。
+/// target は必須で、文字列か null。null は狙いなし（外れ）。
+pub fn shoot_decoder() -> decode.Decoder(Option(PlayerId)) {
+  use kind <- decode.field("type", decode.string)
+  use target <- decode.field("target", decode.optional(decode.string))
+  case kind {
+    "shoot" -> decode.success(option.map(target, PlayerId))
+    _ -> decode.failure(None, "shoot")
+  }
+}
+
 fn move_decoder() -> decode.Decoder(#(Float, Float, Option(Float))) {
   use kind <- decode.field("type", decode.string)
   use x <- decode.field("x", number())
@@ -597,3 +623,7 @@ fn outcome_name(outcome: Outcome) -> String {
     NotEnoughPlayers -> "not-enough-players"
   }
 }
+
+/// 単調に増える時刻（ミリ秒）。射撃の申告を受け取った時刻に使う（撃つ間隔の判定）。
+@external(erlang, "rondo_server_ffi", "monotonic_ms")
+fn now_ms() -> Int
