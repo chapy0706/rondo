@@ -9,10 +9,13 @@ help:
 	@echo "  dev            開発サーバー起動（フロント + モックWS・ホットリロード）"
 	@echo "  dev/web        Next.js 開発サーバーのみ起動"
 	@echo "  dev/server     Gleam WebSocket サーバーのみ起動"
+	@echo "  dev-all        実接続で起動（Gleam :3000 + web :3100。Ctrl-C で両方止まる）"
 	@echo ""
 	@echo "  test           フロントのテスト（Vitest）"
 	@echo "  test/server    Gleam サーバーのテスト（gleam test）"
 	@echo "  simulate       veryare の CPU 対戦シミュレーション（集計を表で出す）"
+	@echo "  e2e            2タブの E2E スモーク（Playwright。verify には含めない）"
+	@echo "  e2e/result     E2E の結果画面までのシナリオ（約2分）"
 	@echo ""
 	@echo "  lint           静的解析（Biome）"
 	@echo "  type-check     型チェック（tsc）"
@@ -54,6 +57,11 @@ dev/web:
 dev/server:
 	cd server && gleam run
 
+# 実接続の一発起動（issue-48）。WebSocket の URL はスクリプトが渡す。
+.PHONY: dev-all
+dev-all:
+	./tools/dev-all.sh
+
 # ------------------------
 # Test
 # ------------------------
@@ -69,6 +77,16 @@ test/server:
 .PHONY: simulate
 simulate:
 	cd server && gleam run -m rondo_server/simulate
+
+# 2タブの E2E スモーク（issue-48）。時間とブラウザに依存するので verify には含めない。
+# 初回だけ、ブラウザの取得が要る: pnpm --filter @rondo/e2e exec playwright install chromium
+.PHONY: e2e
+e2e:
+	pnpm --filter @rondo/e2e e2e
+
+.PHONY: e2e/result
+e2e/result:
+	pnpm --filter @rondo/e2e e2e:result
 
 # ------------------------
 # Lint / Format / Types

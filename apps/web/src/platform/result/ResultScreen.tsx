@@ -29,7 +29,10 @@ export function ResultScreen({
 	const ranked = [...result.rankings].sort((a, b) => a.rank - b.rank);
 
 	return (
-		<section className="flex w-full flex-col items-center gap-5">
+		<section
+			className="flex w-full flex-col items-center gap-5"
+			data-testid="result-screen"
+		>
 			<h2 className="font-bold text-2xl text-white">結果発表</h2>
 
 			{children}

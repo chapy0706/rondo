@@ -329,7 +329,11 @@ export default function Veryare() {
 	}, [space]);
 
 	return (
-		<div className="flex w-full flex-col gap-3">
+		<div
+			className="flex w-full flex-col gap-3"
+			data-testid="veryare"
+			data-phase={phase}
+		>
 			<div className="flex items-center justify-between text-sm">
 				<span className="font-semibold text-fg">
 					{notice === null ? "開始を待っています" : PHASE_LABELS[phase]}
@@ -351,7 +355,11 @@ export default function Veryare() {
 					: ""}
 			</p>
 			{area !== null ? (
-				<p className="text-sm">
+				<p
+					className="text-sm"
+					data-testid="veryare-area"
+					data-color={areaLook(area).color}
+				>
 					<span
 						className={`mr-2 inline-block size-3 rounded-full align-middle ${
 							{

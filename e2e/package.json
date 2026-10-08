@@ -1,0 +1,16 @@
+{
+	"name": "@rondo/e2e",
+	"version": "0.0.0",
+	"private": true,
+	"type": "module",
+	"scripts": {
+		"e2e": "playwright test --grep-invert @result",
+		"e2e:result": "playwright test --grep @result",
+		"type-check": "tsc --noEmit"
+	},
+	"devDependencies": {
+		"@playwright/test": "1.63.0",
+		"@types/node": "20.17.6",
+		"typescript": "^5.9.3"
+	}
+}

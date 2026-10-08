@@ -15,7 +15,10 @@ export function ConnectionFailed({
 	onSelect: () => void;
 }) {
 	return (
-		<section className="flex w-full max-w-xs flex-col items-center gap-4 text-center">
+		<section
+			className="flex w-full max-w-xs flex-col items-center gap-4 text-center"
+			data-testid="connection-failed"
+		>
 			<p className="font-semibold text-lg text-white">つながりません</p>
 			<p className="text-slate-400 text-sm">
 				通信の状態を確かめて、もう一度試してください。

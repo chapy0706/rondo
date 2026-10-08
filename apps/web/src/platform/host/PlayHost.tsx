@@ -211,7 +211,10 @@ export function PlayHost({ manifest }: { manifest: GameManifest }) {
 									onSelect={backToSelect}
 								/>
 							) : connecting && error !== null ? (
-								<div className="flex flex-col items-center gap-3">
+								<div
+									className="flex flex-col items-center gap-3"
+									data-testid="room-error"
+								>
 									<p className="text-red-200 text-sm">{error}</p>
 									<Link
 										href={lobbyPathOf(manifest.id)}
