@@ -1,5 +1,6 @@
 import type { ClientMessage, ServerMessage } from "@rondo/contracts";
 import { describe, expect, it } from "vitest";
+import stageFixture from "../../packages/contracts/src/fixtures/veryare-stage.json";
 import type { SocketLike } from "./client.ts";
 import { runScenario, seeded } from "./runner.ts";
 import { type Scenario, details } from "./scenario.ts";
@@ -327,6 +328,71 @@ describe("runScenario - 撃つ（issue-27）", () => {
 			["p-1", { type: "shoot", target: "p-3" }],
 		]);
 		expect(Date.now() - started).toBeGreaterThanOrEqual(120);
+	});
+});
+
+describe("runScenario - 隠れる（issue-29a）", () => {
+	it("届いたステージの通知から、別々の場所を選んで動く", async () => {
+		const server = new FakeServer();
+		server.onEvent = (s, player, message) => {
+			if (message.type === "create-room" || message.type === "join-room") {
+				// ステージの通知（共有の見本の小さな屋敷）を、本人へ送る。
+				const socket = [...s.players].find(([, id]) => id === player)?.[0];
+				socket?.deliver({
+					type: "game-state-to",
+					gameType: "veryare",
+					roomId: "room-1",
+					to: player,
+					payload: stageFixture.valid[0],
+				});
+			}
+			if (message.type !== "game-event") return;
+			const payload = message.payload as { type: string; x?: number };
+			if (payload.type === "move" && player === "p-1") s.phase("preparation");
+			if (payload.type === "move" && player === "p-3") {
+				s.ended([
+					{ player: "p-2", rank: 1, score: 1, details: details.hiderWon },
+					{ player: "p-3", rank: 1, score: 1, details: details.hiderWon },
+					{ player: "p-1", rank: 2, score: 0, details: details.oniLost },
+				]);
+			}
+		};
+		const result = await run(server, {
+			name: "散らばる",
+			bots: ["bot-a", "bot-b", "bot-c"],
+			steps: [
+				{ on: "joined", bot: "bot-a", action: { type: "touch-area" } },
+				{
+					on: { phase: "preparation" },
+					bot: "bot-b",
+					action: { type: "hide", index: 0 },
+				},
+				{
+					on: { phase: "preparation" },
+					bot: "bot-c",
+					action: { type: "hide", index: 1 },
+				},
+			],
+			receivers: ["bot-a", "bot-b", "bot-c"],
+			rankings: [
+				{ bot: "bot-b", rank: 1, score: 1, details: details.hiderWon },
+				{ bot: "bot-c", rank: 1, score: 1, details: details.hiderWon },
+				{ bot: "bot-a", rank: 2, score: 0, details: details.oniLost },
+			],
+		});
+		expect(result.problems).toEqual([]);
+		const moves = server.log
+			.filter(
+				({ player, message }) =>
+					player !== "p-1" && message.type === "game-event",
+			)
+			.map(({ player, message }) =>
+				message.type === "game-event" ? [player, message.payload] : [],
+			);
+		expect(moves).toEqual([
+			["p-2", { type: "move", x: 0.5, z: 3.5 }],
+			["p-3", { type: "move", x: 1.5, z: 4.5 }],
+		]);
 	});
 });
 

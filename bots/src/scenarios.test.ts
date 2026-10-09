@@ -71,3 +71,46 @@ describe("scenarios - 撃つ手順が、縮めた探索時間の中に収まる�
 		expect(shots.at(-1) ?? 0).toBeLessThanOrEqual(exploration - 5 * margin);
 	});
 });
+
+describe("scenarios - 玄関からの散らばり方（issue-29a）", () => {
+	it.each(scenarios.map((s) => [s.name, s] as const))(
+		"%s: 隠れ場所の番号は、隠れ側ごとに違い、準備移動の始まりに動く",
+		(_name, scenario) => {
+			const hides = scenario.steps.filter(
+				(step) => step.action.type === "hide",
+			);
+			const indices = hides.map((step) =>
+				step.action.type === "hide" ? step.action.index : -1,
+			);
+			expect(new Set(indices).size).toBe(indices.length);
+			expect(new Set(hides.map((step) => step.bot)).size).toBe(hides.length);
+			for (const step of hides) {
+				expect(step.on).toEqual({ phase: "preparation" });
+				expect(step.bot).not.toBe(scenario.bots[0]);
+			}
+		},
+	);
+
+	it("時間切れ・全員発見では隠れ側全員が散らばり、被りのシナリオでは誰も動かない", () => {
+		const hidden = (name: string) =>
+			scenarios
+				.find((s) => s.name === name)
+				?.steps.filter((step) => step.action.type === "hide")
+				.map((step) => step.bot);
+		expect(hidden("時間切れで隠れ側の勝ち")).toEqual([
+			"bot-b",
+			"bot-c",
+			"bot-d",
+			"bot-e",
+		]);
+		expect(hidden("全員発見で鬼の勝ち")).toEqual(["bot-b", "bot-c"]);
+		const overlap = scenarios.find(
+			(s) => s.name === "被りによる全員失格で鬼の勝ち",
+		);
+		expect(
+			overlap?.steps.some(
+				(step) => step.action.type === "hide" || step.action.type === "move",
+			),
+		).toBe(false);
+	});
+});

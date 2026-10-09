@@ -43,4 +43,8 @@ export type {
 	VeryarePaint,
 	VeryarePose,
 	VeryareShootEvent,
+	VeryareDoorKind,
+	VeryareEdge,
+	VeryareStageDoor,
+	VeryareStageNotice,
 } from "./veryare";

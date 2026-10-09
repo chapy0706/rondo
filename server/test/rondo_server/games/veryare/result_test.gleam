@@ -4,6 +4,7 @@
 import gleeunit/should
 import rondo_server/games/veryare/game.{type Game}
 import rondo_server/games/veryare/result
+import rondo_server/games/veryare/spread
 import rondo_server/games/veryare/stage
 import rondo_server/protocol/message.{HigherIsBetter}
 import rondo_server/room/driver.{Standing}
@@ -25,6 +26,8 @@ fn exploration() -> Game(String) {
   )
   |> game.move("a", 0.0, 0.0)
   |> expire
+  // 玄関に全員が現れるので、被らないよう隠れ側を別々の場所へ動かす（issue-29a）。
+  |> spread.hiders(["b", "c", "d"])
   |> expire
   |> expire
 }

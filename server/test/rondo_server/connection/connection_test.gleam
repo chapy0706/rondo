@@ -360,3 +360,36 @@ pub fn pings_are_not_buffered_while_disconnected_test() {
   list.contains(received, Ping) |> should.be_false
   areas(received) |> should.equal(["counting"])
 }
+
+// --- ステージの通知（issue-29a） -------------------------------------------------------
+
+fn is_stage_notice(m: ServerMessage) -> Bool {
+  case m {
+    GameState(payload:, ..) | GameStateTo(payload:, ..) ->
+      decode.run(payload, decode.field("type", decode.string, decode.success))
+      == Ok("stage")
+    _ -> False
+  }
+}
+
+/// ルームを作った人と、参加した人の両方に、ステージの通知が届く。
+pub fn stage_notice_reaches_creator_and_joiner_test() {
+  let deps = server()
+  let a = connect(deps)
+  let a = send(deps, a, CreateRoom("veryare", None))
+  let from_a = drain(a)
+  let room_id = joined_room(from_a)
+  list.any(from_a, is_stage_notice) |> should.be_true
+  let b = connect(deps)
+  let b = send(deps, b, JoinRoom("veryare", room_id))
+  list.any(drain(b), is_stage_notice) |> should.be_true
+}
+
+/// 再接続で戻ったソケットにも、ステージの通知が届き直す（リロードした画面のため）。
+pub fn stage_notice_is_resent_after_reconnect_test() {
+  let deps = server()
+  let #(a, _b, room_id) = room_with_two(deps)
+  let a2 = reopen(deps, a)
+  let a2 = send(deps, a2, Reconnect(room_id, a.resume_token))
+  list.any(drain(a2), is_stage_notice) |> should.be_true
+}

@@ -132,6 +132,9 @@ pub type Message {
   SendTo(targets: List(PlayerId), payload: Dynamic)
   /// 現在の状態を問い合わせる（監視・テスト用）。
   Snapshot(reply: Subject(RoomState))
+  /// 再接続で戻った参加者に、入室後の案内と、ゲームの今の状態（driver の on_subscribe）を
+  /// 送り直す（issue-29a）。参加者でない・送信先が無ければ何もしない。
+  Resync(player: PlayerId)
   /// ルームを明示的に解散する。
   Dissolve
   /// ゲームが WakeAfter で頼んだタイマーの満了（内部用）。
@@ -246,6 +249,11 @@ pub fn snapshot(room: Subject(Message)) -> RoomState {
 }
 
 /// ルームを解散する。
+/// 再接続で戻った参加者へ、今の状態を送り直してもらう（issue-29a）。
+pub fn resync(room: Subject(Message), player: PlayerId) -> Nil {
+  process.send(room, Resync(player))
+}
+
 pub fn dissolve(room: Subject(Message)) -> Nil {
   process.send(room, Dissolve)
 }
@@ -278,6 +286,14 @@ fn handle(state: State, message: Message) -> actor.Next(State, Message) {
 
     Snapshot(reply) -> {
       process.send(reply, to_state(state))
+      actor.continue(state)
+    }
+
+    Resync(player) -> {
+      case dict.get(state.outboxes, player) {
+        Ok(outbox) -> welcome(state, player, outbox)
+        Error(Nil) -> Nil
+      }
       actor.continue(state)
     }
 
@@ -427,13 +443,32 @@ fn register(
 ) -> State {
   case outbox {
     Some(outbox) -> {
-      case state.spec.member_info {
-        Some(info) -> process.send(outbox, game_state(state, info))
-        None -> Nil
-      }
-      State(..state, outboxes: dict.insert(state.outboxes, player, outbox))
+      let state =
+        State(..state, outboxes: dict.insert(state.outboxes, player, outbox))
+      welcome(state, player, outbox)
+      state
     }
     None -> state
+  }
+}
+
+/// 送信先を登録した人へ、入室後の案内と、ゲームの今の状態（driver の on_subscribe）を送る。
+/// state の outboxes には、すでに本人の送信先が入っていること（限定配信で届けるため）。
+fn welcome(
+  state: State,
+  player: PlayerId,
+  outbox: Subject(ServerMessage),
+) -> Nil {
+  case state.spec.member_info {
+    Some(info) -> process.send(outbox, game_state(state, info))
+    None -> Nil
+  }
+  case state.driver {
+    Some(current) ->
+      list.each(driver.subscribed(current, player), fn(effect) {
+        apply(state, effect)
+      })
+    None -> Nil
   }
 }
 
@@ -444,13 +479,10 @@ fn handle_subscribe(
 ) -> actor.Next(State, Message) {
   case dict.has_key(state.players, player) {
     True -> {
-      case state.spec.member_info {
-        Some(info) -> process.send(outbox, game_state(state, info))
-        None -> Nil
-      }
-      actor.continue(
-        State(..state, outboxes: dict.insert(state.outboxes, player, outbox)),
-      )
+      let state =
+        State(..state, outboxes: dict.insert(state.outboxes, player, outbox))
+      welcome(state, player, outbox)
+      actor.continue(state)
     }
     // 参加者でない接続には送信先を持たせない（情報が漏れる経路を作らない）。
     False -> actor.continue(state)

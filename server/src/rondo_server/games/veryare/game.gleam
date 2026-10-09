@@ -15,8 +15,8 @@
 /// この集合から抜ける。個別の分岐を持たないので、結果の状態は完全に一致する。
 /// 準備移動フェーズの終わりの被り判定（ADR 0026）で失格した隠れ側も、同じ remove_hider を通る。
 ///
-/// ステージ（骨格と部屋の割り当て / ADR 0032）は開始時に受け取って持つ。ここでは隠れ CPU
-/// の置き場所にだけ使い、玄関からのリスポーンや部屋の当たり判定は issue-29 で使う。
+/// ステージ（骨格と部屋の割り当て / ADR 0032）は開始時に受け取って持つ。隠れ CPU の置き場所、
+/// 玄関からのリスポーン、ステージでの移動の規則（grid / issue-29a・ADR 0042）に使う。
 ///
 /// CPU（ADR 0038 / issue-33）は参加者の一種として players に入り、人数の判定・勝敗・
 /// 「まだ隠れている」集合に人間と同じように入る。違いは3つだけ: 隠れ側 CPU は鬼の抽選の
@@ -29,11 +29,11 @@
 /// 人間の鬼の射撃（issue-27 / ADR 0022）は shoot で受ける。判定はここ（サーバー）が行い、
 /// 命中したら found を通る。勝敗の判定は増やさない。
 import gleam/dict.{type Dict}
-import gleam/float
 import gleam/int
 import gleam/list
 import gleam/option.{type Option, None, Some}
 import gleam/set.{type Set}
+import rondo_server/games/veryare/grid.{type Edge, type Grid}
 import rondo_server/games/veryare/hider_cpu.{type Placement}
 import rondo_server/games/veryare/oni_cpu.{type OniCpu, type Strength}
 import rondo_server/games/veryare/overlap
@@ -73,17 +73,11 @@ pub const waiting_room_radius = 2.0
 /// 鬼希望エリア（待機ルームと同心円）の半径（メートル）。
 pub const oni_area_radius = 0.6
 
-/// ステージの半幅（メートル）。issue-29 で作り込むまでの仮の広さ。
-pub const stage_half = 5.0
-
 /// 待機ルームで並ぶ輪の半径。鬼希望エリアの外に置き、立候補は自分で入った人だけにする。
 const waiting_ring_radius = 1.3
 
 /// 待機ルームの輪の席の数（定員と同じ5席）。途中で入室しても既にいる人を動かさない。
 const waiting_ring_seats = 5
-
-/// 鬼選出後、隠れ側がステージで並ぶ輪の半径。
-const stage_ring_radius = 3.0
 
 // --- 型 ------------------------------------------------------------------
 
@@ -178,6 +172,10 @@ pub type Game(id) {
     last_shot: Option(Int),
     /// 射撃の判定で見通し（壁）を見るか。ステージの座標が統一される issue-29 まで False。
     shot_sight: Bool,
+    /// ステージを移動の規則の入力に写したもの（issue-29a / ADR 0042）。
+    grid: Grid,
+    /// 開いている襖。issue-29a の間は全部開いている扱い（開閉は issue-29b）。
+    open_doors: Set(Edge),
   )
 }
 
@@ -232,6 +230,8 @@ pub fn new_with(
     cpus:,
     cpu_states: dict.new(),
     sight_map: sight.map_of(layout),
+    grid: grid.of_layout(layout),
+    open_doors: grid.fusuma(grid.of_layout(layout)),
     oni_cpu: None,
     seen: [],
     last_shot: None,
@@ -325,12 +325,13 @@ pub fn advance(game: Game(id), step: Int, pick: fn(Int) -> Int) -> Game(id) {
 }
 
 /// 移動の報告（クライアントが報告し、サーバーが制限する）。
-/// いまいる空間の範囲に丸める（待機ルームは円、ステージは仮の四角）。準備移動の後の
-/// 隠れ側、答え合わせ・終了後は無視する。鬼選出中にエリアへ触れたら touch_area を通る。
+/// 待機ルームは円に丸める。ステージは移動の規則（grid / ADR 0042）で、いまの位置から
+/// 報告された位置へ動かし、通れない境の手前で止めて滑らせる。準備移動の後の隠れ側、
+/// 答え合わせ・終了後は無視する。鬼選出中にエリアへ触れたら touch_area を通る。
 pub fn move(game: Game(id), player: id, x: Float, z: Float) -> Game(id) {
   case dict.get(game.positions, player), can_move(game, player) {
     Ok(current), True -> {
-      let next = clamp_to_space(current.space, x, z)
+      let next = moved_to(game, current, x, z)
       let game =
         Game(..game, positions: dict.insert(game.positions, player, next))
       case game.phase, in_oni_area(next) {
@@ -496,8 +497,11 @@ fn select_oni(game: Game(id), pick: fn(Int) -> Int) -> Game(id) {
   case list.length(game.players) < min_players, chosen {
     False, Ok(oni) -> {
       let hiders = list.filter(game.players, fn(id) { id != oni })
+      // 隠れ側は全員、玄関に現れる（ADR 0032）。重ならないよう動くのは本人たち。
       let positions =
-        ring(hiders, Stage, stage_ring_radius)
+        hiders
+        |> list.map(fn(id) { #(id, spawn_position(game)) })
+        |> dict.from_list
         |> dict.insert(oni, position_of(game, oni))
       Game(
         ..next(game, Preparation),
@@ -587,11 +591,7 @@ fn start_exploration(game: Game(id), pick: fn(Int) -> Int) -> Game(id) {
     Some(oni), _ ->
       Game(
         ..next(game, Exploration),
-        positions: dict.insert(
-          game.positions,
-          oni,
-          Position(Stage, 0.0, stage_half -. 0.5),
-        ),
+        positions: dict.insert(game.positions, oni, spawn_position(game)),
       )
     None, _ -> next(game, Exploration)
   }
@@ -656,9 +656,10 @@ fn in_oni_area(position: Position) -> Bool {
   }
 }
 
-/// 空間の範囲に丸める。待機ルームは半径 waiting_room_radius の円、ステージは仮の四角。
-fn clamp_to_space(space: Space, x: Float, z: Float) -> Position {
-  case space {
+/// 報告された位置へ動かした結果。待機ルームは半径 waiting_room_radius の円に丸め、ステージは
+/// 移動の規則で、いまの位置から動かす。
+fn moved_to(game: Game(id), current: Position, x: Float, z: Float) -> Position {
+  case current.space {
     WaitingRoom -> {
       let distance = sqrt(x *. x +. z *. z)
       case distance >. waiting_room_radius {
@@ -669,13 +670,18 @@ fn clamp_to_space(space: Space, x: Float, z: Float) -> Position {
         False -> Position(WaitingRoom, x, z)
       }
     }
-    Stage ->
-      Position(
-        Stage,
-        float.clamp(x, 0.0 -. stage_half, stage_half),
-        float.clamp(z, 0.0 -. stage_half, stage_half),
-      )
+    Stage -> {
+      let #(nx, nz) =
+        grid.step(game.grid, game.open_doors, #(current.x, current.z), #(x, z))
+      Position(Stage, nx, nz)
+    }
   }
+}
+
+/// 玄関（骨格の spawn）。鬼と隠れ側のリスポーン位置（ADR 0032）。
+fn spawn_position(game: Game(id)) -> Position {
+  let #(x, z) = game.layout.skeleton.spawn
+  Position(Stage, x, z)
 }
 
 fn next(game: Game(id), phase: Phase) -> Game(id) {
@@ -723,17 +729,6 @@ fn seat_position(index: Int) -> Position {
     waiting_ring_radius *. cos(angle),
     waiting_ring_radius *. sin(angle),
   )
-}
-
-/// 中心の周りに等間隔で並べる。
-fn ring(ids: List(id), space: Space, radius: Float) -> Dict(id, Position) {
-  let count = int.to_float(int.max(list.length(ids), 1))
-  ids
-  |> list.index_map(fn(id, index) {
-    let angle = 2.0 *. pi *. int.to_float(index) /. count
-    #(id, Position(space, radius *. cos(angle), radius *. sin(angle)))
-  })
-  |> dict.from_list
 }
 
 const pi = 3.141592653589793

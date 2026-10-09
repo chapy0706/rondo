@@ -40,6 +40,7 @@ import rondo_server/games/veryare/oni_cpu.{type Strength}
 import rondo_server/games/veryare/palette
 import rondo_server/games/veryare/result as final_result
 import rondo_server/games/veryare/stage
+import rondo_server/games/veryare/stage_notice
 import rondo_server/room/driver.{type Driver, type Effect}
 import rondo_server/room/room_actor.{
   type Player, type PlayerId, type RoomId, type RoomSpec, Player, PlayerId,
@@ -224,7 +225,11 @@ fn start(
   // ステージは開始時に、骨格10種から1つを選び部屋を割り当てる（ADR 0032）。
   let layout = stage.generate(pick(stage_seed_range))
   let initial = game.new_with(players, durations, layout, cpus)
-  #(wrap(initial, pick), phase_effects(initial))
+  // ステージの通知（issue-29a）を全員へ送ってから、フェーズの通知を送る。
+  #(wrap(initial, pick), [
+    driver.Broadcast(stage_notice.payload(layout)),
+    ..phase_effects(initial)
+  ])
 }
 
 fn wrap(state: Game(PlayerId), pick: fn(Int) -> Int) -> Driver(PlayerId) {
@@ -255,6 +260,10 @@ fn wrap(state: Game(PlayerId), pick: fn(Int) -> Int) -> Driver(PlayerId) {
       }
     },
   )
+  // 途中参加・再接続の人には、本人宛てでステージの通知を送る（issue-29a）。
+  |> driver.on_subscribe(fn(player) {
+    [driver.Deliver([player], stage_notice.payload(state.layout))]
+  })
 }
 
 /// 移動の報告（move）。形の違う電文は無視する。

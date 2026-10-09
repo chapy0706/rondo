@@ -18,6 +18,7 @@ import {
 	checkTargeted,
 } from "./expect.ts";
 import { type Action, type Scenario, matchesTrigger } from "./scenario.ts";
+import { type Point, readStageNotice, spreadSpots } from "./stage.ts";
 
 export interface RunOptions {
 	readonly url: string;
@@ -176,6 +177,11 @@ function act(
 			break;
 		case "stay":
 			break;
+		case "hide": {
+			const spot = hideSpot(bot, action.index);
+			if (spot !== null) move(bot, roomId, spot.x, spot.z);
+			break;
+		}
 		case "shoot": {
 			const payload: VeryareShootEvent = {
 				type: "shoot",
@@ -185,6 +191,22 @@ function act(
 			break;
 		}
 	}
+}
+
+/** 隠れ場所の距離の上限（メートル）。鬼の射程 8 m（issue-27）の内側に収める。 */
+export const HIDE_MAX_DISTANCE = 7;
+
+/** ボットに届いたステージの通知から、index 番目の隠れ場所を選ぶ。通知が無ければ null。 */
+function hideSpot(bot: Bot, index: number): Point | null {
+	for (const { message } of bot.received) {
+		if (message.type !== "game-state" && message.type !== "game-state-to")
+			continue;
+		const stage = readStageNotice(message.payload);
+		if (stage !== null) {
+			return spreadSpots(stage, index + 1, HIDE_MAX_DISTANCE)[index] ?? null;
+		}
+	}
+	return null;
 }
 
 /** delayMs だけ待ってから動かす（0 か無しなら、すぐ）。 */

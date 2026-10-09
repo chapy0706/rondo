@@ -35,6 +35,8 @@ pub opaque type Driver(id) {
     on_join: fn(id) -> #(Driver(id), List(Effect(id))),
     accepts: fn() -> Bool,
     over: fn() -> Bool,
+    /// 送信先を登録した人（途中参加・再接続）へ送る、今の状態（issue-29a）。
+    subscribed: fn(id) -> List(Effect(id)),
   )
 }
 
@@ -54,7 +56,22 @@ pub fn new(
     on_join:,
     accepts: accepts_join,
     over: is_over,
+    subscribed: fn(_player) { [] },
   )
+}
+
+/// 送信先を登録した人へ送る、今の状態を決める（例: veryare のステージの通知）。
+/// 途中参加と、再接続で戻った人（ルームへの resync）に使う。既定は何も送らない。
+pub fn on_subscribe(
+  driver: Driver(id),
+  subscribed: fn(id) -> List(Effect(id)),
+) -> Driver(id) {
+  Driver(..driver, subscribed:)
+}
+
+/// 送信先を登録した人へ送る指示。
+pub fn subscribed(driver: Driver(id), player: id) -> List(Effect(id)) {
+  driver.subscribed(player)
 }
 
 /// プレイヤーからのゲーム内イベント。

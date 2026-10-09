@@ -220,6 +220,9 @@ fn resume_on(
           players:,
         ),
       )
+      // 入室後の案内とゲームの今の状態（ステージの通知など）を、ルームに送り直してもらう
+      // （issue-29a。リロードで戻った画面は、それまでの通知を持っていないため）。
+      room_actor.resync(joined.room, PlayerId(session.player_id))
     }
     None -> Nil
   }

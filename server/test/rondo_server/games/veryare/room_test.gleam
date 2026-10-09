@@ -6,10 +6,14 @@ import gleam/option.{None, Some}
 import gleam/string
 import gleeunit/should
 import rondo_server/games/veryare/game
+import rondo_server/games/veryare/grid
 import rondo_server/games/veryare/oni_cpu
 import rondo_server/games/veryare/room.{
   type Settings, HiderCpus, NoCpu, OniCpu, Settings,
 } as veryare
+import rondo_server/games/veryare/spread
+import rondo_server/games/veryare/stage
+import rondo_server/games/veryare/stage_notice
 import rondo_server/protocol/message.{type ServerMessage, GameState}
 import rondo_server/room/room_actor.{
   type Message, Player, PlayerId, RoomFull, RoomId,
@@ -69,7 +73,17 @@ fn field(payload: Dynamic, name: String, decoder: decode.Decoder(a)) -> a {
 /// 次に届く game-state の payload を取り出す（参加・開始の知らせは読み飛ばす）。
 fn next_state(outbox: Subject(ServerMessage)) -> Dynamic {
   case process.receive(outbox, 500) {
-    Ok(GameState(game_type: "veryare", room_id: "v", payload:)) -> payload
+    // ステージの通知（issue-29a）は、ここでは読み飛ばす（next_stage で読む）。
+    Ok(GameState(game_type: "veryare", room_id: "v", payload:)) ->
+      case is_stage(payload) {
+        True -> next_state(outbox)
+        False -> payload
+      }
+    Ok(message.GameStateTo(game_type: "veryare", room_id: "v", payload:, ..)) ->
+      case is_stage(payload) {
+        True -> next_state(outbox)
+        False -> panic as { "unexpected: " <> string.inspect(payload) }
+      }
     Ok(message.GameStarted(..))
     | Ok(message.PlayerJoined(..))
     | Ok(message.PlayerLeft(..)) -> next_state(outbox)
@@ -77,10 +91,32 @@ fn next_state(outbox: Subject(ServerMessage)) -> Dynamic {
   }
 }
 
+fn is_stage(payload: Dynamic) -> Bool {
+  decode.run(payload, decode.field("type", decode.string, decode.success))
+  == Ok("stage")
+}
+
+/// 次に届くステージの通知（全員宛て・本人宛てのどちらでも）。ほかの電文は読み飛ばす。
+fn next_stage(outbox: Subject(ServerMessage)) -> Dynamic {
+  case process.receive(outbox, 500) {
+    Ok(GameState(payload:, ..)) | Ok(message.GameStateTo(payload:, ..)) ->
+      case is_stage(payload) {
+        True -> payload
+        False -> next_stage(outbox)
+      }
+    Ok(_) -> next_stage(outbox)
+    Error(Nil) -> panic as "ステージの通知が届かない"
+  }
+}
+
 /// 次に届く game-state の payload（待つ時間を指定する）。
 fn next_state_within(outbox: Subject(ServerMessage), ms: Int) -> Dynamic {
   case process.receive(outbox, ms) {
-    Ok(GameState(game_type: "veryare", room_id: "v", payload:)) -> payload
+    Ok(GameState(game_type: "veryare", room_id: "v", payload:)) ->
+      case is_stage(payload) {
+        True -> next_state_within(outbox, ms)
+        False -> payload
+      }
     other -> panic as { "unexpected: " <> string.inspect(other) }
   }
 }
@@ -560,12 +596,14 @@ pub fn human_oni_state_is_broadcast_during_exploration_test() {
   next_phase(a) |> should.equal("exploration")
   field(next_state(a), "type", decode.string) |> should.equal("hiders")
 
-  room_actor.game_event(room, PlayerId("a"), move_facing(1.0, 2.0, 0.5))
+  // 鬼は玄関に現れるので、玄関から一直線に着ける場所へ動く。
+  let assert [#(x, z), ..] = room_spots(1)
+  room_actor.game_event(room, PlayerId("a"), move_facing(x, z, 0.5))
   let oni = next_state(a)
   field(oni, "type", decode.string) |> should.equal("oni")
   field(oni, "playerId", decode.string) |> should.equal("a")
-  field(oni, "x", decode.float) |> should.equal(1.0)
-  field(oni, "z", decode.float) |> should.equal(2.0)
+  field(oni, "x", decode.float) |> should.equal(x)
+  field(oni, "z", decode.float) |> should.equal(z)
   field(oni, "facing", decode.float) |> should.equal(0.5)
   field(oni, "pose", decode.string) |> should.equal("standing")
   field(oni, "openDoors", decode.list(decode.dynamic)) |> should.equal([])
@@ -675,6 +713,22 @@ fn start_with_oni_a(room: Subject(Message)) -> Nil {
   room_actor.game_event(room, PlayerId("a"), move(0.0, 0.0))
 }
 
+/// 部屋のステージ（乱数を 0 に固定しているので stage.generate(0)）で、玄関から一直線に
+/// 着ける、別々の場所（issue-29a。玄関に全員が現れるので、被らないよう動かす）。
+fn room_spots(count: Int) -> List(#(Float, Float)) {
+  let layout = stage.generate(0)
+  spread.spots(grid.of_layout(layout), layout.skeleton.spawn, count, 7.0)
+}
+
+/// 準備移動の間に、ids の隠れ側を別々の場所へ動かす（移動の報告を送る）。
+fn spread_in_room(room: Subject(Message), ids: List(String)) -> Nil {
+  list.zip(ids, room_spots(list.length(ids)))
+  |> list.each(fn(pair) {
+    let #(id, #(x, z)) = pair
+    room_actor.game_event(room, PlayerId(id), move(x, z))
+  })
+}
+
 fn durations(preparation_ms: Int, exploration_ms: Int) -> game.Durations {
   game.Durations(
     oni_selection_ms: 30,
@@ -689,8 +743,10 @@ fn durations(preparation_ms: Int, exploration_ms: Int) -> game.Durations {
 /// 時間切れ（隠れ側の勝ち）: 答え合わせの後に、全員のソケットへ同じ結果が届く。
 /// 順位は勝ちの隠れ側チームが 1 位、鬼が 2 位。名前はルームの表示名。
 pub fn game_ended_reaches_everyone_after_reveal_on_time_up_test() {
-  let #(room, outboxes) = open_named(["a", "b", "c"], quick(30))
+  let #(room, outboxes) = open_named(["a", "b", "c"], durations(300, 30))
   start_with_oni_a(room)
+  until_phase(outbox_of(outboxes, "a"), "preparation")
+  spread_in_room(room, ["b", "c"])
   let results = list.map(outboxes, fn(entry) { next_ended(entry.1) })
   let assert [first, ..] = results
   list.each(results, fn(r) { r |> should.equal(first) })
@@ -800,7 +856,7 @@ fn to_shooting(
   let durations =
     game.Durations(
       oni_selection_ms: 30,
-      preparation_ms: 30,
+      preparation_ms: 300,
       painting_ms: 30,
       exploration_ms: 60_000,
       reveal_ms: 30,
@@ -811,6 +867,8 @@ fn to_shooting(
   let _info = next_state(a)
   let assert Ok(Nil) = room_actor.start_game(room)
   room_actor.game_event(room, PlayerId("a"), move(0.0, 0.0))
+  until_phase(a, "preparation")
+  spread_in_room(room, list.filter(ids, fn(id) { id != "a" }))
   until_phase(a, "exploration")
   field(next_state(a), "type", decode.string) |> should.equal("hiders")
   #(room, a)
@@ -864,4 +922,38 @@ pub fn shooting_nothing_starts_the_reload_test() {
   room_actor.game_event(room, PlayerId("a"), shoot(dynamic.string("b")))
   let _ = room_actor.snapshot(room)
   process.receive(a, 50) |> should.equal(Error(Nil))
+}
+
+// --- ステージの通知（issue-29a） -------------------------------------------------------
+
+/// ルームの開始で、参加者へステージの通知が届く。地図は、部屋のステージそのもの。
+pub fn stage_notice_reaches_members_at_start_test() {
+  let #(room, _) = open_room(["a", "b"], quick(60_000))
+  let a = subscribe(room, "a")
+  let assert Ok(Nil) = room_actor.start_game(room)
+  let notice = next_stage(a)
+  let assert Ok(decoded) = stage_notice.decode(notice)
+  decoded.grid |> should.equal(grid.of_layout(stage.generate(0)))
+  decoded.spawn |> should.equal(stage.generate(0).skeleton.spawn)
+}
+
+/// 開始の後に送信先を登録した人（途中参加）にも、本人宛てでステージの通知が届く。
+pub fn stage_notice_reaches_late_subscribers_test() {
+  let #(room, _) = open_room(["a", "b"], quick(60_000))
+  let assert Ok(Nil) = room_actor.start_game(room)
+  let b = subscribe(room, "b")
+  let assert Ok(_) = stage_notice.decode(next_stage(b))
+}
+
+/// 再接続で戻った人のために、ルームへ頼むと、今のステージの通知を本人へ送り直す。
+pub fn stage_notice_is_resent_on_resync_test() {
+  let #(room, _) = open_room(["a", "b"], quick(60_000))
+  let a = subscribe(room, "a")
+  let assert Ok(Nil) = room_actor.start_game(room)
+  let _ = next_stage(a)
+  room_actor.resync(room, PlayerId("a"))
+  let assert Ok(_) = stage_notice.decode(next_stage(a))
+  // 参加者でない人には送らない。
+  room_actor.resync(room, PlayerId("outsider"))
+  let _ = room_actor.snapshot(room)
 }

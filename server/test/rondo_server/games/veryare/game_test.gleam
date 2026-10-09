@@ -9,7 +9,9 @@ import rondo_server/games/veryare/game.{
   NotEnoughPlayers, OniSelection, OniWins, Painting, Position, Preparation,
   Reveal, Stage, WaitingRoom,
 }
+import rondo_server/games/veryare/grid
 import rondo_server/games/veryare/oni_cpu
+import rondo_server/games/veryare/spread
 import rondo_server/games/veryare/stage
 
 // --- 補助 ---------------------------------------------------------------
@@ -40,10 +42,21 @@ fn touch_area(g: Game(String), id: String) -> Game(String) {
 }
 
 /// a がエリアに触れてカウントを始め、満了させて a を鬼にする（準備移動フェーズ）。
-fn preparation_with_oni_a() -> Game(String) {
+/// 隠れ側は全員、玄関に現れたまま。
+fn selected_with_oni_a() -> Game(String) {
   start()
   |> touch_area("a")
   |> expire(always(0))
+}
+
+/// 準備移動フェーズで、隠れ側を玄関から別々の場所へ動かした状態（被りで失格しない）。
+fn preparation_with_oni_a() -> Game(String) {
+  selected_with_oni_a() |> spread.hiders(["b", "c", "d"])
+}
+
+/// 位置を直接置く（被り判定そのものを確かめるテスト用。移動の規則は通さない）。
+fn place(g: Game(String), id: String, x: Float, z: Float) -> Game(String) {
+  game.Game(..g, positions: dict.insert(g.positions, id, Position(Stage, x, z)))
 }
 
 /// a が鬼の探索フェーズにする。
@@ -227,8 +240,10 @@ pub fn exploration_uses_configured_duration_test() {
     game.new(players, game.durations(exploration_ms: 80_000), stage.generate(0))
     |> touch_area("a")
     |> expire(always(0))
+    |> spread.hiders(["b", "c", "d"])
     |> expire(always(0))
     |> expire(always(0))
+  g.phase |> should.equal(Exploration)
   game.phase_duration(g) |> should.equal(Some(80_000))
 }
 
@@ -277,10 +292,15 @@ pub fn movement_inside_waiting_room_is_kept_test() {
 
 // --- 移動の制限 -----------------------------------------------------------------
 
-/// 準備中、隠れ側はステージの中を動ける。
+/// 準備中、隠れ側はステージの中を動ける（玄関から一直線にたどれる場所へは、そのまま着く）。
 pub fn hider_moves_on_stage_during_preparation_test() {
-  let p = preparation_with_oni_a() |> game.move("b", 1.0, 2.0) |> position("b")
-  p |> should.equal(Position(Stage, 1.0, 2.0))
+  let g = selected_with_oni_a()
+  let assert [#(x, z), ..] =
+    spread.spots(g.grid, g.layout.skeleton.spawn, 1, 7.0)
+  g
+  |> game.move("b", x, z)
+  |> position("b")
+  |> should.equal(Position(Stage, x, z))
 }
 
 /// 準備移動が終わったら、ペイント中も隠れ側は動けない。
@@ -309,10 +329,13 @@ pub fn oni_moves_in_waiting_room_during_painting_test() {
 
 /// 探索フェーズ中も鬼は動ける。
 pub fn oni_moves_during_exploration_test() {
-  exploration_with_oni_a()
-  |> game.move("a", 1.0, 1.0)
+  let g = exploration_with_oni_a()
+  let assert [#(x, z), ..] =
+    spread.spots(g.grid, g.layout.skeleton.spawn, 1, 7.0)
+  g
+  |> game.move("a", x, z)
   |> position("a")
-  |> should.equal(Position(Stage, 1.0, 1.0))
+  |> should.equal(Position(Stage, x, z))
 }
 
 // --- まだ隠れている集合と勝敗 ----------------------------------------------------
@@ -409,9 +432,9 @@ pub fn game_holds_the_generated_stage_test() {
 pub fn overlapping_hiders_are_disqualified_when_preparation_ends_test() {
   let g =
     preparation_with_oni_a()
-    |> game.move("b", 1.0, 1.0)
-    |> game.move("c", 1.2, 1.0)
-    |> game.move("d", 4.0, -4.0)
+    |> place("b", 1.0, 1.0)
+    |> place("c", 1.2, 1.0)
+    |> place("d", 4.0, -4.0)
     |> expire(always(0))
   g.phase |> should.equal(Painting)
   g.still_hiding |> should.equal(set.from_list(["d"]))
@@ -421,9 +444,9 @@ pub fn overlapping_hiders_are_disqualified_when_preparation_ends_test() {
 pub fn three_hiders_on_the_same_spot_are_all_disqualified_test() {
   let g =
     preparation_with_oni_a()
-    |> game.move("b", 2.0, 2.0)
-    |> game.move("c", 2.05, 2.0)
-    |> game.move("d", 2.0, 1.95)
+    |> place("b", 2.0, 2.0)
+    |> place("c", 2.05, 2.0)
+    |> place("d", 2.0, 1.95)
     |> expire(always(0))
   g.still_hiding |> should.equal(set.new())
   g.phase |> should.equal(Reveal(OniWins))
@@ -433,9 +456,9 @@ pub fn three_hiders_on_the_same_spot_are_all_disqualified_test() {
 pub fn disqualification_uses_the_same_path_as_leaving_test() {
   let placed =
     preparation_with_oni_a()
-    |> game.move("b", 1.0, 1.0)
-    |> game.move("c", 1.2, 1.0)
-    |> game.move("d", 4.0, -4.0)
+    |> place("b", 1.0, 1.0)
+    |> place("c", 1.2, 1.0)
+    |> place("d", 4.0, -4.0)
 
   let by_overlap = expire(placed, always(0))
   let by_leaving =
@@ -463,9 +486,9 @@ pub fn overlap_is_checked_only_at_the_end_of_preparation_test() {
 pub fn positions_judged_for_overlap_stay_fixed_through_painting_test() {
   let prepared =
     preparation_with_oni_a()
-    |> game.move("b", 1.0, 1.0)
-    |> game.move("c", 3.0, 3.0)
-    |> game.move("d", -3.0, 3.0)
+    |> place("b", 1.0, 1.0)
+    |> place("c", 3.0, 3.0)
+    |> place("d", -3.0, 3.0)
   let painting = expire(prepared, always(0))
   let after_attempts =
     painting
@@ -690,4 +713,43 @@ pub fn oni_cpu_is_deterministic_test() {
   let a = ticks(exploration_with_oni_cpu(oni_cpu.Normal), 60)
   let b = ticks(exploration_with_oni_cpu(oni_cpu.Normal), 60)
   a |> should.equal(b)
+}
+
+// --- ステージの座標での移動とリスポーン（issue-29a） -----------------------------------
+
+/// 隠れ側は、準備移動の開始で、全員が玄関（骨格の spawn）に現れる（ADR 0032）。
+pub fn hiders_respawn_at_the_entrance_test() {
+  let g = selected_with_oni_a()
+  let #(x, z) = g.layout.skeleton.spawn
+  list.each(["b", "c", "d"], fn(id) {
+    position(g, id) |> should.equal(Position(Stage, x, z))
+  })
+}
+
+/// 人間の鬼は、探索の開始で玄関に現れる。
+pub fn human_oni_respawns_at_the_entrance_test() {
+  let g = exploration_with_oni_a()
+  let #(x, z) = g.layout.skeleton.spawn
+  position(g, "a") |> should.equal(Position(Stage, x, z))
+}
+
+/// ステージでの移動は、移動の規則に従う（仮の ±5 m の四角では丸めない）。遠くへ動こうと
+/// しても、歩けるマスの中にとどまる。
+pub fn stage_movement_follows_the_grid_test() {
+  let g = selected_with_oni_a()
+  let moved = g |> game.move("b", 100.0, -100.0) |> position("b")
+  moved.space |> should.equal(Stage)
+  grid.walkable(g.grid, grid.cell_at(g.grid, #(moved.x, moved.z)))
+  |> should.be_true
+  // 移動の規則で動かした位置と同じ。
+  let #(sx, sz) = g.layout.skeleton.spawn
+  #(moved.x, moved.z)
+  |> should.equal(grid.step(g.grid, g.open_doors, #(sx, sz), #(100.0, -100.0)))
+}
+
+/// 29a の間は、襖は全部開いている扱い（閉じるのは issue-29b）。
+pub fn doors_are_treated_as_open_until_29b_test() {
+  let g = start()
+  g.open_doors |> should.equal(grid.fusuma(g.grid))
+  g.grid |> should.equal(grid.of_layout(g.layout))
 }

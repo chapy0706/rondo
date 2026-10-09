@@ -5,7 +5,7 @@
  * 時間ではなく、通知（フェーズ・鬼希望エリアの色）にしてあるので、縮め方に依らない。
  */
 
-import { type Scenario, details } from "./scenario.ts";
+import { type Scenario, type Step, details } from "./scenario.ts";
 
 const hider = (bot: string, won: boolean) => ({
 	bot,
@@ -13,6 +13,14 @@ const hider = (bot: string, won: boolean) => ({
 	score: won ? 1 : 0,
 	details: won ? details.hiderWon : details.hiderLost,
 });
+
+/** 準備移動の始まりに、隠れ側を別々の場所へ動かす手順（並んだ順に 0, 1, 2…番目の場所）。 */
+const hide = (bots: readonly string[]): Step[] =>
+	bots.map((bot, index) => ({
+		on: { phase: "preparation" },
+		bot,
+		action: { type: "hide", index },
+	}));
 
 const oni = (bot: string, won: boolean) => ({
 	bot,
@@ -30,7 +38,8 @@ export const scenarios: readonly Scenario[] = [
 		bots: ["bot-a", "bot-b", "bot-c", "bot-d", "bot-e"],
 		steps: [
 			{ on: "joined", bot: "bot-a", action: { type: "touch-area" } },
-			{ on: { phase: "preparation" }, bot: "bot-b", action: { type: "stay" } },
+			// 全員が玄関に現れるので、隠れ側は別々の場所へ動く（issue-29a）。
+			...hide(["bot-b", "bot-c", "bot-d", "bot-e"]),
 		],
 		receivers: ["bot-a", "bot-b", "bot-c", "bot-d", "bot-e"],
 		rankings: [
@@ -69,21 +78,14 @@ export const scenarios: readonly Scenario[] = [
 		rankings: [{ bot: "bot-a", rank: 1, score: 0, details: details.void }],
 	},
 	{
-		// 隠れ側の2人が準備移動の間に同じ場所へ動き、終わりの被りの判定で全員失格になる。
+		// 隠れ側の2人が玄関にとどまる。全員が玄関に現れる（issue-29a）ので、準備移動の
+		// 終わりの被りの判定で全員失格になる。
 		name: "被りによる全員失格で鬼の勝ち",
 		bots: ["bot-a", "bot-b", "bot-c"],
 		steps: [
 			{ on: "joined", bot: "bot-a", action: { type: "touch-area" } },
-			{
-				on: { phase: "preparation" },
-				bot: "bot-b",
-				action: { type: "move", x: 1, z: 1 },
-			},
-			{
-				on: { phase: "preparation" },
-				bot: "bot-c",
-				action: { type: "move", x: 1, z: 1 },
-			},
+			{ on: { phase: "preparation" }, bot: "bot-b", action: { type: "stay" } },
+			{ on: { phase: "preparation" }, bot: "bot-c", action: { type: "stay" } },
 		],
 		receivers: ["bot-a", "bot-b", "bot-c"],
 		rankings: [
@@ -94,12 +96,13 @@ export const scenarios: readonly Scenario[] = [
 	},
 	{
 		// 人間の鬼役の A が、探索の始まりに隠れ側を1人ずつ撃って、全員を見つける（issue-27）。
-		// 隠れ側は待機の輪（半径 3 m）に並び、鬼は (0, 4.5) から始まるので、どちらも射程 8 m の
-		// 内側。撃つ間隔（縮めて 150 ms）を空け、縮めた探索（2 秒）が終わる前に撃ち終える
+		// 隠れ側は、玄関から一直線にたどれる 7 m 以内の場所へ動き（issue-29a）、鬼は玄関から
+		// 始まるので、どちらも射程 8 m の内側。一直線なので、見通し（issue-29b）も通る。撃つ間隔（縮めて 150 ms）を空け、縮めた探索（2 秒）が終わる前に撃ち終える
 		// （scenarios.test.ts で確かめる）。
 		name: "全員発見で鬼の勝ち",
 		bots: ["bot-a", "bot-b", "bot-c"],
 		steps: [
+			...hide(["bot-b", "bot-c"]),
 			{ on: "joined", bot: "bot-a", action: { type: "touch-area" } },
 			{
 				on: { phase: "exploration" },

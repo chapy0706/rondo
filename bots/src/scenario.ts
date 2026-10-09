@@ -21,6 +21,12 @@ export type Action =
 	| { readonly type: "leave" }
 	/** その場にとどまる（何も送らない。宣言として書くため）。 */
 	| { readonly type: "stay" }
+	/**
+	 * 隠れ側として、玄関から一直線にたどれる別々の場所の index 番目へ動く（issue-29a）。
+	 * 場所はステージの通知から選ぶ（stage.ts の spreadSpots）。全員が玄関に現れるので、
+	 * 被りで失格しないよう、隠れ側ごとに違う index を使う。
+	 */
+	| { readonly type: "hide"; readonly index: number }
 	/** 鬼として撃つ（issue-27。契約の VeryareShootEvent）。target はボットの名前、null は狙いなし。 */
 	| { readonly type: "shoot"; readonly target: string | null };
 

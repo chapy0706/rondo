@@ -1,0 +1,703 @@
+{
+	"valid": [
+		{
+			"type": "stage",
+			"cellSize": 1,
+			"origin": {
+				"x": 0,
+				"z": 0
+			},
+			"width": 5,
+			"depth": 5,
+			"rows": ["..A##", "..A##", "..A..", "..B##", "..###"],
+			"regions": {
+				".": "open",
+				"A": "A",
+				"B": "B"
+			},
+			"rooms": {
+				"A": "washitsu",
+				"B": "oshiire"
+			},
+			"doors": [
+				{
+					"a": {
+						"x": 1,
+						"z": 1
+					},
+					"b": {
+						"x": 2,
+						"z": 1
+					},
+					"kind": "fusuma"
+				},
+				{
+					"a": {
+						"x": 2,
+						"z": 2
+					},
+					"b": {
+						"x": 3,
+						"z": 2
+					},
+					"kind": "fusuma"
+				},
+				{
+					"a": {
+						"x": 1,
+						"z": 3
+					},
+					"b": {
+						"x": 2,
+						"z": 3
+					},
+					"kind": "always-open"
+				},
+				{
+					"a": {
+						"x": 1,
+						"z": 4
+					},
+					"b": {
+						"x": 2,
+						"z": 4
+					},
+					"kind": "always-closed"
+				}
+			],
+			"spawn": {
+				"x": 0.5,
+				"z": 4.5
+			}
+		},
+		{
+			"type": "stage",
+			"cellSize": 0.3,
+			"origin": {
+				"x": -6.225,
+				"z": -0.275
+			},
+			"width": 5,
+			"depth": 5,
+			"rows": ["..A##", "..A##", "..A..", "..B##", "..###"],
+			"regions": {
+				".": "open",
+				"A": "A",
+				"B": "B"
+			},
+			"rooms": {
+				"A": "washitsu",
+				"B": "oshiire"
+			},
+			"doors": [
+				{
+					"a": {
+						"x": 1,
+						"z": 1
+					},
+					"b": {
+						"x": 2,
+						"z": 1
+					},
+					"kind": "fusuma"
+				},
+				{
+					"a": {
+						"x": 2,
+						"z": 2
+					},
+					"b": {
+						"x": 3,
+						"z": 2
+					},
+					"kind": "fusuma"
+				},
+				{
+					"a": {
+						"x": 1,
+						"z": 3
+					},
+					"b": {
+						"x": 2,
+						"z": 3
+					},
+					"kind": "always-open"
+				},
+				{
+					"a": {
+						"x": 1,
+						"z": 4
+					},
+					"b": {
+						"x": 2,
+						"z": 4
+					},
+					"kind": "always-closed"
+				}
+			],
+			"spawn": {
+				"x": -6.075,
+				"z": 1.075
+			}
+		}
+	],
+	"invalid": [
+		{
+			"type": "stage",
+			"cellSize": 1,
+			"origin": {
+				"x": 0,
+				"z": 0
+			},
+			"width": 5,
+			"depth": 5,
+			"regions": {
+				".": "open",
+				"A": "A",
+				"B": "B"
+			},
+			"rooms": {
+				"A": "washitsu",
+				"B": "oshiire"
+			},
+			"doors": [
+				{
+					"a": {
+						"x": 1,
+						"z": 1
+					},
+					"b": {
+						"x": 2,
+						"z": 1
+					},
+					"kind": "fusuma"
+				},
+				{
+					"a": {
+						"x": 2,
+						"z": 2
+					},
+					"b": {
+						"x": 3,
+						"z": 2
+					},
+					"kind": "fusuma"
+				},
+				{
+					"a": {
+						"x": 1,
+						"z": 3
+					},
+					"b": {
+						"x": 2,
+						"z": 3
+					},
+					"kind": "always-open"
+				},
+				{
+					"a": {
+						"x": 1,
+						"z": 4
+					},
+					"b": {
+						"x": 2,
+						"z": 4
+					},
+					"kind": "always-closed"
+				}
+			],
+			"spawn": {
+				"x": 0.5,
+				"z": 4.5
+			}
+		},
+		{
+			"type": "phase",
+			"cellSize": 1,
+			"origin": {
+				"x": 0,
+				"z": 0
+			},
+			"width": 5,
+			"depth": 5,
+			"rows": ["..A##", "..A##", "..A..", "..B##", "..###"],
+			"regions": {
+				".": "open",
+				"A": "A",
+				"B": "B"
+			},
+			"rooms": {
+				"A": "washitsu",
+				"B": "oshiire"
+			},
+			"doors": [
+				{
+					"a": {
+						"x": 1,
+						"z": 1
+					},
+					"b": {
+						"x": 2,
+						"z": 1
+					},
+					"kind": "fusuma"
+				},
+				{
+					"a": {
+						"x": 2,
+						"z": 2
+					},
+					"b": {
+						"x": 3,
+						"z": 2
+					},
+					"kind": "fusuma"
+				},
+				{
+					"a": {
+						"x": 1,
+						"z": 3
+					},
+					"b": {
+						"x": 2,
+						"z": 3
+					},
+					"kind": "always-open"
+				},
+				{
+					"a": {
+						"x": 1,
+						"z": 4
+					},
+					"b": {
+						"x": 2,
+						"z": 4
+					},
+					"kind": "always-closed"
+				}
+			],
+			"spawn": {
+				"x": 0.5,
+				"z": 4.5
+			}
+		},
+		{
+			"type": "stage",
+			"cellSize": 1,
+			"origin": {
+				"x": 0,
+				"z": 0
+			},
+			"width": 5,
+			"depth": 6,
+			"rows": ["..A##", "..A##", "..A..", "..B##", "..###"],
+			"regions": {
+				".": "open",
+				"A": "A",
+				"B": "B"
+			},
+			"rooms": {
+				"A": "washitsu",
+				"B": "oshiire"
+			},
+			"doors": [
+				{
+					"a": {
+						"x": 1,
+						"z": 1
+					},
+					"b": {
+						"x": 2,
+						"z": 1
+					},
+					"kind": "fusuma"
+				},
+				{
+					"a": {
+						"x": 2,
+						"z": 2
+					},
+					"b": {
+						"x": 3,
+						"z": 2
+					},
+					"kind": "fusuma"
+				},
+				{
+					"a": {
+						"x": 1,
+						"z": 3
+					},
+					"b": {
+						"x": 2,
+						"z": 3
+					},
+					"kind": "always-open"
+				},
+				{
+					"a": {
+						"x": 1,
+						"z": 4
+					},
+					"b": {
+						"x": 2,
+						"z": 4
+					},
+					"kind": "always-closed"
+				}
+			],
+			"spawn": {
+				"x": 0.5,
+				"z": 4.5
+			}
+		},
+		{
+			"type": "stage",
+			"cellSize": 1,
+			"origin": {
+				"x": 0,
+				"z": 0
+			},
+			"width": 5,
+			"depth": 5,
+			"rows": ["..A##", "..A#", "..A..", "..B##", "..###"],
+			"regions": {
+				".": "open",
+				"A": "A",
+				"B": "B"
+			},
+			"rooms": {
+				"A": "washitsu",
+				"B": "oshiire"
+			},
+			"doors": [
+				{
+					"a": {
+						"x": 1,
+						"z": 1
+					},
+					"b": {
+						"x": 2,
+						"z": 1
+					},
+					"kind": "fusuma"
+				},
+				{
+					"a": {
+						"x": 2,
+						"z": 2
+					},
+					"b": {
+						"x": 3,
+						"z": 2
+					},
+					"kind": "fusuma"
+				},
+				{
+					"a": {
+						"x": 1,
+						"z": 3
+					},
+					"b": {
+						"x": 2,
+						"z": 3
+					},
+					"kind": "always-open"
+				},
+				{
+					"a": {
+						"x": 1,
+						"z": 4
+					},
+					"b": {
+						"x": 2,
+						"z": 4
+					},
+					"kind": "always-closed"
+				}
+			],
+			"spawn": {
+				"x": 0.5,
+				"z": 4.5
+			}
+		},
+		{
+			"type": "stage",
+			"cellSize": 0,
+			"origin": {
+				"x": 0,
+				"z": 0
+			},
+			"width": 5,
+			"depth": 5,
+			"rows": ["..A##", "..A##", "..A..", "..B##", "..###"],
+			"regions": {
+				".": "open",
+				"A": "A",
+				"B": "B"
+			},
+			"rooms": {
+				"A": "washitsu",
+				"B": "oshiire"
+			},
+			"doors": [
+				{
+					"a": {
+						"x": 1,
+						"z": 1
+					},
+					"b": {
+						"x": 2,
+						"z": 1
+					},
+					"kind": "fusuma"
+				},
+				{
+					"a": {
+						"x": 2,
+						"z": 2
+					},
+					"b": {
+						"x": 3,
+						"z": 2
+					},
+					"kind": "fusuma"
+				},
+				{
+					"a": {
+						"x": 1,
+						"z": 3
+					},
+					"b": {
+						"x": 2,
+						"z": 3
+					},
+					"kind": "always-open"
+				},
+				{
+					"a": {
+						"x": 1,
+						"z": 4
+					},
+					"b": {
+						"x": 2,
+						"z": 4
+					},
+					"kind": "always-closed"
+				}
+			],
+			"spawn": {
+				"x": 0.5,
+				"z": 4.5
+			}
+		},
+		{
+			"type": "stage",
+			"cellSize": 1,
+			"origin": {
+				"x": 0,
+				"z": 0
+			},
+			"width": 5,
+			"depth": 5,
+			"rows": ["..A##", "..A##", "..A..", "..B##", "..###"],
+			"regions": {
+				".": 1
+			},
+			"rooms": {
+				"A": "washitsu",
+				"B": "oshiire"
+			},
+			"doors": [
+				{
+					"a": {
+						"x": 1,
+						"z": 1
+					},
+					"b": {
+						"x": 2,
+						"z": 1
+					},
+					"kind": "fusuma"
+				},
+				{
+					"a": {
+						"x": 2,
+						"z": 2
+					},
+					"b": {
+						"x": 3,
+						"z": 2
+					},
+					"kind": "fusuma"
+				},
+				{
+					"a": {
+						"x": 1,
+						"z": 3
+					},
+					"b": {
+						"x": 2,
+						"z": 3
+					},
+					"kind": "always-open"
+				},
+				{
+					"a": {
+						"x": 1,
+						"z": 4
+					},
+					"b": {
+						"x": 2,
+						"z": 4
+					},
+					"kind": "always-closed"
+				}
+			],
+			"spawn": {
+				"x": 0.5,
+				"z": 4.5
+			}
+		},
+		{
+			"type": "stage",
+			"cellSize": 1,
+			"origin": {
+				"x": 0,
+				"z": 0
+			},
+			"width": 5,
+			"depth": 5,
+			"rows": ["..A##", "..A##", "..A..", "..B##", "..###"],
+			"regions": {
+				".": "open",
+				"A": "A",
+				"B": "B"
+			},
+			"rooms": {
+				"A": "washitsu",
+				"B": "oshiire"
+			},
+			"doors": [
+				{
+					"a": {
+						"x": 1,
+						"z": 1
+					},
+					"b": {
+						"x": 2,
+						"z": 1
+					},
+					"kind": "sliding"
+				}
+			],
+			"spawn": {
+				"x": 0.5,
+				"z": 4.5
+			}
+		},
+		{
+			"type": "stage",
+			"cellSize": 1,
+			"origin": {
+				"x": 0,
+				"z": 0
+			},
+			"width": 5,
+			"depth": 5,
+			"rows": ["..A##", "..A##", "..A..", "..B##", "..###"],
+			"regions": {
+				".": "open",
+				"A": "A",
+				"B": "B"
+			},
+			"rooms": {
+				"A": "washitsu",
+				"B": "oshiire"
+			},
+			"doors": [
+				{
+					"a": {
+						"x": 1,
+						"z": 1
+					},
+					"b": {
+						"x": 3,
+						"z": 1
+					},
+					"kind": "fusuma"
+				}
+			],
+			"spawn": {
+				"x": 0.5,
+				"z": 4.5
+			}
+		},
+		{
+			"type": "stage",
+			"cellSize": 1,
+			"origin": {
+				"x": 0,
+				"z": 0
+			},
+			"width": 5,
+			"depth": 5,
+			"rows": ["..A##", "..A##", "..A..", "..B##", "..###"],
+			"regions": {
+				".": "open",
+				"A": "A",
+				"B": "B"
+			},
+			"rooms": {
+				"A": "washitsu",
+				"B": "oshiire"
+			},
+			"doors": [
+				{
+					"a": {
+						"x": 1,
+						"z": 1
+					},
+					"b": {
+						"x": 2,
+						"z": 1
+					},
+					"kind": "fusuma"
+				},
+				{
+					"a": {
+						"x": 2,
+						"z": 2
+					},
+					"b": {
+						"x": 3,
+						"z": 2
+					},
+					"kind": "fusuma"
+				},
+				{
+					"a": {
+						"x": 1,
+						"z": 3
+					},
+					"b": {
+						"x": 2,
+						"z": 3
+					},
+					"kind": "always-open"
+				},
+				{
+					"a": {
+						"x": 1,
+						"z": 4
+					},
+					"b": {
+						"x": 2,
+						"z": 4
+					},
+					"kind": "always-closed"
+				}
+			]
+		}
+	]
+}
