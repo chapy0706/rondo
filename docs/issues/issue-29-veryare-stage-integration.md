@@ -1,8 +1,10 @@
 ---
-status: open
+status: closed
 created_at: 2026-09-29
-closed_at:
+closed_at: 2026-10-09
 ---
+
+> 2026-10-09: 仮素材版として issue-29a〜29d の4本に置き換えた（キャラクターのモデルは issue-25、ポーズ・アニメーション・BGM・待機ルームは issue-53、ステージの選択肢は issue-46 へ移し、起動画面の「サーバーを探す／作る」は issue-47 の入口で済んだので外した）。
 
 # issue-29: veryare ステージ構築と統合
 
