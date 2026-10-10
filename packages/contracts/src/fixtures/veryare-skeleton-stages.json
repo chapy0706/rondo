@@ -1,0 +1,2535 @@
+{
+	"note": "10種の骨格（ADR 0032）の、全スロットに部屋を割り当てたときのステージの通知。server の stage_notice_test が、サーバーの地図と一致することを確かめる。",
+	"stages": [
+		{
+			"type": "stage",
+			"cellSize": 1,
+			"origin": {
+				"x": 0,
+				"z": 0
+			},
+			"width": 13,
+			"depth": 39,
+			"rows": [
+				"~==..........",
+				"~==..........",
+				"~==AAAA..FFFF",
+				"~==AAAA..FFFF",
+				"~==AAAA.+FFFF",
+				"~==AAAA+.FFFF",
+				"~==AAAA..FFFF",
+				"~==AAAA..FFFF",
+				"~==BBBB..GGGG",
+				"~==BBBB..GGGG",
+				"~==BBBB.+GGGG",
+				"~==BBBB+.GGGG",
+				"~==BBBB..GGGG",
+				"~==BBBB..GGGG",
+				"~==CCCC..HHHH",
+				"~==CCCC..HHHH",
+				"~==CCCC.+HHHH",
+				"~==CCCC+.HHHH",
+				"~==CCCC..HHHH",
+				"~==CCCC..HHHH",
+				"~==DDDD..IIII",
+				"~==DDDD..IIII",
+				"~==DDDD.+IIII",
+				"~==DDDD+.IIII",
+				"~==DDDD..IIII",
+				"~==DDDD..IIII",
+				"~==EEEE..JJJJ",
+				"~==EEEE..JJJJ",
+				"~==EEEE.+JJJJ",
+				"~==EEEE+.JJJJ",
+				"~==EEEE..JJJJ",
+				"~==EEEE..JJJJ",
+				"~==aa....bb..",
+				"~==+.....+...",
+				"~==..........",
+				"#####@@@@@###",
+				"#####@@@@@###",
+				"#####@@@@@###",
+				"#####@@@@@###"
+			],
+			"regions": {
+				".": "open",
+				"+": "open",
+				"=": "open",
+				"@": "open",
+				"A": "A",
+				"B": "B",
+				"C": "C",
+				"D": "D",
+				"E": "E",
+				"F": "F",
+				"G": "G",
+				"H": "H",
+				"I": "I",
+				"J": "J",
+				"a": "a",
+				"b": "b"
+			},
+			"rooms": {
+				"A": "washitsu",
+				"B": "washitsu",
+				"C": "washitsu",
+				"D": "washitsu",
+				"E": "washitsu",
+				"F": "washitsu",
+				"G": "washitsu",
+				"H": "washitsu",
+				"I": "washitsu",
+				"J": "washitsu",
+				"a": "oshiire",
+				"b": "oshiire"
+			},
+			"doors": [
+				{
+					"a": {
+						"x": 7,
+						"z": 5
+					},
+					"b": {
+						"x": 6,
+						"z": 5
+					},
+					"kind": "fusuma"
+				},
+				{
+					"a": {
+						"x": 7,
+						"z": 11
+					},
+					"b": {
+						"x": 6,
+						"z": 11
+					},
+					"kind": "fusuma"
+				},
+				{
+					"a": {
+						"x": 7,
+						"z": 17
+					},
+					"b": {
+						"x": 6,
+						"z": 17
+					},
+					"kind": "fusuma"
+				},
+				{
+					"a": {
+						"x": 7,
+						"z": 23
+					},
+					"b": {
+						"x": 6,
+						"z": 23
+					},
+					"kind": "fusuma"
+				},
+				{
+					"a": {
+						"x": 7,
+						"z": 29
+					},
+					"b": {
+						"x": 6,
+						"z": 29
+					},
+					"kind": "fusuma"
+				},
+				{
+					"a": {
+						"x": 8,
+						"z": 4
+					},
+					"b": {
+						"x": 9,
+						"z": 4
+					},
+					"kind": "fusuma"
+				},
+				{
+					"a": {
+						"x": 8,
+						"z": 10
+					},
+					"b": {
+						"x": 9,
+						"z": 10
+					},
+					"kind": "fusuma"
+				},
+				{
+					"a": {
+						"x": 8,
+						"z": 16
+					},
+					"b": {
+						"x": 9,
+						"z": 16
+					},
+					"kind": "fusuma"
+				},
+				{
+					"a": {
+						"x": 8,
+						"z": 22
+					},
+					"b": {
+						"x": 9,
+						"z": 22
+					},
+					"kind": "fusuma"
+				},
+				{
+					"a": {
+						"x": 8,
+						"z": 28
+					},
+					"b": {
+						"x": 9,
+						"z": 28
+					},
+					"kind": "fusuma"
+				},
+				{
+					"a": {
+						"x": 3,
+						"z": 33
+					},
+					"b": {
+						"x": 3,
+						"z": 32
+					},
+					"kind": "fusuma"
+				},
+				{
+					"a": {
+						"x": 9,
+						"z": 33
+					},
+					"b": {
+						"x": 9,
+						"z": 32
+					},
+					"kind": "fusuma"
+				}
+			],
+			"spawn": {
+				"x": 7.5,
+				"z": 37.0
+			}
+		},
+		{
+			"type": "stage",
+			"cellSize": 1,
+			"origin": {
+				"x": 0,
+				"z": 0
+			},
+			"width": 13,
+			"depth": 40,
+			"rows": [
+				"##aa######==~",
+				"...+......==~",
+				"..........==~",
+				"FFFF..AAAA==~",
+				"FFFF..AAAA==~",
+				"FFFF+.AAAA==~",
+				"FFFF.+AAAA==~",
+				"FFFF..AAAA==~",
+				"FFFF..AAAA==~",
+				"GGGG..BBBB==~",
+				"GGGG..BBBB==~",
+				"GGGG+.BBBB==~",
+				"GGGG.+BBBB==~",
+				"GGGG..BBBB==~",
+				"GGGG..BBBB==~",
+				"HHHH..CCCC==~",
+				"HHHH..CCCC==~",
+				"HHHH+.CCCC==~",
+				"HHHH.+CCCC==~",
+				"HHHH..CCCC==~",
+				"HHHH..CCCC==~",
+				"IIII..DDDD==~",
+				"IIII..DDDD==~",
+				"IIII+.DDDD==~",
+				"IIII.+DDDD==~",
+				"IIII..DDDD==~",
+				"IIII..DDDD==~",
+				"JJJJ..EEEE==~",
+				"JJJJ..EEEE==~",
+				"JJJJ+.EEEE==~",
+				"JJJJ.+EEEE==~",
+				"JJJJ..EEEE==~",
+				"JJJJ..EEEE==~",
+				"......bb..==~",
+				".......+..==~",
+				"..........==~",
+				"#####@@@@@###",
+				"#####@@@@@###",
+				"#####@@@@@###",
+				"#####@@@@@###"
+			],
+			"regions": {
+				".": "open",
+				"+": "open",
+				"=": "open",
+				"@": "open",
+				"A": "A",
+				"B": "B",
+				"C": "C",
+				"D": "D",
+				"E": "E",
+				"F": "F",
+				"G": "G",
+				"H": "H",
+				"I": "I",
+				"J": "J",
+				"a": "a",
+				"b": "b"
+			},
+			"rooms": {
+				"A": "washitsu",
+				"B": "washitsu",
+				"C": "washitsu",
+				"D": "washitsu",
+				"E": "washitsu",
+				"F": "washitsu",
+				"G": "washitsu",
+				"H": "washitsu",
+				"I": "washitsu",
+				"J": "washitsu",
+				"a": "oshiire",
+				"b": "oshiire"
+			},
+			"doors": [
+				{
+					"a": {
+						"x": 5,
+						"z": 6
+					},
+					"b": {
+						"x": 6,
+						"z": 6
+					},
+					"kind": "fusuma"
+				},
+				{
+					"a": {
+						"x": 5,
+						"z": 12
+					},
+					"b": {
+						"x": 6,
+						"z": 12
+					},
+					"kind": "fusuma"
+				},
+				{
+					"a": {
+						"x": 5,
+						"z": 18
+					},
+					"b": {
+						"x": 6,
+						"z": 18
+					},
+					"kind": "fusuma"
+				},
+				{
+					"a": {
+						"x": 5,
+						"z": 24
+					},
+					"b": {
+						"x": 6,
+						"z": 24
+					},
+					"kind": "fusuma"
+				},
+				{
+					"a": {
+						"x": 5,
+						"z": 30
+					},
+					"b": {
+						"x": 6,
+						"z": 30
+					},
+					"kind": "fusuma"
+				},
+				{
+					"a": {
+						"x": 4,
+						"z": 5
+					},
+					"b": {
+						"x": 3,
+						"z": 5
+					},
+					"kind": "fusuma"
+				},
+				{
+					"a": {
+						"x": 4,
+						"z": 11
+					},
+					"b": {
+						"x": 3,
+						"z": 11
+					},
+					"kind": "fusuma"
+				},
+				{
+					"a": {
+						"x": 4,
+						"z": 17
+					},
+					"b": {
+						"x": 3,
+						"z": 17
+					},
+					"kind": "fusuma"
+				},
+				{
+					"a": {
+						"x": 4,
+						"z": 23
+					},
+					"b": {
+						"x": 3,
+						"z": 23
+					},
+					"kind": "fusuma"
+				},
+				{
+					"a": {
+						"x": 4,
+						"z": 29
+					},
+					"b": {
+						"x": 3,
+						"z": 29
+					},
+					"kind": "fusuma"
+				},
+				{
+					"a": {
+						"x": 3,
+						"z": 1
+					},
+					"b": {
+						"x": 3,
+						"z": 0
+					},
+					"kind": "fusuma"
+				},
+				{
+					"a": {
+						"x": 7,
+						"z": 34
+					},
+					"b": {
+						"x": 7,
+						"z": 33
+					},
+					"kind": "fusuma"
+				}
+			],
+			"spawn": {
+				"x": 7.5,
+				"z": 38.0
+			}
+		},
+		{
+			"type": "stage",
+			"cellSize": 1,
+			"origin": {
+				"x": 0,
+				"z": 0
+			},
+			"width": 13,
+			"depth": 46,
+			"rows": [
+				"~==##aa######",
+				"~==..+.......",
+				"~==..........",
+				"~==AAAA..GGGG",
+				"~==AAAA..GGGG",
+				"~==AAAA.+GGGG",
+				"~==AAAA+.GGGG",
+				"~==AAAA..GGGG",
+				"~==AAAA..GGGG",
+				"~==BBBB..HHHH",
+				"~==BBBB..HHHH",
+				"~==BBBB.+HHHH",
+				"~==BBBB+.HHHH",
+				"~==BBBB..HHHH",
+				"~==BBBB..HHHH",
+				"~==CCCC..IIII",
+				"~==CCCC..IIII",
+				"~==CCCC.+IIII",
+				"~==CCCC+.IIII",
+				"~==CCCC..IIII",
+				"~==CCCC..IIII",
+				"~==DDDD..JJJJ",
+				"~==DDDD..JJJJ",
+				"~==DDDD.+JJJJ",
+				"~==DDDD+.JJJJ",
+				"~==DDDD..JJJJ",
+				"~==DDDD..JJJJ",
+				"~==EEEE..KKKK",
+				"~==EEEE..KKKK",
+				"~==EEEE.+KKKK",
+				"~==EEEE+.KKKK",
+				"~==EEEE..KKKK",
+				"~==EEEE..KKKK",
+				"~==FFFF..LLLL",
+				"~==FFFF..LLLL",
+				"~==FFFF.+LLLL",
+				"~==FFFF+.LLLL",
+				"~==FFFF..LLLL",
+				"~==FFFF..LLLL",
+				"~==bb......cc",
+				"~==+.......+.",
+				"~==..........",
+				"#######@@@@@#",
+				"#######@@@@@#",
+				"#######@@@@@#",
+				"#######@@@@@#"
+			],
+			"regions": {
+				".": "open",
+				"+": "open",
+				"=": "open",
+				"@": "open",
+				"A": "A",
+				"B": "B",
+				"C": "C",
+				"D": "D",
+				"E": "E",
+				"F": "F",
+				"G": "G",
+				"H": "H",
+				"I": "I",
+				"J": "J",
+				"K": "K",
+				"L": "L",
+				"a": "a",
+				"b": "b",
+				"c": "c"
+			},
+			"rooms": {
+				"A": "washitsu",
+				"B": "washitsu",
+				"C": "washitsu",
+				"D": "washitsu",
+				"E": "washitsu",
+				"F": "washitsu",
+				"G": "washitsu",
+				"H": "washitsu",
+				"I": "washitsu",
+				"J": "washitsu",
+				"K": "washitsu",
+				"L": "washitsu",
+				"a": "oshiire",
+				"b": "oshiire",
+				"c": "oshiire"
+			},
+			"doors": [
+				{
+					"a": {
+						"x": 7,
+						"z": 6
+					},
+					"b": {
+						"x": 6,
+						"z": 6
+					},
+					"kind": "fusuma"
+				},
+				{
+					"a": {
+						"x": 7,
+						"z": 12
+					},
+					"b": {
+						"x": 6,
+						"z": 12
+					},
+					"kind": "fusuma"
+				},
+				{
+					"a": {
+						"x": 7,
+						"z": 18
+					},
+					"b": {
+						"x": 6,
+						"z": 18
+					},
+					"kind": "fusuma"
+				},
+				{
+					"a": {
+						"x": 7,
+						"z": 24
+					},
+					"b": {
+						"x": 6,
+						"z": 24
+					},
+					"kind": "fusuma"
+				},
+				{
+					"a": {
+						"x": 7,
+						"z": 30
+					},
+					"b": {
+						"x": 6,
+						"z": 30
+					},
+					"kind": "fusuma"
+				},
+				{
+					"a": {
+						"x": 7,
+						"z": 36
+					},
+					"b": {
+						"x": 6,
+						"z": 36
+					},
+					"kind": "fusuma"
+				},
+				{
+					"a": {
+						"x": 8,
+						"z": 5
+					},
+					"b": {
+						"x": 9,
+						"z": 5
+					},
+					"kind": "fusuma"
+				},
+				{
+					"a": {
+						"x": 8,
+						"z": 11
+					},
+					"b": {
+						"x": 9,
+						"z": 11
+					},
+					"kind": "fusuma"
+				},
+				{
+					"a": {
+						"x": 8,
+						"z": 17
+					},
+					"b": {
+						"x": 9,
+						"z": 17
+					},
+					"kind": "fusuma"
+				},
+				{
+					"a": {
+						"x": 8,
+						"z": 23
+					},
+					"b": {
+						"x": 9,
+						"z": 23
+					},
+					"kind": "fusuma"
+				},
+				{
+					"a": {
+						"x": 8,
+						"z": 29
+					},
+					"b": {
+						"x": 9,
+						"z": 29
+					},
+					"kind": "fusuma"
+				},
+				{
+					"a": {
+						"x": 8,
+						"z": 35
+					},
+					"b": {
+						"x": 9,
+						"z": 35
+					},
+					"kind": "fusuma"
+				},
+				{
+					"a": {
+						"x": 5,
+						"z": 1
+					},
+					"b": {
+						"x": 5,
+						"z": 0
+					},
+					"kind": "fusuma"
+				},
+				{
+					"a": {
+						"x": 3,
+						"z": 40
+					},
+					"b": {
+						"x": 3,
+						"z": 39
+					},
+					"kind": "fusuma"
+				},
+				{
+					"a": {
+						"x": 11,
+						"z": 40
+					},
+					"b": {
+						"x": 11,
+						"z": 39
+					},
+					"kind": "fusuma"
+				}
+			],
+			"spawn": {
+				"x": 9.5,
+				"z": 44.0
+			}
+		},
+		{
+			"type": "stage",
+			"cellSize": 1,
+			"origin": {
+				"x": 0,
+				"z": 0
+			},
+			"width": 13,
+			"depth": 49,
+			"rows": [
+				"~==..........",
+				"~==..........",
+				"~==AAAA..CCCC",
+				"~==AAAA..CCCC",
+				"~==AAAA.+CCCC",
+				"~==AAAA+.CCCC",
+				"~==AAAA..CCCC",
+				"~==AAAA..CCCC",
+				"~==BBBB..DDDD",
+				"~==BBBB..DDDD",
+				"~==BBBB.+DDDD",
+				"~==BBBB+.DDDD",
+				"~==BBBB..DDDD",
+				"~==BBBB..DDDD",
+				"~==..........",
+				"~==..........",
+				"~==EEEE..GGGG",
+				"~==EEEE..GGGG",
+				"~==EEEE.+GGGG",
+				"~==EEEE+.GGGG",
+				"~==EEEE..GGGG",
+				"~==EEEE..GGGG",
+				"~==FFFF..HHHH",
+				"~==FFFF..HHHH",
+				"~==FFFF.+HHHH",
+				"~==FFFF+.HHHH",
+				"~==FFFF..HHHH",
+				"~==FFFF..HHHH",
+				"~==..........",
+				"~==..........",
+				"~==IIII..KKKK",
+				"~==IIII..KKKK",
+				"~==IIII.+KKKK",
+				"~==IIII+.KKKK",
+				"~==IIII..KKKK",
+				"~==IIII..KKKK",
+				"~==JJJJ..LLLL",
+				"~==JJJJ..LLLL",
+				"~==JJJJ.+LLLL",
+				"~==JJJJ+.LLLL",
+				"~==JJJJ..LLLL",
+				"~==JJJJ..LLLL",
+				"~==aa......bb",
+				"~==+.......+.",
+				"~==..........",
+				"#####@@@@@###",
+				"#####@@@@@###",
+				"#####@@@@@###",
+				"#####@@@@@###"
+			],
+			"regions": {
+				".": "open",
+				"+": "open",
+				"=": "open",
+				"@": "open",
+				"A": "A",
+				"B": "B",
+				"C": "C",
+				"D": "D",
+				"E": "E",
+				"F": "F",
+				"G": "G",
+				"H": "H",
+				"I": "I",
+				"J": "J",
+				"K": "K",
+				"L": "L",
+				"a": "a",
+				"b": "b"
+			},
+			"rooms": {
+				"A": "washitsu",
+				"B": "washitsu",
+				"C": "washitsu",
+				"D": "washitsu",
+				"E": "washitsu",
+				"F": "washitsu",
+				"G": "washitsu",
+				"H": "washitsu",
+				"I": "washitsu",
+				"J": "washitsu",
+				"K": "washitsu",
+				"L": "washitsu",
+				"a": "oshiire",
+				"b": "oshiire"
+			},
+			"doors": [
+				{
+					"a": {
+						"x": 7,
+						"z": 5
+					},
+					"b": {
+						"x": 6,
+						"z": 5
+					},
+					"kind": "fusuma"
+				},
+				{
+					"a": {
+						"x": 7,
+						"z": 11
+					},
+					"b": {
+						"x": 6,
+						"z": 11
+					},
+					"kind": "fusuma"
+				},
+				{
+					"a": {
+						"x": 8,
+						"z": 4
+					},
+					"b": {
+						"x": 9,
+						"z": 4
+					},
+					"kind": "fusuma"
+				},
+				{
+					"a": {
+						"x": 8,
+						"z": 10
+					},
+					"b": {
+						"x": 9,
+						"z": 10
+					},
+					"kind": "fusuma"
+				},
+				{
+					"a": {
+						"x": 7,
+						"z": 19
+					},
+					"b": {
+						"x": 6,
+						"z": 19
+					},
+					"kind": "fusuma"
+				},
+				{
+					"a": {
+						"x": 7,
+						"z": 25
+					},
+					"b": {
+						"x": 6,
+						"z": 25
+					},
+					"kind": "fusuma"
+				},
+				{
+					"a": {
+						"x": 8,
+						"z": 18
+					},
+					"b": {
+						"x": 9,
+						"z": 18
+					},
+					"kind": "fusuma"
+				},
+				{
+					"a": {
+						"x": 8,
+						"z": 24
+					},
+					"b": {
+						"x": 9,
+						"z": 24
+					},
+					"kind": "fusuma"
+				},
+				{
+					"a": {
+						"x": 7,
+						"z": 33
+					},
+					"b": {
+						"x": 6,
+						"z": 33
+					},
+					"kind": "fusuma"
+				},
+				{
+					"a": {
+						"x": 7,
+						"z": 39
+					},
+					"b": {
+						"x": 6,
+						"z": 39
+					},
+					"kind": "fusuma"
+				},
+				{
+					"a": {
+						"x": 8,
+						"z": 32
+					},
+					"b": {
+						"x": 9,
+						"z": 32
+					},
+					"kind": "fusuma"
+				},
+				{
+					"a": {
+						"x": 8,
+						"z": 38
+					},
+					"b": {
+						"x": 9,
+						"z": 38
+					},
+					"kind": "fusuma"
+				},
+				{
+					"a": {
+						"x": 3,
+						"z": 43
+					},
+					"b": {
+						"x": 3,
+						"z": 42
+					},
+					"kind": "fusuma"
+				},
+				{
+					"a": {
+						"x": 11,
+						"z": 43
+					},
+					"b": {
+						"x": 11,
+						"z": 42
+					},
+					"kind": "fusuma"
+				}
+			],
+			"spawn": {
+				"x": 7.5,
+				"z": 47.0
+			}
+		},
+		{
+			"type": "stage",
+			"cellSize": 1,
+			"origin": {
+				"x": 0,
+				"z": 0
+			},
+			"width": 13,
+			"depth": 49,
+			"rows": [
+				"..........==~",
+				"..........==~",
+				"CCCC..AAAA==~",
+				"CCCC..AAAA==~",
+				"CCCC+.AAAA==~",
+				"CCCC.+AAAA==~",
+				"CCCC..AAAA==~",
+				"CCCC..AAAA==~",
+				"DDDD..BBBB==~",
+				"DDDD..BBBB==~",
+				"DDDD+.BBBB==~",
+				"DDDD.+BBBB==~",
+				"DDDD..BBBB==~",
+				"DDDD..BBBB==~",
+				"..........==~",
+				"..........==~",
+				"GGGG..EEEE==~",
+				"GGGG..EEEE==~",
+				"GGGG+.EEEE==~",
+				"GGGG.+EEEE==~",
+				"GGGG..EEEE==~",
+				"GGGG..EEEE==~",
+				"HHHH..FFFF==~",
+				"HHHH..FFFF==~",
+				"HHHH+.FFFF==~",
+				"HHHH.+FFFF==~",
+				"HHHH..FFFF==~",
+				"HHHH..FFFF==~",
+				"..........==~",
+				"..........==~",
+				"KKKK..IIII==~",
+				"KKKK..IIII==~",
+				"KKKK+.IIII==~",
+				"KKKK.+IIII==~",
+				"KKKK..IIII==~",
+				"KKKK..IIII==~",
+				"LLLL..JJJJ==~",
+				"LLLL..JJJJ==~",
+				"LLLL+.JJJJ==~",
+				"LLLL.+JJJJ==~",
+				"LLLL..JJJJ==~",
+				"LLLL..JJJJ==~",
+				"ddcc..bbaa==~",
+				".+.+...+.+==~",
+				"..........==~",
+				"#####@@@@@###",
+				"#####@@@@@###",
+				"#####@@@@@###",
+				"#####@@@@@###"
+			],
+			"regions": {
+				".": "open",
+				"+": "open",
+				"=": "open",
+				"@": "open",
+				"A": "A",
+				"B": "B",
+				"C": "C",
+				"D": "D",
+				"E": "E",
+				"F": "F",
+				"G": "G",
+				"H": "H",
+				"I": "I",
+				"J": "J",
+				"K": "K",
+				"L": "L",
+				"a": "a",
+				"b": "b",
+				"c": "c",
+				"d": "d"
+			},
+			"rooms": {
+				"A": "washitsu",
+				"B": "washitsu",
+				"C": "washitsu",
+				"D": "washitsu",
+				"E": "washitsu",
+				"F": "washitsu",
+				"G": "washitsu",
+				"H": "washitsu",
+				"I": "washitsu",
+				"J": "washitsu",
+				"K": "washitsu",
+				"L": "washitsu",
+				"a": "oshiire",
+				"b": "oshiire",
+				"c": "oshiire",
+				"d": "oshiire"
+			},
+			"doors": [
+				{
+					"a": {
+						"x": 5,
+						"z": 5
+					},
+					"b": {
+						"x": 6,
+						"z": 5
+					},
+					"kind": "fusuma"
+				},
+				{
+					"a": {
+						"x": 5,
+						"z": 11
+					},
+					"b": {
+						"x": 6,
+						"z": 11
+					},
+					"kind": "fusuma"
+				},
+				{
+					"a": {
+						"x": 4,
+						"z": 4
+					},
+					"b": {
+						"x": 3,
+						"z": 4
+					},
+					"kind": "fusuma"
+				},
+				{
+					"a": {
+						"x": 4,
+						"z": 10
+					},
+					"b": {
+						"x": 3,
+						"z": 10
+					},
+					"kind": "fusuma"
+				},
+				{
+					"a": {
+						"x": 5,
+						"z": 19
+					},
+					"b": {
+						"x": 6,
+						"z": 19
+					},
+					"kind": "fusuma"
+				},
+				{
+					"a": {
+						"x": 5,
+						"z": 25
+					},
+					"b": {
+						"x": 6,
+						"z": 25
+					},
+					"kind": "fusuma"
+				},
+				{
+					"a": {
+						"x": 4,
+						"z": 18
+					},
+					"b": {
+						"x": 3,
+						"z": 18
+					},
+					"kind": "fusuma"
+				},
+				{
+					"a": {
+						"x": 4,
+						"z": 24
+					},
+					"b": {
+						"x": 3,
+						"z": 24
+					},
+					"kind": "fusuma"
+				},
+				{
+					"a": {
+						"x": 5,
+						"z": 33
+					},
+					"b": {
+						"x": 6,
+						"z": 33
+					},
+					"kind": "fusuma"
+				},
+				{
+					"a": {
+						"x": 5,
+						"z": 39
+					},
+					"b": {
+						"x": 6,
+						"z": 39
+					},
+					"kind": "fusuma"
+				},
+				{
+					"a": {
+						"x": 4,
+						"z": 32
+					},
+					"b": {
+						"x": 3,
+						"z": 32
+					},
+					"kind": "fusuma"
+				},
+				{
+					"a": {
+						"x": 4,
+						"z": 38
+					},
+					"b": {
+						"x": 3,
+						"z": 38
+					},
+					"kind": "fusuma"
+				},
+				{
+					"a": {
+						"x": 9,
+						"z": 43
+					},
+					"b": {
+						"x": 9,
+						"z": 42
+					},
+					"kind": "fusuma"
+				},
+				{
+					"a": {
+						"x": 7,
+						"z": 43
+					},
+					"b": {
+						"x": 7,
+						"z": 42
+					},
+					"kind": "fusuma"
+				},
+				{
+					"a": {
+						"x": 3,
+						"z": 43
+					},
+					"b": {
+						"x": 3,
+						"z": 42
+					},
+					"kind": "fusuma"
+				},
+				{
+					"a": {
+						"x": 1,
+						"z": 43
+					},
+					"b": {
+						"x": 1,
+						"z": 42
+					},
+					"kind": "fusuma"
+				}
+			],
+			"spawn": {
+				"x": 7.5,
+				"z": 47.0
+			}
+		},
+		{
+			"type": "stage",
+			"cellSize": 1,
+			"origin": {
+				"x": 0,
+				"z": 0
+			},
+			"width": 15,
+			"depth": 49,
+			"rows": [
+				"~==............",
+				"~==............",
+				"~==..AAAAAA..##",
+				"~==.+AAAAAA.+a#",
+				"~==..AAAAAA..a#",
+				"~==..AAAAAA..##",
+				"~==..BBBBBB..##",
+				"~==..BBBBBB..##",
+				"~==..BBBBBB+.##",
+				"~==..BBBBBB.+b#",
+				"~==..CCCCCC..b#",
+				"~==.+CCCCCC..##",
+				"~==..CCCCCC..##",
+				"~==..CCCCCC..##",
+				"~==..DDDDDD..##",
+				"~==..DDDDDD.+c#",
+				"~==..DDDDDD+.c#",
+				"~==..DDDDDD..##",
+				"~==..EEEEEE..##",
+				"~==.+EEEEEE..##",
+				"~==..EEEEEE..##",
+				"~==..EEEEEE..##",
+				"~==..FFFFFF..##",
+				"~==..FFFFFF..##",
+				"~==..FFFFFF+.##",
+				"~==..FFFFFF..##",
+				"~==..GGGGGG..##",
+				"~==.+GGGGGG..##",
+				"~==..GGGGGG..##",
+				"~==..GGGGGG..##",
+				"~==..HHHHHH..##",
+				"~==..HHHHHH..##",
+				"~==..HHHHHH+.##",
+				"~==..HHHHHH..##",
+				"~==..IIIIII..##",
+				"~==.+IIIIII..##",
+				"~==..IIIIII..##",
+				"~==..IIIIII..##",
+				"~==..JJJJJJ..##",
+				"~==..JJJJJJ..##",
+				"~==..JJJJJJ+.##",
+				"~==..JJJJJJ..##",
+				"~==............",
+				"~==............",
+				"~==............",
+				"#####@@@@@#####",
+				"#####@@@@@#####",
+				"#####@@@@@#####",
+				"#####@@@@@#####"
+			],
+			"regions": {
+				".": "open",
+				"+": "open",
+				"=": "open",
+				"@": "open",
+				"A": "A",
+				"B": "B",
+				"C": "C",
+				"D": "D",
+				"E": "E",
+				"F": "F",
+				"G": "G",
+				"H": "H",
+				"I": "I",
+				"J": "J",
+				"a": "a",
+				"b": "b",
+				"c": "c"
+			},
+			"rooms": {
+				"A": "washitsu",
+				"B": "washitsu",
+				"C": "washitsu",
+				"D": "washitsu",
+				"E": "washitsu",
+				"F": "washitsu",
+				"G": "washitsu",
+				"H": "washitsu",
+				"I": "washitsu",
+				"J": "washitsu",
+				"a": "oshiire",
+				"b": "oshiire",
+				"c": "oshiire"
+			},
+			"doors": [
+				{
+					"a": {
+						"x": 4,
+						"z": 3
+					},
+					"b": {
+						"x": 5,
+						"z": 3
+					},
+					"kind": "fusuma"
+				},
+				{
+					"a": {
+						"x": 11,
+						"z": 8
+					},
+					"b": {
+						"x": 10,
+						"z": 8
+					},
+					"kind": "fusuma"
+				},
+				{
+					"a": {
+						"x": 4,
+						"z": 11
+					},
+					"b": {
+						"x": 5,
+						"z": 11
+					},
+					"kind": "fusuma"
+				},
+				{
+					"a": {
+						"x": 11,
+						"z": 16
+					},
+					"b": {
+						"x": 10,
+						"z": 16
+					},
+					"kind": "fusuma"
+				},
+				{
+					"a": {
+						"x": 4,
+						"z": 19
+					},
+					"b": {
+						"x": 5,
+						"z": 19
+					},
+					"kind": "fusuma"
+				},
+				{
+					"a": {
+						"x": 11,
+						"z": 24
+					},
+					"b": {
+						"x": 10,
+						"z": 24
+					},
+					"kind": "fusuma"
+				},
+				{
+					"a": {
+						"x": 4,
+						"z": 27
+					},
+					"b": {
+						"x": 5,
+						"z": 27
+					},
+					"kind": "fusuma"
+				},
+				{
+					"a": {
+						"x": 11,
+						"z": 32
+					},
+					"b": {
+						"x": 10,
+						"z": 32
+					},
+					"kind": "fusuma"
+				},
+				{
+					"a": {
+						"x": 4,
+						"z": 35
+					},
+					"b": {
+						"x": 5,
+						"z": 35
+					},
+					"kind": "fusuma"
+				},
+				{
+					"a": {
+						"x": 11,
+						"z": 40
+					},
+					"b": {
+						"x": 10,
+						"z": 40
+					},
+					"kind": "fusuma"
+				},
+				{
+					"a": {
+						"x": 12,
+						"z": 3
+					},
+					"b": {
+						"x": 13,
+						"z": 3
+					},
+					"kind": "fusuma"
+				},
+				{
+					"a": {
+						"x": 12,
+						"z": 9
+					},
+					"b": {
+						"x": 13,
+						"z": 9
+					},
+					"kind": "fusuma"
+				},
+				{
+					"a": {
+						"x": 12,
+						"z": 15
+					},
+					"b": {
+						"x": 13,
+						"z": 15
+					},
+					"kind": "fusuma"
+				}
+			],
+			"spawn": {
+				"x": 7.5,
+				"z": 47.0
+			}
+		},
+		{
+			"type": "stage",
+			"cellSize": 1,
+			"origin": {
+				"x": 0,
+				"z": 0
+			},
+			"width": 15,
+			"depth": 53,
+			"rows": [
+				"............==~",
+				"............==~",
+				"##..AAAAAA..==~",
+				"##..AAAAAA+.==~",
+				"#a+.AAAAAA..==~",
+				"#a..AAAAAA..==~",
+				"##..BBBBBB..==~",
+				"##..BBBBBB..==~",
+				"##.+BBBBBB..==~",
+				"##..BBBBBB..==~",
+				"##..CCCCCC..==~",
+				"##..CCCCCC+.==~",
+				"##..CCCCCC..==~",
+				"##..CCCCCC..==~",
+				"##..DDDDDD..==~",
+				"##..DDDDDD..==~",
+				"##.+DDDDDD..==~",
+				"##..DDDDDD..==~",
+				"##..EEEEEE..==~",
+				"##..EEEEEE+.==~",
+				"#b+.EEEEEE..==~",
+				"#b..EEEEEE..==~",
+				"##..FFFFFF..==~",
+				"##..FFFFFF..==~",
+				"##.+FFFFFF..==~",
+				"##..FFFFFF..==~",
+				"##..GGGGGG..==~",
+				"##..GGGGGG+.==~",
+				"##..GGGGGG..==~",
+				"##..GGGGGG..==~",
+				"##..HHHHHH..==~",
+				"##..HHHHHH..==~",
+				"##.+HHHHHH..==~",
+				"##..HHHHHH..==~",
+				"##..IIIIII..==~",
+				"##..IIIIII+.==~",
+				"##..IIIIII..==~",
+				"##..IIIIII..==~",
+				"##..JJJJJJ..==~",
+				"##..JJJJJJ..==~",
+				"##.+JJJJJJ..==~",
+				"##..JJJJJJ..==~",
+				"##..KKKKKK..==~",
+				"##..KKKKKK+.==~",
+				"##..KKKKKK..==~",
+				"##..KKKKKK..==~",
+				"............==~",
+				"............==~",
+				"............==~",
+				"###@@@@@#######",
+				"###@@@@@#######",
+				"###@@@@@#######",
+				"###@@@@@#######"
+			],
+			"regions": {
+				".": "open",
+				"+": "open",
+				"=": "open",
+				"@": "open",
+				"A": "A",
+				"B": "B",
+				"C": "C",
+				"D": "D",
+				"E": "E",
+				"F": "F",
+				"G": "G",
+				"H": "H",
+				"I": "I",
+				"J": "J",
+				"K": "K",
+				"a": "a",
+				"b": "b"
+			},
+			"rooms": {
+				"A": "washitsu",
+				"B": "washitsu",
+				"C": "washitsu",
+				"D": "washitsu",
+				"E": "washitsu",
+				"F": "washitsu",
+				"G": "washitsu",
+				"H": "washitsu",
+				"I": "washitsu",
+				"J": "washitsu",
+				"K": "washitsu",
+				"a": "oshiire",
+				"b": "oshiire"
+			},
+			"doors": [
+				{
+					"a": {
+						"x": 10,
+						"z": 3
+					},
+					"b": {
+						"x": 9,
+						"z": 3
+					},
+					"kind": "fusuma"
+				},
+				{
+					"a": {
+						"x": 3,
+						"z": 8
+					},
+					"b": {
+						"x": 4,
+						"z": 8
+					},
+					"kind": "fusuma"
+				},
+				{
+					"a": {
+						"x": 10,
+						"z": 11
+					},
+					"b": {
+						"x": 9,
+						"z": 11
+					},
+					"kind": "fusuma"
+				},
+				{
+					"a": {
+						"x": 3,
+						"z": 16
+					},
+					"b": {
+						"x": 4,
+						"z": 16
+					},
+					"kind": "fusuma"
+				},
+				{
+					"a": {
+						"x": 10,
+						"z": 19
+					},
+					"b": {
+						"x": 9,
+						"z": 19
+					},
+					"kind": "fusuma"
+				},
+				{
+					"a": {
+						"x": 3,
+						"z": 24
+					},
+					"b": {
+						"x": 4,
+						"z": 24
+					},
+					"kind": "fusuma"
+				},
+				{
+					"a": {
+						"x": 10,
+						"z": 27
+					},
+					"b": {
+						"x": 9,
+						"z": 27
+					},
+					"kind": "fusuma"
+				},
+				{
+					"a": {
+						"x": 3,
+						"z": 32
+					},
+					"b": {
+						"x": 4,
+						"z": 32
+					},
+					"kind": "fusuma"
+				},
+				{
+					"a": {
+						"x": 10,
+						"z": 35
+					},
+					"b": {
+						"x": 9,
+						"z": 35
+					},
+					"kind": "fusuma"
+				},
+				{
+					"a": {
+						"x": 3,
+						"z": 40
+					},
+					"b": {
+						"x": 4,
+						"z": 40
+					},
+					"kind": "fusuma"
+				},
+				{
+					"a": {
+						"x": 10,
+						"z": 43
+					},
+					"b": {
+						"x": 9,
+						"z": 43
+					},
+					"kind": "fusuma"
+				},
+				{
+					"a": {
+						"x": 2,
+						"z": 4
+					},
+					"b": {
+						"x": 1,
+						"z": 4
+					},
+					"kind": "fusuma"
+				},
+				{
+					"a": {
+						"x": 2,
+						"z": 20
+					},
+					"b": {
+						"x": 1,
+						"z": 20
+					},
+					"kind": "fusuma"
+				}
+			],
+			"spawn": {
+				"x": 5.5,
+				"z": 51.0
+			}
+		},
+		{
+			"type": "stage",
+			"cellSize": 1,
+			"origin": {
+				"x": 0,
+				"z": 0
+			},
+			"width": 13,
+			"depth": 45,
+			"rows": [
+				"..........==~",
+				"..........==~",
+				"GGGG..AAAA==~",
+				"GGGG..AAAA==~",
+				"GGGG+.AAAA==~",
+				"GGGG.+AAAA==~",
+				"GGGG..AAAA==~",
+				"GGGG..AAAA==~",
+				"HHHH..BBBB==~",
+				"HHHH..BBBB==~",
+				"HHHH+.BBBB==~",
+				"HHHH.+BBBB==~",
+				"HHHH..BBBB==~",
+				"HHHH..BBBB==~",
+				"IIII..CCCC==~",
+				"IIII..CCCC==~",
+				"IIII+.CCCC==~",
+				"IIII.+CCCC==~",
+				"IIII..CCCC==~",
+				"IIII..CCCC==~",
+				"JJJJ..DDDD==~",
+				"JJJJ..DDDD==~",
+				"JJJJ+.DDDD==~",
+				"JJJJ.+DDDD==~",
+				"JJJJ..DDDD==~",
+				"JJJJ..DDDD==~",
+				"KKKK..EEEE==~",
+				"KKKK..EEEE==~",
+				"KKKK+.EEEE==~",
+				"KKKK.+EEEE==~",
+				"KKKK..EEEE==~",
+				"KKKK..EEEE==~",
+				"LLLL..FFFF==~",
+				"LLLL..FFFF==~",
+				"LLLL+.FFFF==~",
+				"LLLL.+FFFF==~",
+				"LLLL..FFFF==~",
+				"LLLL..FFFF==~",
+				"..bb....aa==~",
+				"...+.....+==~",
+				"..........==~",
+				"###@@@@@#####",
+				"###@@@@@#####",
+				"###@@@@@#####",
+				"###@@@@@#####"
+			],
+			"regions": {
+				".": "open",
+				"+": "open",
+				"=": "open",
+				"@": "open",
+				"A": "A",
+				"B": "B",
+				"C": "C",
+				"D": "D",
+				"E": "E",
+				"F": "F",
+				"G": "G",
+				"H": "H",
+				"I": "I",
+				"J": "J",
+				"K": "K",
+				"L": "L",
+				"a": "a",
+				"b": "b"
+			},
+			"rooms": {
+				"A": "washitsu",
+				"B": "washitsu",
+				"C": "washitsu",
+				"D": "washitsu",
+				"E": "washitsu",
+				"F": "washitsu",
+				"G": "washitsu",
+				"H": "washitsu",
+				"I": "washitsu",
+				"J": "washitsu",
+				"K": "washitsu",
+				"L": "washitsu",
+				"a": "oshiire",
+				"b": "oshiire"
+			},
+			"doors": [
+				{
+					"a": {
+						"x": 5,
+						"z": 5
+					},
+					"b": {
+						"x": 6,
+						"z": 5
+					},
+					"kind": "fusuma"
+				},
+				{
+					"a": {
+						"x": 5,
+						"z": 11
+					},
+					"b": {
+						"x": 6,
+						"z": 11
+					},
+					"kind": "fusuma"
+				},
+				{
+					"a": {
+						"x": 5,
+						"z": 17
+					},
+					"b": {
+						"x": 6,
+						"z": 17
+					},
+					"kind": "fusuma"
+				},
+				{
+					"a": {
+						"x": 5,
+						"z": 23
+					},
+					"b": {
+						"x": 6,
+						"z": 23
+					},
+					"kind": "fusuma"
+				},
+				{
+					"a": {
+						"x": 5,
+						"z": 29
+					},
+					"b": {
+						"x": 6,
+						"z": 29
+					},
+					"kind": "fusuma"
+				},
+				{
+					"a": {
+						"x": 5,
+						"z": 35
+					},
+					"b": {
+						"x": 6,
+						"z": 35
+					},
+					"kind": "fusuma"
+				},
+				{
+					"a": {
+						"x": 4,
+						"z": 4
+					},
+					"b": {
+						"x": 3,
+						"z": 4
+					},
+					"kind": "fusuma"
+				},
+				{
+					"a": {
+						"x": 4,
+						"z": 10
+					},
+					"b": {
+						"x": 3,
+						"z": 10
+					},
+					"kind": "fusuma"
+				},
+				{
+					"a": {
+						"x": 4,
+						"z": 16
+					},
+					"b": {
+						"x": 3,
+						"z": 16
+					},
+					"kind": "fusuma"
+				},
+				{
+					"a": {
+						"x": 4,
+						"z": 22
+					},
+					"b": {
+						"x": 3,
+						"z": 22
+					},
+					"kind": "fusuma"
+				},
+				{
+					"a": {
+						"x": 4,
+						"z": 28
+					},
+					"b": {
+						"x": 3,
+						"z": 28
+					},
+					"kind": "fusuma"
+				},
+				{
+					"a": {
+						"x": 4,
+						"z": 34
+					},
+					"b": {
+						"x": 3,
+						"z": 34
+					},
+					"kind": "fusuma"
+				},
+				{
+					"a": {
+						"x": 9,
+						"z": 39
+					},
+					"b": {
+						"x": 9,
+						"z": 38
+					},
+					"kind": "fusuma"
+				},
+				{
+					"a": {
+						"x": 3,
+						"z": 39
+					},
+					"b": {
+						"x": 3,
+						"z": 38
+					},
+					"kind": "fusuma"
+				}
+			],
+			"spawn": {
+				"x": 5.5,
+				"z": 43.0
+			}
+		},
+		{
+			"type": "stage",
+			"cellSize": 1,
+			"origin": {
+				"x": 0,
+				"z": 0
+			},
+			"width": 13,
+			"depth": 49,
+			"rows": [
+				"~==..........",
+				"~==..........",
+				"~==AAAA..CCCC",
+				"~==AAAA..CCCC",
+				"~==AAAA.+CCCC",
+				"~==AAAA+.CCCC",
+				"~==AAAA..CCCC",
+				"~==AAAA..CCCC",
+				"~==BBBB..DDDD",
+				"~==BBBB..DDDD",
+				"~==BBBB.+DDDD",
+				"~==BBBB+.DDDD",
+				"~==BBBB..DDDD",
+				"~==BBBB..DDDD",
+				"~==..........",
+				"~==..........",
+				"~==EEEE..GGGG",
+				"~==EEEE..GGGG",
+				"~==EEEE.+GGGG",
+				"~==EEEE+.GGGG",
+				"~==EEEE..GGGG",
+				"~==EEEE..GGGG",
+				"~==FFFF..HHHH",
+				"~==FFFF..HHHH",
+				"~==FFFF.+HHHH",
+				"~==FFFF+.HHHH",
+				"~==FFFF..HHHH",
+				"~==FFFF..HHHH",
+				"~==..........",
+				"~==..........",
+				"~==IIII..KKKK",
+				"~==IIII..KKKK",
+				"~==IIII.+KKKK",
+				"~==IIII+.KKKK",
+				"~==IIII..KKKK",
+				"~==IIII..KKKK",
+				"~==JJJJ..LLLL",
+				"~==JJJJ..LLLL",
+				"~==JJJJ.+LLLL",
+				"~==JJJJ+.LLLL",
+				"~==JJJJ..LLLL",
+				"~==JJJJ..LLLL",
+				"~==..aa..bb..",
+				"~==..+...+...",
+				"~==..........",
+				"#######@@@@@#",
+				"#######@@@@@#",
+				"#######@@@@@#",
+				"#######@@@@@#"
+			],
+			"regions": {
+				".": "open",
+				"+": "open",
+				"=": "open",
+				"@": "open",
+				"A": "A",
+				"B": "B",
+				"C": "C",
+				"D": "D",
+				"E": "E",
+				"F": "F",
+				"G": "G",
+				"H": "H",
+				"I": "I",
+				"J": "J",
+				"K": "K",
+				"L": "L",
+				"a": "a",
+				"b": "b"
+			},
+			"rooms": {
+				"A": "washitsu",
+				"B": "washitsu",
+				"C": "washitsu",
+				"D": "washitsu",
+				"E": "washitsu",
+				"F": "washitsu",
+				"G": "washitsu",
+				"H": "washitsu",
+				"I": "washitsu",
+				"J": "washitsu",
+				"K": "washitsu",
+				"L": "washitsu",
+				"a": "oshiire",
+				"b": "oshiire"
+			},
+			"doors": [
+				{
+					"a": {
+						"x": 7,
+						"z": 5
+					},
+					"b": {
+						"x": 6,
+						"z": 5
+					},
+					"kind": "fusuma"
+				},
+				{
+					"a": {
+						"x": 7,
+						"z": 11
+					},
+					"b": {
+						"x": 6,
+						"z": 11
+					},
+					"kind": "fusuma"
+				},
+				{
+					"a": {
+						"x": 8,
+						"z": 4
+					},
+					"b": {
+						"x": 9,
+						"z": 4
+					},
+					"kind": "fusuma"
+				},
+				{
+					"a": {
+						"x": 8,
+						"z": 10
+					},
+					"b": {
+						"x": 9,
+						"z": 10
+					},
+					"kind": "fusuma"
+				},
+				{
+					"a": {
+						"x": 7,
+						"z": 19
+					},
+					"b": {
+						"x": 6,
+						"z": 19
+					},
+					"kind": "fusuma"
+				},
+				{
+					"a": {
+						"x": 7,
+						"z": 25
+					},
+					"b": {
+						"x": 6,
+						"z": 25
+					},
+					"kind": "fusuma"
+				},
+				{
+					"a": {
+						"x": 8,
+						"z": 18
+					},
+					"b": {
+						"x": 9,
+						"z": 18
+					},
+					"kind": "fusuma"
+				},
+				{
+					"a": {
+						"x": 8,
+						"z": 24
+					},
+					"b": {
+						"x": 9,
+						"z": 24
+					},
+					"kind": "fusuma"
+				},
+				{
+					"a": {
+						"x": 7,
+						"z": 33
+					},
+					"b": {
+						"x": 6,
+						"z": 33
+					},
+					"kind": "fusuma"
+				},
+				{
+					"a": {
+						"x": 7,
+						"z": 39
+					},
+					"b": {
+						"x": 6,
+						"z": 39
+					},
+					"kind": "fusuma"
+				},
+				{
+					"a": {
+						"x": 8,
+						"z": 32
+					},
+					"b": {
+						"x": 9,
+						"z": 32
+					},
+					"kind": "fusuma"
+				},
+				{
+					"a": {
+						"x": 8,
+						"z": 38
+					},
+					"b": {
+						"x": 9,
+						"z": 38
+					},
+					"kind": "fusuma"
+				},
+				{
+					"a": {
+						"x": 5,
+						"z": 43
+					},
+					"b": {
+						"x": 5,
+						"z": 42
+					},
+					"kind": "fusuma"
+				},
+				{
+					"a": {
+						"x": 9,
+						"z": 43
+					},
+					"b": {
+						"x": 9,
+						"z": 42
+					},
+					"kind": "fusuma"
+				}
+			],
+			"spawn": {
+				"x": 9.5,
+				"z": 47.0
+			}
+		},
+		{
+			"type": "stage",
+			"cellSize": 1,
+			"origin": {
+				"x": 0,
+				"z": 0
+			},
+			"width": 15,
+			"depth": 57,
+			"rows": [
+				"~==............",
+				"~==............",
+				"~==..AAAAAA..##",
+				"~==.+AAAAAA..##",
+				"~==..AAAAAA..##",
+				"~==..AAAAAA..##",
+				"~==..BBBBBB.+a#",
+				"~==..BBBBBB..a#",
+				"~==..BBBBBB+.##",
+				"~==..BBBBBB..##",
+				"~==..CCCCCC..##",
+				"~==.+CCCCCC..##",
+				"~==..CCCCCC..##",
+				"~==..CCCCCC..##",
+				"~==..DDDDDD.+b#",
+				"~==..DDDDDD..b#",
+				"~==..DDDDDD+.##",
+				"~==..DDDDDD..##",
+				"~==..EEEEEE..##",
+				"~==.+EEEEEE..##",
+				"~==..EEEEEE..##",
+				"~==..EEEEEE..##",
+				"~==..FFFFFF..##",
+				"~==..FFFFFF..##",
+				"~==..FFFFFF+.##",
+				"~==..FFFFFF..##",
+				"~==..GGGGGG..##",
+				"~==.+GGGGGG..##",
+				"~==..GGGGGG..##",
+				"~==..GGGGGG..##",
+				"~==..HHHHHH.+c#",
+				"~==..HHHHHH..c#",
+				"~==..HHHHHH+.##",
+				"~==..HHHHHH..##",
+				"~==..IIIIII..##",
+				"~==.+IIIIII..##",
+				"~==..IIIIII..##",
+				"~==..IIIIII..##",
+				"~==..JJJJJJ..##",
+				"~==..JJJJJJ..##",
+				"~==..JJJJJJ+.##",
+				"~==..JJJJJJ..##",
+				"~==..KKKKKK..##",
+				"~==.+KKKKKK..##",
+				"~==..KKKKKK..##",
+				"~==..KKKKKK..##",
+				"~==..LLLLLL..##",
+				"~==..LLLLLL..##",
+				"~==..LLLLLL+.##",
+				"~==..LLLLLL..##",
+				"~==............",
+				"~==............",
+				"~==............",
+				"#########@@@@@#",
+				"#########@@@@@#",
+				"#########@@@@@#",
+				"#########@@@@@#"
+			],
+			"regions": {
+				".": "open",
+				"+": "open",
+				"=": "open",
+				"@": "open",
+				"A": "A",
+				"B": "B",
+				"C": "C",
+				"D": "D",
+				"E": "E",
+				"F": "F",
+				"G": "G",
+				"H": "H",
+				"I": "I",
+				"J": "J",
+				"K": "K",
+				"L": "L",
+				"a": "a",
+				"b": "b",
+				"c": "c"
+			},
+			"rooms": {
+				"A": "washitsu",
+				"B": "washitsu",
+				"C": "washitsu",
+				"D": "washitsu",
+				"E": "washitsu",
+				"F": "washitsu",
+				"G": "washitsu",
+				"H": "washitsu",
+				"I": "washitsu",
+				"J": "washitsu",
+				"K": "washitsu",
+				"L": "washitsu",
+				"a": "oshiire",
+				"b": "oshiire",
+				"c": "oshiire"
+			},
+			"doors": [
+				{
+					"a": {
+						"x": 4,
+						"z": 3
+					},
+					"b": {
+						"x": 5,
+						"z": 3
+					},
+					"kind": "fusuma"
+				},
+				{
+					"a": {
+						"x": 11,
+						"z": 8
+					},
+					"b": {
+						"x": 10,
+						"z": 8
+					},
+					"kind": "fusuma"
+				},
+				{
+					"a": {
+						"x": 4,
+						"z": 11
+					},
+					"b": {
+						"x": 5,
+						"z": 11
+					},
+					"kind": "fusuma"
+				},
+				{
+					"a": {
+						"x": 11,
+						"z": 16
+					},
+					"b": {
+						"x": 10,
+						"z": 16
+					},
+					"kind": "fusuma"
+				},
+				{
+					"a": {
+						"x": 4,
+						"z": 19
+					},
+					"b": {
+						"x": 5,
+						"z": 19
+					},
+					"kind": "fusuma"
+				},
+				{
+					"a": {
+						"x": 11,
+						"z": 24
+					},
+					"b": {
+						"x": 10,
+						"z": 24
+					},
+					"kind": "fusuma"
+				},
+				{
+					"a": {
+						"x": 4,
+						"z": 27
+					},
+					"b": {
+						"x": 5,
+						"z": 27
+					},
+					"kind": "fusuma"
+				},
+				{
+					"a": {
+						"x": 11,
+						"z": 32
+					},
+					"b": {
+						"x": 10,
+						"z": 32
+					},
+					"kind": "fusuma"
+				},
+				{
+					"a": {
+						"x": 4,
+						"z": 35
+					},
+					"b": {
+						"x": 5,
+						"z": 35
+					},
+					"kind": "fusuma"
+				},
+				{
+					"a": {
+						"x": 11,
+						"z": 40
+					},
+					"b": {
+						"x": 10,
+						"z": 40
+					},
+					"kind": "fusuma"
+				},
+				{
+					"a": {
+						"x": 4,
+						"z": 43
+					},
+					"b": {
+						"x": 5,
+						"z": 43
+					},
+					"kind": "fusuma"
+				},
+				{
+					"a": {
+						"x": 11,
+						"z": 48
+					},
+					"b": {
+						"x": 10,
+						"z": 48
+					},
+					"kind": "fusuma"
+				},
+				{
+					"a": {
+						"x": 12,
+						"z": 6
+					},
+					"b": {
+						"x": 13,
+						"z": 6
+					},
+					"kind": "fusuma"
+				},
+				{
+					"a": {
+						"x": 12,
+						"z": 14
+					},
+					"b": {
+						"x": 13,
+						"z": 14
+					},
+					"kind": "fusuma"
+				},
+				{
+					"a": {
+						"x": 12,
+						"z": 30
+					},
+					"b": {
+						"x": 13,
+						"z": 30
+					},
+					"kind": "fusuma"
+				}
+			],
+			"spawn": {
+				"x": 11.5,
+				"z": 55.0
+			}
+		}
+	]
+}

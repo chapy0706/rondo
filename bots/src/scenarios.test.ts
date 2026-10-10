@@ -3,13 +3,14 @@ import { scenarios } from "./scenarios.ts";
 import { BOTS_PHASE_DIVISOR, SERVER_DEFAULTS, scaled } from "./timing.ts";
 
 describe("scenarios - 宣言の整合（書き間違いを、サーバーなしで見つける）", () => {
-	it("issue-49 の4つと、issue-27 の全員発見がそろっている", () => {
+	it("issue-49 の4つと、issue-27 の全員発見、issue-29b の壁越し・襖越しがそろっている", () => {
 		expect(scenarios.map((s) => s.name)).toEqual([
 			"時間切れで隠れ側の勝ち",
 			"鬼の離脱で隠れ側の勝ち",
 			"人数が足りず不成立",
 			"被りによる全員失格で鬼の勝ち",
 			"全員発見で鬼の勝ち",
+			"壁越し・襖越しの射撃",
 		]);
 	});
 
@@ -112,5 +113,57 @@ describe("scenarios - 玄関からの散らばり方（issue-29a）", () => {
 				(step) => step.action.type === "hide" || step.action.type === "move",
 			),
 		).toBe(false);
+	});
+});
+
+describe("scenarios - 壁越し・襖越しの射撃の時間（issue-29b）", () => {
+	const scenario = scenarios.find((s) => s.name === "壁越し・襖越しの射撃");
+	if (scenario === undefined) throw new Error("シナリオが無い");
+	const exploration = scaled(SERVER_DEFAULTS.explorationMs);
+	const reload = scaled(SERVER_DEFAULTS.reloadMs);
+	const at = (type: string) =>
+		scenario.steps
+			.filter((step) => step.action.type === type)
+			.map((step) => step.delayMs ?? 0);
+
+	it("確かめは3つで、それぞれ名前がある", () => {
+		expect(
+			scenario.steps.flatMap((step) =>
+				step.action.type === "expect-hiding" ? [step.action.check] : [],
+			),
+		).toEqual([
+			"壁越しの射撃は外れる",
+			"閉じた襖越しの射撃は外れる",
+			"開けた襖越しの射撃は当たる",
+		]);
+	});
+
+	it("各確かめは、直前の射撃から、縮めた撃つ間隔（150 ms）の内側で、届くのを待つ余裕（50 ms 以上）を取る", () => {
+		const shots = at("shoot");
+		const checks = at("expect-hiding");
+		expect(checks).toHaveLength(shots.length);
+		checks.forEach((check, i) => {
+			const wait = check - (shots[i] ?? 0);
+			expect(wait).toBeGreaterThanOrEqual(50);
+			expect(wait).toBeLessThan(reload);
+		});
+	});
+
+	it("歩くのと襖を開けるのは、次の射撃より前。最後の確かめは、縮めた探索（2 秒）が終わる前", () => {
+		const steps = scenario.steps.filter((step) => step.on !== "joined");
+		const order = steps
+			.filter(
+				(step) =>
+					typeof step.on === "object" && step.on.phase === "exploration",
+			)
+			.map((step) => [step.action.type, step.delayMs ?? 0] as const);
+		for (let i = 1; i < order.length; i++) {
+			expect((order[i] as readonly [string, number])[1]).toBeGreaterThan(
+				(order[i - 1] as readonly [string, number])[1],
+			);
+		}
+		expect(Math.max(...at("expect-hiding"))).toBeLessThanOrEqual(
+			exploration - 500,
+		);
 	});
 });

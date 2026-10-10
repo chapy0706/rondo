@@ -27,6 +27,28 @@ export type Action =
 	 * 被りで失格しないよう、隠れ側ごとに違う index を使う。
 	 */
 	| { readonly type: "hide"; readonly index: number }
+	/**
+	 * 壁越し・襖越しの射撃のために選んだマス（plan.ts の pickDoorShot。c・s・r・w）へ、
+	 * 通れる境をたどって1マスずつ歩く（issue-29b）。doors は、道を探すときの襖の扱い
+	 * （準備移動の間は "open"、探索の間は "closed"）。
+	 */
+	| {
+			readonly type: "go";
+			readonly to: "c" | "s" | "r" | "w";
+			readonly doors: "open" | "closed";
+	  }
+	/** 選んだ襖（c と s の境）を開ける報告を送る（issue-29b。契約の VeryareOpenDoorEvent）。 */
+	| { readonly type: "open-door" }
+	/**
+	 * 確かめ（issue-29b）: いま届いている、まだ隠れている一覧に、target がいるか（hiding が
+	 * true）・いないか（false）。違えば、check の名前を添えて問題にする。
+	 */
+	| {
+			readonly type: "expect-hiding";
+			readonly check: string;
+			readonly target: string;
+			readonly hiding: boolean;
+	  }
 	/** 鬼として撃つ（issue-27。契約の VeryareShootEvent）。target はボットの名前、null は狙いなし。 */
 	| { readonly type: "shoot"; readonly target: string | null };
 
@@ -65,6 +87,8 @@ export interface Scenario {
 /** 隠れ側・鬼の details（サーバーの games/veryare/result.gleam の写し方）。 */
 export const details = {
 	hiderWon: { 役割: "隠れる側", 結果: "勝ち", 状態: "逃げ切り" },
+	/** 隠れ側の勝ちで、自分は見つかっていた（チーム勝ち / issue-42）。 */
+	hiderWonFound: { 役割: "隠れる側", 結果: "勝ち", 状態: "発見・失格・離脱" },
 	hiderLost: { 役割: "隠れる側", 結果: "負け", 状態: "発見・失格・離脱" },
 	oniWon: { 役割: "鬼", 結果: "勝ち" },
 	oniLost: { 役割: "鬼", 結果: "負け" },

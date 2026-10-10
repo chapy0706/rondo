@@ -153,3 +153,28 @@ pub fn notices_carry_the_same_grid_as_the_server_test() {
     dict.size(rooms) |> should.equal(dict.size(layout.rooms))
   })
 }
+
+/// ボットの単体テストが使う、10種の骨格のステージの通知の見本
+/// （packages/contracts/src/fixtures/veryare-skeleton-stages.json。全スロットに部屋を割り当てた
+/// もの）が、サーバーの地図（移動の規則の入力）と玄関に一致する（見本の取り違えを防ぐ）。
+pub fn skeleton_stage_fixture_matches_the_server_test() {
+  let stages = items(at(fixture("veryare-skeleton-stages"), ["stages"]))
+  list.length(stages) |> should.equal(10)
+  list.zip(stage.skeletons(), stages)
+  |> list.each(fn(pair) {
+    let #(skeleton, notice) = pair
+    let rooms =
+      skeleton.slots
+      |> list.map(fn(slot) {
+        #(slot.id, case slot.size {
+          stage.Large -> stage.Washitsu
+          stage.Small -> stage.Oshiire
+        })
+      })
+      |> dict.from_list
+    let layout = stage.Layout(skeleton, rooms)
+    let assert Ok(decoded) = stage_notice.decode(notice)
+    decoded.grid |> should.equal(grid.of_layout(layout))
+    decoded.spawn |> should.equal(skeleton.spawn)
+  })
+}

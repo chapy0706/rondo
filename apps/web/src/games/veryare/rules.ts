@@ -7,7 +7,7 @@
  */
 
 import type {
-	VeryareDoor,
+	VeryareEdge,
 	VeryareHiderState,
 	VeryareHidersNotice,
 	VeryareOniNotice,
@@ -133,8 +133,9 @@ function isCell(value: unknown): boolean {
 	);
 }
 
-function isDoor(value: unknown): value is VeryareDoor {
-	return isRecord(value) && isCell(value.corridor) && isCell(value.slot);
+/** 境 {a, b}（issue-29b / ADR 0042）。襖は、隣り合う2マスの境で指す。 */
+function isEdge(value: unknown): value is VeryareEdge {
+	return isRecord(value) && isCell(value.a) && isCell(value.b);
 }
 
 /** 探索中の鬼の状態（issue-28 / issue-34）を検証して読む。 */
@@ -145,7 +146,7 @@ export function parseOniNotice(payload: unknown): VeryareOniNotice | null {
 	if (typeof x !== "number" || typeof z !== "number") return null;
 	if (typeof facing !== "number") return null;
 	if (!POSES.includes(pose as VeryarePose)) return null;
-	if (!Array.isArray(openDoors) || !openDoors.every(isDoor)) return null;
+	if (!Array.isArray(openDoors) || !openDoors.every(isEdge)) return null;
 	return {
 		type: "oni",
 		playerId,

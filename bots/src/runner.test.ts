@@ -396,6 +396,202 @@ describe("runScenario - 隠れる（issue-29a）", () => {
 	});
 });
 
+describe("runScenario - 壁越し・襖越しの射撃（issue-29b）", () => {
+	const scenario: Scenario = {
+		name: "襖",
+		bots: ["bot-a", "bot-b", "bot-c"],
+		steps: [
+			{ on: "joined", bot: "bot-a", action: { type: "touch-area" } },
+			{
+				on: { phase: "preparation" },
+				bot: "bot-b",
+				action: { type: "go", to: "r", doors: "open" },
+			},
+			{
+				on: { phase: "preparation" },
+				bot: "bot-c",
+				action: { type: "go", to: "s", doors: "open" },
+			},
+			{
+				on: { phase: "exploration" },
+				bot: "bot-a",
+				action: { type: "go", to: "w", doors: "closed" },
+				delayMs: 10,
+			},
+			{
+				on: { phase: "exploration" },
+				bot: "bot-a",
+				action: { type: "shoot", target: "bot-b" },
+				delayMs: 30,
+			},
+			{
+				on: { phase: "exploration" },
+				bot: "bot-a",
+				action: {
+					type: "expect-hiding",
+					check: "壁越しの射撃は外れる",
+					target: "bot-b",
+					hiding: true,
+				},
+				delayMs: 60,
+			},
+			{
+				on: { phase: "exploration" },
+				bot: "bot-a",
+				action: { type: "go", to: "c", doors: "closed" },
+				delayMs: 70,
+			},
+			{
+				on: { phase: "exploration" },
+				bot: "bot-a",
+				action: { type: "open-door" },
+				delayMs: 80,
+			},
+			{
+				on: { phase: "exploration" },
+				bot: "bot-a",
+				action: { type: "shoot", target: "bot-c" },
+				delayMs: 90,
+			},
+			{
+				on: { phase: "exploration" },
+				bot: "bot-a",
+				action: {
+					type: "expect-hiding",
+					check: "開けた襖越しの射撃は当たる",
+					target: "bot-c",
+					hiding: false,
+				},
+				delayMs: 120,
+			},
+		],
+		receivers: ["bot-a", "bot-b", "bot-c"],
+		rankings: [
+			{ bot: "bot-b", rank: 1, score: 1, details: details.hiderWon },
+			{ bot: "bot-c", rank: 1, score: 1, details: details.hiderWonFound },
+			{ bot: "bot-a", rank: 2, score: 0, details: details.oniLost },
+		],
+	};
+
+	/** 小さな屋敷で動く偽物のサーバー。wallHits なら、壁越しの射撃を誤って当てる。 */
+	function doorServer(wallHits: boolean): FakeServer {
+		const server = new FakeServer();
+		let hiding = ["p-2", "p-3"];
+		const sendHiding = (s: FakeServer) =>
+			s.broadcast({
+				type: "game-state",
+				gameType: "veryare",
+				roomId: "room-1",
+				payload: { type: "hiding", playerIds: hiding },
+			});
+		server.onEvent = (s, player, message) => {
+			if (message.type === "create-room" || message.type === "join-room") {
+				const socket = [...s.players].find(([, id]) => id === player)?.[0];
+				socket?.deliver({
+					type: "game-state-to",
+					gameType: "veryare",
+					roomId: "room-1",
+					to: player,
+					payload: stageFixture.valid[0],
+				});
+			}
+			if (message.type !== "game-event") return;
+			const payload = message.payload as {
+				type: string;
+				x?: number;
+				z?: number;
+				target?: string;
+			};
+			if (payload.type === "move" && player === "p-1" && payload.x === 0) {
+				s.phase("preparation");
+				sendHiding(s);
+			}
+			// C が s（部屋 A の襖の内側 (2.5, 1.5)）に着いたら、探索へ。
+			if (
+				payload.type === "move" &&
+				player === "p-3" &&
+				payload.x === 2.5 &&
+				payload.z === 1.5
+			) {
+				s.phase("exploration");
+			}
+			if (payload.type === "shoot") {
+				const hit =
+					(payload.target === "p-2" && wallHits) ||
+					(payload.target === "p-3" && opened);
+				if (hit) {
+					hiding = hiding.filter((id) => id !== payload.target);
+					sendHiding(s);
+				}
+				if (payload.target === "p-3") {
+					setTimeout(
+						() =>
+							s.ended([
+								{ player: "p-2", rank: 1, score: 1, details: details.hiderWon },
+								{
+									player: "p-3",
+									rank: 1,
+									score: 1,
+									details: details.hiderWonFound,
+								},
+								{ player: "p-1", rank: 2, score: 0, details: details.oniLost },
+							]),
+						60,
+					);
+				}
+			}
+			if (payload.type === "open-door") opened = true;
+		};
+		let opened = false;
+		return server;
+	}
+
+	it("決めたマスへ歩き、壁越しに撃ち、襖の前へ移って襖を開けて撃つ。確かめが通る", async () => {
+		const server = doorServer(false);
+		const result = await run(server, scenario);
+		expect(result.problems).toEqual([]);
+		const events = server.log
+			.filter(({ message }) => message.type === "game-event")
+			.map(({ player, message }) =>
+				message.type === "game-event" ? [player, message.payload] : [],
+			);
+		const last = (who: string) =>
+			events
+				.filter(
+					([p, payload]) =>
+						p === who && (payload as { type: string }).type === "move",
+				)
+				.at(-1)?.[1];
+		// B は r (2,0)、C は s (2,1) の中心に着く。
+		expect(last("p-2")).toEqual({ type: "move", x: 2.5, z: 0.5 });
+		expect(last("p-3")).toEqual({ type: "move", x: 2.5, z: 1.5 });
+		// 鬼は w (1,0) で B を撃ち、c (1,1) へ移って、襖 (1,1)-(2,1) を開けて C を撃つ。
+		const oni = events
+			.filter(([p]) => p === "p-1")
+			.map(([, payload]) => payload as { type: string });
+		const kinds = oni.map((payload) => payload.type);
+		const shootB = kinds.indexOf("shoot");
+		expect(oni[shootB - 1]).toEqual({ type: "move", x: 1.5, z: 0.5 });
+		expect(oni[shootB]).toEqual({ type: "shoot", target: "p-2" });
+		const open = kinds.indexOf("open-door");
+		expect(oni[open - 1]).toEqual({ type: "move", x: 1.5, z: 1.5 });
+		expect(oni[open]).toEqual({
+			type: "open-door",
+			door: { a: { x: 1, z: 1 }, b: { x: 2, z: 1 } },
+		});
+		expect(oni[open + 1]).toEqual({ type: "shoot", target: "p-3" });
+	});
+
+	it("確かめが落ちたら、確かめの名前を問題に出す", async () => {
+		const result = await run(doorServer(true), scenario);
+		expect(result.ok).toBe(false);
+		expect(result.problems.join(" / ")).toContain("壁越しの射撃は外れる");
+		expect(result.problems.join(" / ")).not.toContain(
+			"開けた襖越しの射撃は当たる",
+		);
+	});
+});
+
 describe("runScenario - 後片付け", () => {
 	it("終わったら、まだルームにいるボットは退出してから閉じる（ルームを猶予の間残さない）", async () => {
 		const server = new FakeServer();

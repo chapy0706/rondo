@@ -1,14 +1,175 @@
 {
 	"shoot": {
 		"valid": [
-			{ "type": "shoot", "target": "p-2" },
-			{ "type": "shoot", "target": null }
+			{
+				"type": "shoot",
+				"target": "p-2"
+			},
+			{
+				"type": "shoot",
+				"target": null
+			}
 		],
 		"invalid": [
-			{ "type": "shoot" },
-			{ "type": "shoot", "target": 1 },
-			{ "type": "shoot", "target": ["p-2"] },
-			{ "type": "move", "target": "p-2" }
+			{
+				"type": "shoot"
+			},
+			{
+				"type": "shoot",
+				"target": 1
+			},
+			{
+				"type": "shoot",
+				"target": ["p-2"]
+			},
+			{
+				"type": "move",
+				"target": "p-2"
+			}
+		]
+	},
+	"openDoor": {
+		"valid": [
+			{
+				"type": "open-door",
+				"door": {
+					"a": {
+						"x": 1,
+						"z": 1
+					},
+					"b": {
+						"x": 2,
+						"z": 1
+					}
+				}
+			},
+			{
+				"type": "open-door",
+				"door": {
+					"a": {
+						"x": 2,
+						"z": 2
+					},
+					"b": {
+						"x": 2,
+						"z": 3
+					}
+				}
+			}
+		],
+		"invalid": [
+			{
+				"type": "open-door"
+			},
+			{
+				"type": "open-door",
+				"door": {
+					"a": {
+						"x": 1,
+						"z": 1
+					},
+					"b": {
+						"x": 3,
+						"z": 1
+					}
+				}
+			},
+			{
+				"type": "open-door",
+				"door": {
+					"a": {
+						"x": 1,
+						"z": 1
+					}
+				}
+			},
+			{
+				"type": "open-door",
+				"door": {
+					"a": {
+						"x": "1",
+						"z": 1
+					},
+					"b": {
+						"x": 2,
+						"z": 1
+					}
+				}
+			},
+			{
+				"type": "shoot",
+				"door": {
+					"a": {
+						"x": 1,
+						"z": 1
+					},
+					"b": {
+						"x": 2,
+						"z": 1
+					}
+				}
+			}
+		]
+	},
+	"doorsNotice": {
+		"valid": [
+			{
+				"type": "doors",
+				"open": []
+			},
+			{
+				"type": "doors",
+				"open": [
+					{
+						"a": {
+							"x": 1,
+							"z": 1
+						},
+						"b": {
+							"x": 2,
+							"z": 1
+						}
+					},
+					{
+						"a": {
+							"x": 2,
+							"z": 2
+						},
+						"b": {
+							"x": 3,
+							"z": 2
+						}
+					}
+				]
+			}
+		],
+		"invalid": [
+			{
+				"type": "doors"
+			},
+			{
+				"type": "doors",
+				"open": [
+					{
+						"a": {
+							"x": 1,
+							"z": 1
+						},
+						"b": {
+							"x": 1,
+							"z": 3
+						}
+					}
+				]
+			},
+			{
+				"type": "doors",
+				"open": "none"
+			},
+			{
+				"type": "door",
+				"open": []
+			}
 		]
 	}
 }

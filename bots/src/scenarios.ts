@@ -124,4 +124,102 @@ export const scenarios: readonly Scenario[] = [
 			hider("bot-c", false),
 		],
 	},
+	{
+		// 壁越し・閉じた襖越しの射撃は外れ、開けた襖越しの射撃は当たる（issue-29b）。
+		// 部屋を1つ選び（plan.ts の pickDoorShot）、隠れ側 B は部屋の壁際（r）、C は襖の内側（s）へ、
+		// 襖が全部開いている準備移動の間に歩く。探索（襖は全部閉じる）で、鬼 A は玄関から歩いて、
+		// 壁の向こう（w）から B を撃ち、襖の前（c）へ移って、閉じたまま C を撃ち、襖を開けて C を撃つ。
+		// 外れの確かめは、撃ってから 120 ms の間（縮めた撃つ間隔 150 ms の内側）に、隠れている
+		// 一覧が変わらないこと。B は最後まで隠れているので、時間切れで隠れ側の勝ち（C は発見）。
+		name: "壁越し・襖越しの射撃",
+		bots: ["bot-a", "bot-b", "bot-c"],
+		steps: [
+			{ on: "joined", bot: "bot-a", action: { type: "touch-area" } },
+			{
+				on: { phase: "preparation" },
+				bot: "bot-b",
+				action: { type: "go", to: "r", doors: "open" },
+			},
+			{
+				on: { phase: "preparation" },
+				bot: "bot-c",
+				action: { type: "go", to: "s", doors: "open" },
+			},
+			{
+				on: { phase: "exploration" },
+				bot: "bot-a",
+				action: { type: "go", to: "w", doors: "closed" },
+				delayMs: 50,
+			},
+			{
+				on: { phase: "exploration" },
+				bot: "bot-a",
+				action: { type: "shoot", target: "bot-b" },
+				delayMs: 150,
+			},
+			{
+				on: { phase: "exploration" },
+				bot: "bot-a",
+				action: {
+					type: "expect-hiding",
+					check: "壁越しの射撃は外れる",
+					target: "bot-b",
+					hiding: true,
+				},
+				delayMs: 270,
+			},
+			{
+				on: { phase: "exploration" },
+				bot: "bot-a",
+				action: { type: "go", to: "c", doors: "closed" },
+				delayMs: 350,
+			},
+			{
+				on: { phase: "exploration" },
+				bot: "bot-a",
+				action: { type: "shoot", target: "bot-c" },
+				delayMs: 450,
+			},
+			{
+				on: { phase: "exploration" },
+				bot: "bot-a",
+				action: {
+					type: "expect-hiding",
+					check: "閉じた襖越しの射撃は外れる",
+					target: "bot-c",
+					hiding: true,
+				},
+				delayMs: 570,
+			},
+			{
+				on: { phase: "exploration" },
+				bot: "bot-a",
+				action: { type: "open-door" },
+				delayMs: 650,
+			},
+			{
+				on: { phase: "exploration" },
+				bot: "bot-a",
+				action: { type: "shoot", target: "bot-c" },
+				delayMs: 800,
+			},
+			{
+				on: { phase: "exploration" },
+				bot: "bot-a",
+				action: {
+					type: "expect-hiding",
+					check: "開けた襖越しの射撃は当たる",
+					target: "bot-c",
+					hiding: false,
+				},
+				delayMs: 920,
+			},
+		],
+		receivers: ["bot-a", "bot-b", "bot-c"],
+		rankings: [
+			hider("bot-b", true),
+			{ bot: "bot-c", rank: 1, score: 1, details: details.hiderWonFound },
+			oni("bot-a", false),
+		],
+	},
 ];

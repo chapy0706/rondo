@@ -329,14 +329,21 @@ describe("観戦（issue-28）", () => {
 		z: 10.5,
 		facing: -1.57,
 		pose: "standing",
-		openDoors: [{ corridor: { x: 3, z: 2 }, slot: { x: 2, z: 2 } }],
+		openDoors: [{ a: { x: 2, z: 2 }, b: { x: 3, z: 2 } }],
 	};
 
 	it("鬼の状態の通知を検証して読む", () => {
 		expect(parseOniNotice(oni)).toEqual(oni);
 		expect(parseOniNotice({ ...oni, x: "1" })).toBeNull();
 		expect(parseOniNotice({ ...oni, pose: "jump" })).toBeNull();
-		expect(parseOniNotice({ ...oni, openDoors: [{ corridor: 1 }] })).toBeNull();
+		expect(parseOniNotice({ ...oni, openDoors: [{ a: 1 }] })).toBeNull();
+		// 襖は境 {a, b} で指す（issue-29b）。前の {corridor, slot} の形は読まない。
+		expect(
+			parseOniNotice({
+				...oni,
+				openDoors: [{ corridor: { x: 3, z: 2 }, slot: { x: 2, z: 2 } }],
+			}),
+		).toBeNull();
 		expect(parseOniNotice({ type: "hiders" })).toBeNull();
 	});
 

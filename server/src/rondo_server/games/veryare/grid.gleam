@@ -312,6 +312,44 @@ fn first_boundary(start: Float, d: Float, index: Int) -> Float {
   }
 }
 
+/// 点から境（2マスが接する辺の線分）までの距離（メートル）。襖を開ける距離の判定に使う
+/// （issue-29b）。
+pub fn distance_to_edge(
+  grid: Grid,
+  edge: Edge,
+  point: #(Float, Float),
+) -> Float {
+  let Edge(a, b) = edge
+  // 辺の両端（マスの単位）。a と b は隣り合う。
+  let #(start, end) = case a.x == b.x {
+    // 上下に並ぶ: z = 大きい方の z の線で、x は a.x〜a.x + 1。
+    True -> {
+      let z = int.to_float(int.max(a.z, b.z))
+      #(#(int.to_float(a.x), z), #(int.to_float(a.x) +. 1.0, z))
+    }
+    // 左右に並ぶ: x = 大きい方の x の線で、z は a.z〜a.z + 1。
+    False -> {
+      let x = int.to_float(int.max(a.x, b.x))
+      #(#(x, int.to_float(a.z)), #(x, int.to_float(a.z) +. 1.0))
+    }
+  }
+  let s = from_units(grid, start)
+  let e = from_units(grid, end)
+  let dx = e.0 -. s.0
+  let dz = e.1 -. s.1
+  let length2 = dx *. dx +. dz *. dz
+  let t =
+    float.clamp(
+      { { point.0 -. s.0 } *. dx +. { point.1 -. s.1 } *. dz } /. length2,
+      0.0,
+      1.0,
+    )
+  let nx = s.0 +. dx *. t -. point.0
+  let nz = s.1 +. dz *. t -. point.1
+  let assert Ok(d) = float.square_root(nx *. nx +. nz *. nz)
+  d
+}
+
 // --- 骨格を写す -------------------------------------------------------------------
 
 /// 骨格（ADR 0032）を移動の規則の入力に写す。1マス 1 m、原点 (0, 0)。廊下・縁側・玄関は

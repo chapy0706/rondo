@@ -35,7 +35,6 @@ export type {
 } from "./result";
 export type {
 	VeryareCell,
-	VeryareDoor,
 	VeryareHiderState,
 	VeryareHidersNotice,
 	VeryareHidingNotice,
@@ -44,7 +43,9 @@ export type {
 	VeryarePose,
 	VeryareShootEvent,
 	VeryareDoorKind,
+	VeryareDoorsNotice,
 	VeryareEdge,
+	VeryareOpenDoorEvent,
 	VeryareStageDoor,
 	VeryareStageNotice,
 } from "./veryare";

@@ -61,6 +61,10 @@ pub const reload_ms = 3000
 /// 射撃の射程（メートル / issue-27）。調整できるよう定数にする。
 pub const shot_range = 8.0
 
+/// 襖を開けられる距離（メートル / issue-29b・ADR 0042）。襖の境からこの距離以内。骨格でも
+/// 平屋でも同じ。
+pub const door_reach = 1.5
+
 /// 最小人数（鬼1 + 隠れ側1 / ADR 0030）。鬼選出のカウントダウンの開始と成立に使う。
 pub const min_players = 2
 
@@ -170,11 +174,13 @@ pub type Game(id) {
     seen: List(id),
     /// 最後に受け付けた射撃の時刻（ミリ秒。呼び出し側の時計）。撃つ間隔の判定に使う。
     last_shot: Option(Int),
-    /// 射撃の判定で見通し（壁）を見るか。ステージの座標が統一される issue-29 まで False。
+    /// 射撃の判定で見通し（壁・閉じた襖）を見るか。ステージの座標が統一された issue-29b から
+    /// True。テストで、射程だけを確かめるときに False にできる。
     shot_sight: Bool,
     /// ステージを移動の規則の入力に写したもの（issue-29a / ADR 0042）。
     grid: Grid,
-    /// 開いている襖。issue-29a の間は全部開いている扱い（開閉は issue-29b）。
+    /// 開いている襖（issue-29b / ADR 0042）。人間が開けた襖も、鬼 CPU が開けた襖も、ここだけが
+    /// 持つ。準備移動の開始で全部開き、探索の開始で全部閉じ、答え合わせの開始で全部開く。
     open_doors: Set(Edge),
   )
 }
@@ -235,7 +241,7 @@ pub fn new_with(
     oni_cpu: None,
     seen: [],
     last_shot: None,
-    shot_sight: False,
+    shot_sight: True,
   )
 }
 
@@ -385,14 +391,45 @@ pub fn shoot(
   }
 }
 
-/// 射撃の見通し。襖は開いている扱いで、壁だけが遮る（人間の鬼が開けた襖は、まだサーバーに
-/// 届かないため / issue-29）。
+/// 射撃の見通し。壁と閉じた襖が遮り、open（開いている襖）は通す（issue-29b）。
 pub fn shot_line_clear(
   map: sight.Map,
+  open: Set(stage.Door),
   from: #(Float, Float),
   to: #(Float, Float),
 ) -> Bool {
-  sight.line_of_sight(map, set.from_list(sight.doors(map)), from, to)
+  sight.line_of_sight(map, open, from, to)
+}
+
+/// 開いている襖を、見通しの判定（sight）と鬼 CPU が使う形（廊下側のマスと部屋側のマス）に
+/// 直す。どちらが廊下側かは、見通しの地図の領域で決める。
+pub fn sight_doors(game: Game(id)) -> Set(stage.Door) {
+  game.open_doors
+  |> set.map(fn(edge) {
+    case sight.region_at(game.sight_map, edge.a) {
+      Ok(sight.Open) -> stage.Door(corridor: edge.a, slot: edge.b)
+      _ -> stage.Door(corridor: edge.b, slot: edge.a)
+    }
+  })
+}
+
+/// 襖を開ける報告（issue-29b）。準備移動・ペイント・探索の間に、ステージにいる人が、
+/// 襖（戸の一覧の開閉できる戸）の境から door_reach 以内にいるときだけ開く。開けた襖は
+/// 開けっぱなし。条件に合わなければ何もしない。
+pub fn open_door(game: Game(id), player: id, edge: Edge) -> Game(id) {
+  let phase_ok = case game.phase {
+    Preparation | Painting | Exploration -> True
+    _ -> False
+  }
+  let near = case dict.get(game.positions, player) {
+    Ok(Position(Stage, x, z)) ->
+      grid.distance_to_edge(game.grid, edge, #(x, z)) <=. door_reach
+    _ -> False
+  }
+  case phase_ok && near && set.contains(grid.fusuma(game.grid), edge) {
+    True -> Game(..game, open_doors: set.insert(game.open_doors, edge))
+    False -> game
+  }
 }
 
 fn reloaded(game: Game(id), now_ms: Int) -> Bool {
@@ -417,7 +454,10 @@ fn hits(game: Game(id), oni: id, target: id) -> Bool {
       in_range
       && {
         !game.shot_sight
-        || shot_line_clear(game.sight_map, #(ox, oz), #(tx, tz))
+        || shot_line_clear(game.sight_map, sight_doors(game), #(ox, oz), #(
+          tx,
+          tz,
+        ))
       }
     }
     _, _, _ -> False
@@ -623,15 +663,21 @@ pub fn tick(game: Game(id)) -> Game(id) {
             _ -> Error(Nil)
           }
         })
+      // 鬼 CPU は、ゲームの襖の状態を見て歩き、開けた襖をゲームの状態へ返す（issue-29b）。
+      let walker = oni_cpu.OniCpu(..walker, open_doors: sight_doors(game))
       let #(walker, found_ids, seen) =
         oni_cpu.step(walker, game.sight_map, game.layout, hiders)
       let #(x, z) = walker.position
+      let opened =
+        walker.open_doors
+        |> set.map(fn(door) { grid.edge(door.corridor, door.slot) })
       let moved =
         Game(
           ..game,
           oni_cpu: Some(walker),
           seen:,
           positions: dict.insert(game.positions, oni, Position(Stage, x, z)),
+          open_doors: set.union(game.open_doors, opened),
         )
       list.fold(found_ids, moved, found)
     }
@@ -684,8 +730,15 @@ fn spawn_position(game: Game(id)) -> Position {
   Position(Stage, x, z)
 }
 
+/// 次のフェーズへ。襖は、準備移動・答え合わせの開始で全部開き、探索の開始で全部閉じる
+/// （ADR 0033・0042）。ほかのフェーズでは、そのまま。
 fn next(game: Game(id), phase: Phase) -> Game(id) {
-  Game(..game, phase:, step: game.step + 1)
+  let open_doors = case phase {
+    Preparation | Reveal(_) -> grid.fusuma(game.grid)
+    Exploration -> set.new()
+    _ -> game.open_doors
+  }
+  Game(..game, phase:, step: game.step + 1, open_doors:)
 }
 
 /// 勝敗が決まった。答え合わせタイムへ進む。

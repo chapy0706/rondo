@@ -10,15 +10,32 @@
  * 乱数の種（seed）は、参加の間隔の揺らぎに使う。失敗したら同じ種で再現できる。
  */
 
-import type { ServerMessage, VeryareShootEvent } from "@rondo/contracts";
+import type {
+	ServerMessage,
+	VeryareOpenDoorEvent,
+	VeryareShootEvent,
+} from "@rondo/contracts";
 import { Bot, type CreateSocket } from "./client.ts";
 import {
 	type ScenarioResult,
 	checkGameEnded,
 	checkTargeted,
 } from "./expect.ts";
+import {
+	type Cell,
+	type DoorShotPlan,
+	cellOf,
+	centerOf,
+	findPath,
+	pickDoorShot,
+} from "./plan.ts";
 import { type Action, type Scenario, matchesTrigger } from "./scenario.ts";
-import { type Point, readStageNotice, spreadSpots } from "./stage.ts";
+import {
+	type Point,
+	type StageMap,
+	readStageNotice,
+	spreadSpots,
+} from "./stage.ts";
 
 export interface RunOptions {
 	readonly url: string;
@@ -65,6 +82,12 @@ export async function runScenario(
 		);
 		if (created.type !== "room-joined") throw new Error("ルームを作れない");
 		const roomId = created.roomId;
+		// 手順が使う共有の状態（選んだマス・各ボットのいるマス・確かめの問題）。
+		const context: Context = {
+			plan: undefined,
+			at: new Map(),
+			problems: [],
+		};
 		// ボットの名前から、サーバーが発行したプレイヤー識別子へ（撃つ相手の指定に使う）。
 		const idOf = (name: string): string | null =>
 			bots.get(name)?.playerId ?? null;
@@ -91,13 +114,13 @@ export async function runScenario(
 				if (!matchesTrigger(trigger, message.payload)) return;
 				done = true;
 				off();
-				later(step.delayMs, () => act(bot, step.action, roomId, idOf));
+				later(step.delayMs, () => act(bot, step.action, roomId, idOf, context));
 			});
 		}
 		for (const step of scenario.steps) {
 			if (step.on !== "joined") continue;
 			const bot = bots.get(step.bot) as Bot;
-			later(step.delayMs, () => act(bot, step.action, roomId, idOf));
+			later(step.delayMs, () => act(bot, step.action, roomId, idOf, context));
 		}
 
 		// 届くべきボット全員に game-ended が届くのを待つ。
@@ -123,7 +146,10 @@ export async function runScenario(
 		const ids = new Map(
 			[...bots].map(([name, bot]) => [name, bot.playerId ?? ""] as const),
 		);
-		const problems = checkGameEnded(scenario, ids, got);
+		const problems = [
+			...context.problems,
+			...checkGameEnded(scenario, ids, got),
+		];
 		// 退出したボットには、game-ended が届かないこと（参加者でない接続には送らない）。
 		for (const [name, bot] of bots) {
 			if (scenario.receivers.includes(name)) continue;
@@ -159,11 +185,22 @@ export async function runScenario(
 	}
 }
 
+/** 手順のあいだで共有する状態。 */
+interface Context {
+	/** 壁越し・襖越しの射撃のマス。最初に要るときに、届いたステージの通知から選ぶ。 */
+	plan: DoorShotPlan | null | undefined;
+	/** 各ボットが歩いて着いたマス（まだ歩いていなければ玄関）。 */
+	readonly at: Map<string, Cell>;
+	/** 確かめで見つかった問題。 */
+	readonly problems: string[];
+}
+
 function act(
 	bot: Bot,
 	action: Action,
 	roomId: string,
 	idOf: (name: string) => string | null,
+	context: Context,
 ): void {
 	switch (action.type) {
 		case "touch-area":
@@ -182,6 +219,45 @@ function act(
 			if (spot !== null) move(bot, roomId, spot.x, spot.z);
 			break;
 		}
+		case "go": {
+			const stage = stageOf(bot);
+			const plan = planOf(bot, context);
+			if (stage === null || plan === null) break;
+			const from = context.at.get(bot.name) ?? cellOf(stage, stage.spawn);
+			const path = findPath(stage, from, plan[action.to], action.doors);
+			if (path === null) {
+				context.problems.push(`${bot.name} が ${action.to} へ歩けない`);
+				break;
+			}
+			// 1マスずつ、マスの中心へ動く（隣のマスへは一直線なので、移動の規則でそのまま着く）。
+			for (const cell of path) {
+				const p = centerOf(stage, cell);
+				move(bot, roomId, p.x, p.z);
+			}
+			context.at.set(bot.name, plan[action.to]);
+			break;
+		}
+		case "open-door": {
+			const plan = planOf(bot, context);
+			if (plan === null) break;
+			const payload: VeryareOpenDoorEvent = {
+				type: "open-door",
+				door: plan.door,
+			};
+			bot.send({ type: "game-event", gameType: GAME_TYPE, roomId, payload });
+			break;
+		}
+		case "expect-hiding": {
+			const id = idOf(action.target);
+			const hiding = latestHiding(bot);
+			const actual = id !== null && hiding !== null && hiding.includes(id);
+			if (actual !== action.hiding) {
+				context.problems.push(
+					`${action.check}: ${action.target} は${action.hiding ? "まだ隠れているはず" : "見つかっているはず"}（隠れている一覧: ${hiding?.join(", ") ?? "届いていない"}）`,
+				);
+			}
+			break;
+		}
 		case "shoot": {
 			const payload: VeryareShootEvent = {
 				type: "shoot",
@@ -191,6 +267,46 @@ function act(
 			break;
 		}
 	}
+}
+
+/** ボットに届いたステージの通知。無ければ null。 */
+function stageOf(bot: Bot): StageMap | null {
+	for (const { message } of bot.received) {
+		if (message.type !== "game-state" && message.type !== "game-state-to")
+			continue;
+		const stage = readStageNotice(message.payload);
+		if (stage !== null) return stage;
+	}
+	return null;
+}
+
+/** 壁越し・襖越しの射撃のマス（シナリオで1回だけ選ぶ）。選べなければ問題にする。 */
+function planOf(bot: Bot, context: Context): DoorShotPlan | null {
+	if (context.plan !== undefined) return context.plan;
+	const stage = stageOf(bot);
+	if (stage === null) return null;
+	context.plan = pickDoorShot(stage);
+	if (context.plan === null) {
+		context.problems.push(
+			"壁越し・襖越しに撃つためのマスが、このステージに見つからない",
+		);
+	}
+	return context.plan;
+}
+
+/** いちばん新しい、まだ隠れている一覧。届いていなければ null。 */
+function latestHiding(bot: Bot): readonly string[] | null {
+	let latest: readonly string[] | null = null;
+	for (const { message } of bot.received) {
+		if (message.type !== "game-state") continue;
+		const payload = message.payload as { type?: unknown; playerIds?: unknown };
+		if (payload.type === "hiding" && Array.isArray(payload.playerIds)) {
+			latest = payload.playerIds.filter(
+				(id): id is string => typeof id === "string",
+			);
+		}
+	}
+	return latest;
 }
 
 /** 隠れ場所の距離の上限（メートル）。鬼の射程 8 m（issue-27）の内側に収める。 */

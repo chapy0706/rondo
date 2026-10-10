@@ -1,8 +1,11 @@
+import gleam/dict
 import gleam/dynamic.{type Dynamic}
 import gleam/dynamic/decode
 import gleam/erlang/process.{type Subject}
+import gleam/int
 import gleam/list
 import gleam/option.{None, Some}
+import gleam/set
 import gleam/string
 import gleeunit/should
 import rondo_server/games/veryare/game
@@ -91,16 +94,25 @@ fn next_state(outbox: Subject(ServerMessage)) -> Dynamic {
   }
 }
 
+/// next_state で読み飛ばす通知か。ステージの通知（issue-29a）と、襖の通知（issue-29b）は、
+/// それぞれ next_stage・next_doors で読む。
 fn is_stage(payload: Dynamic) -> Bool {
-  decode.run(payload, decode.field("type", decode.string, decode.success))
-  == Ok("stage")
+  case
+    decode.run(payload, decode.field("type", decode.string, decode.success))
+  {
+    Ok("stage") | Ok("doors") -> True
+    _ -> False
+  }
 }
 
 /// 次に届くステージの通知（全員宛て・本人宛てのどちらでも）。ほかの電文は読み飛ばす。
 fn next_stage(outbox: Subject(ServerMessage)) -> Dynamic {
   case process.receive(outbox, 500) {
     Ok(GameState(payload:, ..)) | Ok(message.GameStateTo(payload:, ..)) ->
-      case is_stage(payload) {
+      case
+        decode.run(payload, decode.field("type", decode.string, decode.success))
+        == Ok("stage")
+      {
         True -> payload
         False -> next_stage(outbox)
       }
@@ -871,6 +883,8 @@ fn to_shooting(
   spread_in_room(room, list.filter(ids, fn(id) { id != "a" }))
   until_phase(a, "exploration")
   field(next_state(a), "type", decode.string) |> should.equal("hiders")
+  // 探索の開始で、襖が全部閉じた通知も届く（issue-29b）。
+  next_doors(a) |> should.equal([])
   #(room, a)
 }
 
@@ -956,4 +970,194 @@ pub fn stage_notice_is_resent_on_resync_test() {
   // 参加者でない人には送らない。
   room_actor.resync(room, PlayerId("outsider"))
   let _ = room_actor.snapshot(room)
+}
+
+// --- 襖の状態と通知（issue-29b） ---------------------------------------------------------
+
+/// 次に届く、襖の通知の「開いている襖」（全員宛て・本人宛てのどちらでも）。ほかは読み飛ばす。
+fn next_doors(outbox: Subject(ServerMessage)) -> List(grid.Edge) {
+  case process.receive(outbox, 1000) {
+    Ok(GameState(payload:, ..)) | Ok(message.GameStateTo(payload:, ..)) ->
+      case stage_notice.decode_doors(payload) {
+        Ok(open) -> open |> set.to_list |> list.sort(compare_edges)
+        Error(Nil) -> next_doors(outbox)
+      }
+    Ok(_) -> next_doors(outbox)
+    Error(Nil) -> panic as "襖の通知が届かない"
+  }
+}
+
+fn compare_edges(a: grid.Edge, b: grid.Edge) {
+  string.compare(string.inspect(a), string.inspect(b))
+}
+
+fn door_event(edge: grid.Edge) -> Dynamic {
+  let cell = fn(c: stage.Cell) {
+    dynamic.properties([
+      #(dynamic.string("x"), dynamic.int(c.x)),
+      #(dynamic.string("z"), dynamic.int(c.z)),
+    ])
+  }
+  dynamic.properties([
+    #(dynamic.string("type"), dynamic.string("open-door")),
+    #(
+      dynamic.string("door"),
+      dynamic.properties([
+        #(dynamic.string("a"), cell(edge.a)),
+        #(dynamic.string("b"), cell(edge.b)),
+      ]),
+    ),
+  ])
+}
+
+fn all_fusuma() -> List(grid.Edge) {
+  grid.fusuma(grid.of_layout(stage.generate(0)))
+  |> set.to_list
+  |> list.sort(compare_edges)
+}
+
+/// ルームの開始で、襖の通知が届く（鬼選出の間は、全部開いている）。
+pub fn door_notice_reaches_members_at_start_test() {
+  let #(room, _) = open_room(["a", "b"], quick(60_000))
+  let a = subscribe(room, "a")
+  let assert Ok(Nil) = room_actor.start_game(room)
+  next_doors(a) |> should.equal(all_fusuma())
+}
+
+/// 探索の開始で全部閉じ、答え合わせの開始で全部開いた、襖の通知が届く。
+pub fn doors_close_at_exploration_and_open_at_reveal_test() {
+  let #(room, outboxes) = open_named(["a", "b"], durations(300, 300))
+  let a = outbox_of(outboxes, "a")
+  start_with_oni_a(room)
+  until_phase(a, "exploration")
+  next_doors(a) |> should.equal([])
+  until_phase(a, "reveal")
+  next_doors(a) |> should.equal(all_fusuma())
+}
+
+/// 鬼が探索中に、襖の近くで開ける報告をすると、開いた襖の通知が全員へ届き、鬼の通知の
+/// openDoors も境 {a, b} の形でその襖を載せる。
+pub fn opening_a_door_notifies_everyone_test() {
+  let #(room, a) = to_shooting(["a", "b"])
+  let layout = stage.generate(0)
+  let g = grid.of_layout(layout)
+  let assert [door, ..] = all_fusuma()
+  let corridor = case dict.get(g.regions, door.a) {
+    Ok("open") -> door.a
+    _ -> door.b
+  }
+  // 鬼を、玄関から廊下をたどって、襖の手前のマスまで歩かせる（1マスずつ）。
+  walk_oni(room, g, layout.skeleton.spawn, corridor)
+  room_actor.game_event(room, PlayerId("a"), door_event(door))
+  next_doors(a) |> should.equal([door])
+  // 同じ襖をもう一度開けても、通知は増えない（開けっぱなし）。
+  room_actor.game_event(room, PlayerId("a"), door_event(door))
+  let _ = room_actor.snapshot(room)
+  room_actor.game_event(
+    room,
+    PlayerId("a"),
+    move_facing(
+      int.to_float(corridor.x) +. 0.5,
+      int.to_float(corridor.z) +. 0.5,
+      1.0,
+    ),
+  )
+  let oni = next_oni(a)
+  let assert Ok(open) =
+    decode.run(
+      oni,
+      decode.field("openDoors", decode.list(edge_decoder()), decode.success),
+    )
+  open |> should.equal([door])
+}
+
+/// 開けられない報告（遠い・形が違う）は無視し、通知も出さない。
+pub fn invalid_door_reports_are_ignored_test() {
+  let #(room, a) = to_shooting(["a", "b"])
+  let assert [door, ..] = all_fusuma()
+  // 鬼は玄関にいて、襖から遠い。
+  room_actor.game_event(room, PlayerId("a"), door_event(door))
+  room_actor.game_event(
+    room,
+    PlayerId("a"),
+    dynamic.properties([#(dynamic.string("type"), dynamic.string("open-door"))]),
+  )
+  let _ = room_actor.snapshot(room)
+  process.receive(a, 50) |> should.equal(Error(Nil))
+}
+
+/// 送信先を登録した人（途中参加・再接続）にも、今の襖の通知が届く。
+pub fn door_notice_reaches_late_subscribers_test() {
+  let #(room, _) = open_room(["a", "b"], quick(60_000))
+  let assert Ok(Nil) = room_actor.start_game(room)
+  let b = subscribe(room, "b")
+  next_doors(b) |> should.equal(all_fusuma())
+}
+
+fn next_oni(outbox: Subject(ServerMessage)) -> Dynamic {
+  let payload = next_state(outbox)
+  case field(payload, "type", decode.string) {
+    "oni" -> payload
+    _ -> next_oni(outbox)
+  }
+}
+
+fn edge_decoder() -> decode.Decoder(grid.Edge) {
+  let cell = {
+    use x <- decode.field("x", decode.int)
+    use z <- decode.field("z", decode.int)
+    decode.success(stage.Cell(x, z))
+  }
+  use a <- decode.field("a", cell)
+  use b <- decode.field("b", cell)
+  decode.success(grid.edge(a, b))
+}
+
+/// 鬼を from から to のマスまで、歩けるマスを1マスずつたどって動かす（幅優先で道を探す）。
+fn walk_oni(
+  room: Subject(Message),
+  g: grid.Grid,
+  from: #(Float, Float),
+  to: stage.Cell,
+) -> Nil {
+  let start = grid.cell_at(g, from)
+  path(g, [[start]], set.from_list([start]), to)
+  |> list.each(fn(cell) {
+    room_actor.game_event(
+      room,
+      PlayerId("a"),
+      move(int.to_float(cell.x) +. 0.5, int.to_float(cell.z) +. 0.5),
+    )
+  })
+}
+
+fn path(
+  g: grid.Grid,
+  frontier: List(List(stage.Cell)),
+  seen: set.Set(stage.Cell),
+  to: stage.Cell,
+) -> List(stage.Cell) {
+  case frontier {
+    [] -> panic as "道が無い"
+    [route, ..rest] -> {
+      let assert [here, ..] = route
+      case here == to {
+        True -> list.reverse(route)
+        False -> {
+          let next =
+            [#(1, 0), #(-1, 0), #(0, 1), #(0, -1)]
+            |> list.map(fn(d) { stage.Cell(here.x + d.0, here.z + d.1) })
+            |> list.filter(fn(c) {
+              !set.contains(seen, c) && grid.passable(g, set.new(), here, c)
+            })
+          path(
+            g,
+            list.append(rest, list.map(next, fn(c) { [c, ..route] })),
+            list.fold(next, seen, set.insert),
+            to,
+          )
+        }
+      }
+    }
+  }
 }

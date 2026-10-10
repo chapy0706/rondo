@@ -14,6 +14,7 @@ import gleeunit/should
 import rondo_server/games/veryare/game.{
   type Game, Ended, Exploration, OniWins, Position, Reveal, Stage,
 }
+import rondo_server/games/veryare/grid
 import rondo_server/games/veryare/sight
 import rondo_server/games/veryare/spread
 import rondo_server/games/veryare/stage.{Cell, Door, Layout, Washitsu}
@@ -46,8 +47,11 @@ fn place(g: Game(String), id: String, x: Float, z: Float) -> Game(String) {
 }
 
 /// 鬼 a を (0, 0)、b を (3, 0)、c を (0, 4) に置く（どちらも射程の内側）。
+/// この節は、射程・間隔・役割の判定だけを確かめるので、見通しの判定は切る（見通しは、
+/// 下の「見通し」の節と、実際のステージでの節で確かめる）。
 fn ready() -> Game(String) {
   exploration()
+  |> fn(g) { game.Game(..g, shot_sight: False) }
   |> place("a", 0.0, 0.0)
   |> place("b", 3.0, 0.0)
   |> place("c", 0.0, 4.0)
@@ -225,39 +229,82 @@ fn tiny() -> sight.Map {
   ))
 }
 
-/// 射撃の見通しは、襖を開いている扱いで、壁だけが遮る。
-pub fn shot_line_is_blocked_only_by_walls_test() {
+/// 射撃の見通しは、壁と閉じた襖が遮り、開いた襖は通す（issue-29b）。
+pub fn shot_line_is_blocked_by_walls_and_closed_doors_test() {
   let map = tiny()
+  let closed = set.new()
+  let open = set.from_list([door_a])
   // 同じ廊下のまっすぐな区間は通る。角を曲がった先は、角越しなので通らない。
-  game.shot_line_clear(map, #(3.5, 1.5), #(3.5, 3.5)) |> should.be_true
-  game.shot_line_clear(map, #(3.5, 1.5), #(1.5, 3.5)) |> should.be_false
-  // 襖は開いている扱いなので、廊下から部屋の中へ通る。
-  game.shot_line_clear(map, #(3.5, 2.5), #(2.5, 2.5)) |> should.be_true
-  // 壁越し（廊下 (1,3) と部屋 A の (1,2) の間は壁）は通らない。
-  game.shot_line_clear(map, #(1.5, 3.5), #(1.5, 2.5)) |> should.be_false
+  game.shot_line_clear(map, closed, #(3.5, 1.5), #(3.5, 3.5)) |> should.be_true
+  game.shot_line_clear(map, closed, #(3.5, 1.5), #(1.5, 3.5)) |> should.be_false
+  // 閉じた襖は遮り、開いた襖は通す（廊下 (3,2) から部屋 A の (2,2)）。
+  game.shot_line_clear(map, closed, #(3.5, 2.5), #(2.5, 2.5)) |> should.be_false
+  game.shot_line_clear(map, open, #(3.5, 2.5), #(2.5, 2.5)) |> should.be_true
+  // 壁越し（廊下 (1,3) と部屋 A の (1,2) の間は壁）は、襖が開いていても通らない。
+  game.shot_line_clear(map, open, #(1.5, 3.5), #(1.5, 2.5)) |> should.be_false
 }
 
-/// 見通しの判定を有効にすると、壁越しには撃てない（外れとして間隔は始まる）。
-/// 実際のルームでは issue-29 で有効にする。
-pub fn walls_block_shots_when_sight_is_enabled_test() {
-  let base =
-    ready()
-    |> fn(g) { game.Game(..g, sight_map: tiny(), shot_sight: True) }
-    |> place("a", 1.5, 3.5)
-  // 壁越し（部屋 A の中の b）には当たらない。
+const door_a = Door(Cell(3, 2), Cell(2, 2))
+
+/// 小さな屋敷で、見通しの判定を入れて撃つ（襖の状態はゲームの状態から）。
+fn tiny_room(open: List(grid.Edge)) -> Game(String) {
+  ready()
+  |> fn(g) {
+    game.Game(
+      ..g,
+      sight_map: tiny(),
+      shot_sight: True,
+      open_doors: set.from_list(open),
+    )
+  }
+}
+
+/// 壁越しの相手には当たらない（外れとして間隔は始まる）。
+pub fn walls_block_shots_test() {
   let through_wall =
-    base |> place("b", 1.5, 2.5) |> game.shoot("a", Some("b"), 10_000)
+    tiny_room([grid.edge(Cell(3, 2), Cell(2, 2))])
+    |> place("a", 1.5, 3.5)
+    |> place("b", 1.5, 2.5)
+    |> game.shoot("a", Some("b"), 10_000)
   hiding(through_wall) |> should.equal(["b", "c"])
   through_wall.last_shot |> should.equal(Some(10_000))
-  // 同じ廊下（見通せる）の b には当たる。
-  base
+}
+
+/// 閉じた襖越しの相手には当たらず、開いた襖越しなら当たる。
+pub fn closed_doors_block_shots_and_open_doors_let_through_test() {
+  let shoot_into_room = fn(open) {
+    tiny_room(open)
+    |> place("a", 3.5, 2.5)
+    |> place("b", 2.5, 2.5)
+    |> game.shoot("a", Some("b"), 10_000)
+    |> hiding
+  }
+  shoot_into_room([]) |> should.equal(["b", "c"])
+  shoot_into_room([grid.edge(Cell(3, 2), Cell(2, 2))]) |> should.equal(["c"])
+}
+
+/// 同じ領域で見通せる相手には当たる。
+pub fn visible_targets_are_hit_test() {
+  tiny_room([])
+  |> place("a", 3.5, 1.5)
   |> place("b", 3.5, 3.5)
   |> game.shoot("a", Some("b"), 10_000)
   |> hiding
   |> should.equal(["c"])
 }
 
-/// 実際のルームでは、見通しの判定は既定で無効（ステージの座標が統一される issue-29 まで）。
-pub fn sight_is_off_by_default_test() {
-  exploration().shot_sight |> should.be_false
+/// 実際のルームでは、見通しの判定が有効（issue-29b）。
+pub fn sight_is_on_by_default_test() {
+  exploration().shot_sight |> should.be_true
+}
+
+/// 実際のステージ（骨格）でも、玄関から一直線に見通せる隠れ側には、見通しを入れたまま当たる。
+pub fn shots_hit_visible_hiders_on_the_real_stage_test() {
+  let g = exploration()
+  g.shot_sight |> should.be_true
+  g
+  |> game.shoot("a", Some("b"), 10_000)
+  |> game.shoot("a", Some("c"), 13_000)
+  |> fn(after) { after.phase }
+  |> should.equal(Reveal(OniWins))
 }

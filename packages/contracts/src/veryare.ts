@@ -44,12 +44,6 @@ export interface VeryareCell {
 	readonly z: number;
 }
 
-/** 襖。廊下のマスと、部屋のマスの境にある。 */
-export interface VeryareDoor {
-	readonly corridor: VeryareCell;
-	readonly slot: VeryareCell;
-}
-
 /** 探索中の鬼の状態。鬼 CPU は 0.5秒ごとに送る。 */
 export interface VeryareOniNotice {
 	readonly type: "oni";
@@ -59,8 +53,11 @@ export interface VeryareOniNotice {
 	/** 向き（ラジアン。x 軸から z 軸の向きへ回る）。 */
 	readonly facing: number;
 	readonly pose: VeryarePose;
-	/** 開いている襖（開けっぱなし / ADR 0033）。 */
-	readonly openDoors: readonly VeryareDoor[];
+	/**
+	 * 開いている襖（開けっぱなし / ADR 0033）。ゲームの襖の状態そのもの（人間・鬼 CPU が開けた
+	 * 襖をまとめたもの / issue-29b）。境 {a, b} で指す（ADR 0042）。
+	 */
+	readonly openDoors: readonly VeryareEdge[];
 }
 
 /**
@@ -124,4 +121,24 @@ export interface VeryareStageNotice {
 	readonly doors: readonly VeryareStageDoor[];
 	/** 玄関（鬼と隠れ側のリスポーン位置 / ADR 0032）。 */
 	readonly spawn: { readonly x: number; readonly z: number };
+}
+
+/**
+ * 襖の通知（issue-29b / ADR 0042）。開いている襖の一覧。準備移動の開始で全部開き、探索の
+ * 開始で全部閉じ、答え合わせの開始で全部開く。開ける報告が通ったときにも送る。
+ * 途中参加・再接続の人には、本人へ今の状態を送る。
+ */
+export interface VeryareDoorsNotice {
+	readonly type: "doors";
+	readonly open: readonly VeryareEdge[];
+}
+
+/**
+ * 襖を開ける報告（issue-29b）。game-event の payload として送る。開けられるかはサーバーが
+ * 決める（準備移動・ペイント・探索の間、ステージにいる人が、襖の境から 1.5 m 以内）。
+ * 開いたかどうかは、襖の通知で分かる。
+ */
+export interface VeryareOpenDoorEvent {
+	readonly type: "open-door";
+	readonly door: VeryareEdge;
 }

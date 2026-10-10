@@ -234,3 +234,26 @@ pub fn skeleton_layouts_map_to_the_grid_test() {
     grid.walkable(g, grid.cell_at(g, skeleton.spawn)) |> should.be_true
   })
 }
+
+// --- 境までの距離（襖を開ける距離の判定 / issue-29b） ---------------------------------
+
+/// 点から境（2マスが接する辺）までの距離。辺の上なら 0、辺の延長の外は端点までの距離。
+pub fn distance_to_edge_test() {
+  let g = unit()
+  // (1,1)-(2,1) の境は、x = 2、z が 1〜2 の線分。
+  let door = grid.edge(Cell(1, 1), Cell(2, 1))
+  grid.distance_to_edge(g, door, #(2.0, 1.5)) |> should.equal(0.0)
+  grid.distance_to_edge(g, door, #(0.5, 1.5)) |> should.equal(1.5)
+  grid.distance_to_edge(g, door, #(2.0, 3.0)) |> should.equal(1.0)
+  // (0,2)-(0,3) の境は、z = 3、x が 0〜1 の線分。
+  let horizontal = grid.edge(Cell(0, 2), Cell(0, 3))
+  grid.distance_to_edge(g, horizontal, #(0.5, 4.5)) |> should.equal(1.5)
+  // マスの大きさと原点に従う。
+  let scaled = tiny(0.3, #(-6.225, -0.275))
+  let d =
+    grid.distance_to_edge(scaled, door, #(
+      -6.225 +. 0.3 *. 2.0,
+      -0.275 +. 0.3 *. 1.5,
+    ))
+  { float.absolute_value(d) <. 0.000001 } |> should.be_true
+}

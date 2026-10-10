@@ -228,6 +228,7 @@ fn start(
   // ステージの通知（issue-29a）を全員へ送ってから、フェーズの通知を送る。
   #(wrap(initial, pick), [
     driver.Broadcast(stage_notice.payload(layout)),
+    driver.Broadcast(stage_notice.doors_payload(initial.open_doors)),
     ..phase_effects(initial)
   ])
 }
@@ -239,7 +240,12 @@ fn wrap(state: Game(PlayerId), pick: fn(Int) -> Int) -> Driver(PlayerId) {
         // 鬼の射撃の申告（issue-27）。判定は状態機械が行い、時刻はここで付ける。
         Ok(target) ->
           step(state, game.shoot(state, player, target, now_ms()), pick)
-        Error(_) -> moved(state, player, payload, pick)
+        Error(_) ->
+          case decode.run(payload, stage_notice.open_door_decoder()) {
+            // 襖を開ける報告（issue-29b）。開けられるかは状態機械が決める。
+            Ok(door) -> step(state, game.open_door(state, player, door), pick)
+            Error(_) -> moved(state, player, payload, pick)
+          }
       }
     },
     on_leave: fn(player) { step(state, game.leave(state, player), pick) },
@@ -260,9 +266,13 @@ fn wrap(state: Game(PlayerId), pick: fn(Int) -> Int) -> Driver(PlayerId) {
       }
     },
   )
-  // 途中参加・再接続の人には、本人宛てでステージの通知を送る（issue-29a）。
+  // 途中参加・再接続の人には、本人宛てで、ステージの通知（issue-29a）と、今の襖の通知
+  // （issue-29b）を送る。
   |> driver.on_subscribe(fn(player) {
-    [driver.Deliver([player], stage_notice.payload(state.layout))]
+    [
+      driver.Deliver([player], stage_notice.payload(state.layout)),
+      driver.Deliver([player], stage_notice.doors_payload(state.open_doors)),
+    ]
   })
 }
 
@@ -306,6 +316,14 @@ fn step(
   let hiding = case after.still_hiding == before.still_hiding {
     True -> []
     False -> [driver.Broadcast(hiding_payload(after))]
+  }
+  // 開いている襖が変わったら（開ける報告・鬼 CPU・フェーズの切り替え）、全員へ送る（issue-29b）。
+  let hiding = case after.open_doors == before.open_doors {
+    True -> hiding
+    False ->
+      list.append(hiding, [
+        driver.Broadcast(stage_notice.doors_payload(after.open_doors)),
+      ])
   }
   #(wrap(after, pick), list.flatten([effects, hiding, finish(before, after)]))
 }
@@ -550,41 +568,23 @@ fn hiders_payload(state: Game(PlayerId)) -> Dynamic {
 }
 
 /// 鬼 CPU の状態（人間の鬼も issue-28 で同じ形で送る）。
-/// { type: "oni", playerId, x, z, facing, pose, openDoors: [{ corridor: {x, z}, slot: {x, z} }] }。
+/// { type: "oni", playerId, x, z, facing, pose, openDoors: [{ a: {x, z}, b: {x, z} }] }。
+/// openDoors は、ゲームの襖の状態（人間・鬼 CPU が開けた襖をまとめたもの / issue-29b）。
 fn oni_payload(state: Game(PlayerId)) -> Option(Dynamic) {
-  let cell = fn(c: stage.Cell) {
-    dynamic.properties([
-      #(dynamic.string("x"), dynamic.int(c.x)),
-      #(dynamic.string("z"), dynamic.int(c.z)),
-    ])
-  }
-  let door = fn(d: stage.Door) {
-    dynamic.properties([
-      #(dynamic.string("corridor"), cell(d.corridor)),
-      #(dynamic.string("slot"), cell(d.slot)),
-    ])
-  }
+  let doors =
+    state.open_doors |> set.to_list |> list.map(stage_notice.edge_payload)
   // 鬼 CPU は自分の状態から、人間の鬼は報告された位置と向きから作る。
-  // 人間の鬼が開けた襖は、襖を実装する issue-29 まで空。
   let state_of = case state.oni, state.oni_cpu {
-    Some(oni), Some(walker) ->
-      Ok(#(
-        oni,
-        walker.position,
-        walker.facing,
-        list.map(set.to_list(walker.open_doors), door),
-      ))
+    Some(oni), Some(walker) -> Ok(#(oni, walker.position, walker.facing, doors))
     Some(oni), None ->
       case dict.get(state.positions, oni) {
         Ok(position) ->
-          Ok(
-            #(
-              oni,
-              #(position.x, position.z),
-              result.unwrap(dict.get(state.facings, oni), 0.0),
-              [],
-            ),
-          )
+          Ok(#(
+            oni,
+            #(position.x, position.z),
+            result.unwrap(dict.get(state.facings, oni), 0.0),
+            doors,
+          ))
         Error(Nil) -> Error(Nil)
       }
     None, _ -> Error(Nil)

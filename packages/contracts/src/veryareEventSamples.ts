@@ -7,7 +7,12 @@
  * （server/test/rondo_server/games/veryare/shoot_fixture_test.gleam）。
  */
 
-import type { VeryareShootEvent, VeryareStageNotice } from "./veryare";
+import type {
+	VeryareDoorsNotice,
+	VeryareOpenDoorEvent,
+	VeryareShootEvent,
+	VeryareStageNotice,
+} from "./veryare";
 
 export const shootEventSamples = [
 	{ type: "shoot", target: "p-2" },
@@ -46,3 +51,21 @@ export const stageNoticeSamples = [
 		spawn: { x: -6.075, z: 1.075 },
 	},
 ] satisfies VeryareStageNotice[];
+
+/** 襖を開ける報告の見本（issue-29b）。fixtures/veryare-events.json の openDoor.valid と一致させる。 */
+export const openDoorEventSamples = [
+	{ type: "open-door", door: { a: { x: 1, z: 1 }, b: { x: 2, z: 1 } } },
+	{ type: "open-door", door: { a: { x: 2, z: 2 }, b: { x: 2, z: 3 } } },
+] satisfies VeryareOpenDoorEvent[];
+
+/** 襖の通知の見本（issue-29b）。fixtures/veryare-events.json の doorsNotice.valid と一致させる。 */
+export const doorsNoticeSamples = [
+	{ type: "doors", open: [] },
+	{
+		type: "doors",
+		open: [
+			{ a: { x: 1, z: 1 }, b: { x: 2, z: 1 } },
+			{ a: { x: 2, z: 2 }, b: { x: 3, z: 2 } },
+		],
+	},
+] satisfies VeryareDoorsNotice[];

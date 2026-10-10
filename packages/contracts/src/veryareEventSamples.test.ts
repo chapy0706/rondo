@@ -2,7 +2,12 @@ import { describe, expect, it } from "vitest";
 import fixture from "./fixtures/veryare-events.json";
 import movement from "./fixtures/veryare-movement.json";
 import stageFixture from "./fixtures/veryare-stage.json";
-import { shootEventSamples, stageNoticeSamples } from "./veryareEventSamples";
+import {
+	doorsNoticeSamples,
+	openDoorEventSamples,
+	shootEventSamples,
+	stageNoticeSamples,
+} from "./veryareEventSamples";
 
 describe("veryare のイベントの見本（TS の型・JSON・Gleam の対応 / ADR 0009）", () => {
 	it("射撃の申告の JSON の見本（valid）は、TS の型で書いた見本と一致する", () => {
@@ -38,5 +43,21 @@ describe("veryare のステージの通知の見本（issue-29a / ADR 0009）", 
 	it("移動の規則の共有の見本の地図は、ステージの通知の見本（1つ目）と同じ", () => {
 		expect(movement.stage).toEqual(stageFixture.valid[0]);
 		expect(movement.cases.length).toBeGreaterThan(0);
+	});
+});
+
+describe("veryare の襖の見本（issue-29b / ADR 0009）", () => {
+	it("襖を開ける報告の JSON の見本（valid）は、TS の型で書いた見本と一致する", () => {
+		expect(fixture.openDoor.valid).toEqual(
+			JSON.parse(JSON.stringify(openDoorEventSamples)),
+		);
+		expect(fixture.openDoor.invalid.length).toBeGreaterThan(0);
+	});
+
+	it("襖の通知の JSON の見本（valid）は、TS の型で書いた見本と一致する", () => {
+		expect(fixture.doorsNotice.valid).toEqual(
+			JSON.parse(JSON.stringify(doorsNoticeSamples)),
+		);
+		expect(fixture.doorsNotice.invalid.length).toBeGreaterThan(0);
 	});
 });

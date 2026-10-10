@@ -9,9 +9,10 @@ import gleam/dynamic/decode
 import gleam/int
 import gleam/list
 import gleam/result
+import gleam/set.{type Set}
 import gleam/string
 import rondo_server/games/veryare/grid.{
-  type DoorKind, type Grid, AlwaysClosed, AlwaysOpen, Fusuma, Grid,
+  type DoorKind, type Edge, type Grid, AlwaysClosed, AlwaysOpen, Fusuma, Grid,
 }
 import rondo_server/games/veryare/skeleton_maps
 import rondo_server/games/veryare/stage.{
@@ -255,4 +256,66 @@ fn point_decoder() -> decode.Decoder(#(Float, Float)) {
 /// 数（整数でも小数でもよい）。
 fn number() -> decode.Decoder(Float) {
   decode.one_of(decode.float, [decode.map(decode.int, int.to_float)])
+}
+
+// --- 襖（issue-29b） ------------------------------------------------------------------
+
+/// 境 {a, b}（契約: VeryareEdge）。
+pub fn edge_payload(edge: Edge) -> Dynamic {
+  dynamic.properties([
+    #(dynamic.string("a"), cell(edge.a)),
+    #(dynamic.string("b"), cell(edge.b)),
+  ])
+}
+
+/// 襖の通知 { type: "doors", open: [{a, b}] }（契約: VeryareDoorsNotice）。開いている襖の一覧。
+pub fn doors_payload(open: Set(Edge)) -> Dynamic {
+  dynamic.properties([
+    #(dynamic.string("type"), dynamic.string("doors")),
+    #(
+      dynamic.string("open"),
+      open |> set.to_list |> list.map(edge_payload) |> dynamic.list,
+    ),
+  ])
+}
+
+/// 襖の通知を読む（共有の見本とテスト用）。
+pub fn decode_doors(value: Dynamic) -> Result(Set(Edge), Nil) {
+  let decoder = {
+    use kind <- decode.field("type", decode.string)
+    use open <- decode.field("open", decode.list(edge_decoder()))
+    case kind {
+      "doors" -> decode.success(open)
+      _ -> decode.failure([], "doors")
+    }
+  }
+  decode.run(value, decoder)
+  |> result.replace_error(Nil)
+  |> result.try(fn(open) {
+    case list.all(open, fn(e) { adjacent(e.a, e.b) }) {
+      True -> Ok(set.from_list(open))
+      False -> Error(Nil)
+    }
+  })
+}
+
+/// 襖を開ける報告 { type: "open-door", door: {a, b} }（契約: VeryareOpenDoorEvent）を読む。
+/// 2マスが隣り合わなければ拒む（境での unknown の検証）。
+pub fn open_door_decoder() -> decode.Decoder(Edge) {
+  use kind <- decode.field("type", decode.string)
+  use door <- decode.field("door", edge_decoder())
+  case kind == "open-door" && adjacent(door.a, door.b) {
+    True -> decode.success(door)
+    False -> decode.failure(door, "open-door")
+  }
+}
+
+fn edge_decoder() -> decode.Decoder(Edge) {
+  use a <- decode.field("a", cell_decoder())
+  use b <- decode.field("b", cell_decoder())
+  decode.success(grid.edge(a, b))
+}
+
+fn adjacent(a: Cell, b: Cell) -> Bool {
+  int.absolute_value(a.x - b.x) + int.absolute_value(a.z - b.z) == 1
 }
