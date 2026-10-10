@@ -90,6 +90,10 @@ importers:
         version: 2.1.9(@types/node@20.17.6)(lightningcss@1.32.0)
 
   e2e:
+    dependencies:
+      '@rondo/bots':
+        specifier: workspace:*
+        version: link:../bots
     devDependencies:
       '@playwright/test':
         specifier: 1.63.0

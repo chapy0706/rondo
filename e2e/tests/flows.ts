@@ -8,6 +8,8 @@ import {
 	test as base,
 	expect,
 } from "@playwright/test";
+import { cellOf, centerOf, findPath, pickDoorShot } from "@rondo/bots/plan";
+import { readStageNotice } from "@rondo/bots/stage";
 import { WsLink } from "./wsLink";
 
 /** ゲーム名（マニフェストの title）。選択画面のカードの名前に使う。 */
@@ -102,4 +104,75 @@ export async function roomWithTwo(
 	const roomId = await playNew(a);
 	await joinFromLobby(b, roomId);
 	return { a, b, roomId };
+}
+
+// --- ステージと襖（issue-29d） ---------------------------------------------------------
+
+/** このタブに届いた veryare の通知（game-state・game-state-to の payload）のうち、type が一致するもの。 */
+export function receivedPayloads(
+	tab: Tab,
+	type: string,
+): Record<string, unknown>[] {
+	return tab.link.frames.flatMap(({ direction, message }) => {
+		if (direction !== "received") return [];
+		if (message.type !== "game-state" && message.type !== "game-state-to") {
+			return [];
+		}
+		const payload = message.payload as Record<string, unknown> | undefined;
+		return payload?.type === type ? [payload] : [];
+	});
+}
+
+/** 画面のフェーズ（data-phase）を待つ。 */
+export async function expectPhase(
+	tab: Tab,
+	phase: string,
+	timeout: number,
+): Promise<void> {
+	await expect(tab.page.getByTestId("veryare")).toHaveAttribute(
+		"data-phase",
+		phase,
+		{ timeout },
+	);
+}
+
+/** 画面の開いている襖の数（data-open-doors）を待つ。 */
+export async function expectOpenDoors(tab: Tab, count: number): Promise<void> {
+	await expect(tab.page.getByTestId("veryare")).toHaveAttribute(
+		"data-open-doors",
+		String(count),
+	);
+}
+
+/**
+ * 鬼のタブから、玄関から閉じた襖の前まで1マスずつ歩き、その襖を開ける報告を送る（サーバーへの
+ * 電文で代える）。襖と道は、ボットと同じ選び方（@rondo/bots/plan。10種の骨格で見つかることを
+ * ボットのテストが確かめる）。
+ */
+export function walkAndOpenDoor(tab: Tab, roomId: string): void {
+	const [notice] = receivedPayloads(tab, "stage");
+	const stage = readStageNotice(notice);
+	if (stage === null) throw new Error("ステージの通知が届いていない");
+	const plan = pickDoorShot(stage);
+	if (plan === null) throw new Error("開ける襖が見つからない");
+	const path = findPath(stage, cellOf(stage, stage.spawn), plan.c, "closed");
+	if (path === null) throw new Error("襖の前へ歩けない");
+	const send = (payload: Record<string, unknown>) =>
+		tab.link.inject({
+			type: "game-event",
+			gameType: "veryare",
+			roomId,
+			payload,
+		});
+	for (const cell of path) {
+		send({ type: "move", ...centerOf(stage, cell) });
+	}
+	send({ type: "open-door", door: plan.door });
+}
+
+/** ステージの通知の襖（いつも開いている・いつも閉じている戸を除く）の数。 */
+export function fusumaCount(tab: Tab): number {
+	const [notice] = receivedPayloads(tab, "stage");
+	const doors = (notice?.doors ?? []) as { kind?: unknown }[];
+	return doors.filter((door) => door.kind === "fusuma").length;
 }

@@ -9,6 +9,7 @@ import {
 	expectArea,
 	joinFromLobby,
 	playNew,
+	receivedPayloads,
 	roomWithTwo,
 	test,
 	touchArea,
@@ -128,4 +129,21 @@ test("シナリオ4: 接続の失敗（遮断したまま新しく遊ぶ → 約
 	await failed.getByRole("button", { name: "もう一度" }).click();
 	await expect(a.page.getByTestId("veryare-area")).toBeVisible();
 	await expect.poll(() => a.link.roomId()).not.toBeNull();
+});
+
+test("ステージの通知と襖の通知が、両方のタブのフレームに出る（issue-29d）", async ({
+	openTab,
+}) => {
+	const { a, b } = await roomWithTwo(openTab);
+	for (const tab of [a, b]) {
+		await expect
+			.poll(() => receivedPayloads(tab, "stage").length)
+			.toBeGreaterThan(0);
+		await expect
+			.poll(() => receivedPayloads(tab, "doors").length)
+			.toBeGreaterThan(0);
+		const [stage] = receivedPayloads(tab, "stage");
+		expect(Array.isArray(stage?.rows)).toBe(true);
+		expect(Array.isArray(stage?.doors)).toBe(true);
+	}
 });

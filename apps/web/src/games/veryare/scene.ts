@@ -12,6 +12,7 @@
  */
 
 import * as THREE from "three";
+import { CAMERA_DISTANCE, CAMERA_PITCH, EYE_HEIGHT } from "./camera";
 import type { View } from "./rules";
 import {
 	type AreaState,
@@ -41,10 +42,6 @@ const AREA_COLORS = {
 } as const;
 
 const WALL_HEIGHT = 1.2;
-/** 目線の高さ（カメラが見る点）。 */
-const EYE_HEIGHT = 0.8;
-/** カメラとアバターの距離（三人称）。 */
-const CAMERA_DISTANCE = 2.6;
 
 export interface VeryareScene {
 	/** 表示する空間を切り替える。もう一方のグループは描かない。 */
@@ -63,6 +60,11 @@ export interface VeryareScene {
 	setOni(oni: SceneOni | null): void;
 	/** 隠れ側（自分を除く）。color は "#rrggbb"。 */
 	setHiders(hiders: readonly SceneHider[]): void;
+	/**
+	 * 答え合わせの赤い点滅（ADR 0033 / issue-29d）。ids の隠れ側と、self なら自分の体を、
+	 * level（0〜1）の強さで赤く光らせる。ids が空で self が false なら、光らせない。
+	 */
+	setBlink(ids: readonly string[], self: boolean, level: number): void;
 	/** 画面の中央（照準）に重なっている隠れ側の ID。重なっていなければ null（issue-27）。 */
 	pickHider(): string | null;
 	resize(width: number, height: number): void;
@@ -86,6 +88,8 @@ export interface SceneHider {
 /** 鬼の表示を、届いた位置へ寄せる速さ（1秒あたりの割合の目安）。 */
 const ONI_FOLLOW_RATE = 6;
 const ONI_COLOR = 0xef4444;
+/** 答え合わせの点滅の色（赤い発光）。 */
+const BLINK_COLOR = 0xff1a1a;
 
 interface WaitingRoom {
 	readonly group: THREE.Group;
@@ -232,7 +236,7 @@ export function createScene(canvas: HTMLCanvasElement): VeryareScene {
 
 	const camera = new THREE.PerspectiveCamera(60, 1, 0.05, 100);
 	let yaw = 0;
-	let pitch = 0.35;
+	let pitch = CAMERA_PITCH;
 	let view: View = "self";
 	let lastRender = performance.now();
 
@@ -334,6 +338,22 @@ export function createScene(canvas: HTMLCanvasElement): VeryareScene {
 				mesh.position.set(hider.x, 0.5, hider.z);
 				mesh.userData.playerId = hider.id;
 				hiderGroup.add(mesh);
+			}
+		},
+		setBlink(ids, self, level) {
+			const glow = (material: THREE.MeshStandardMaterial, on: boolean) => {
+				material.emissive.setHex(BLINK_COLOR);
+				material.emissiveIntensity = on ? level : 0;
+			};
+			glow(avatarMaterial, self);
+			const targets = new Set(ids);
+			for (const child of hiderGroup.children) {
+				if (!(child instanceof THREE.Mesh)) continue;
+				const id: unknown = child.userData.playerId;
+				glow(
+					child.material as THREE.MeshStandardMaterial,
+					typeof id === "string" && targets.has(id),
+				);
 			}
 		},
 		pickHider() {

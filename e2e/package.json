@@ -8,6 +8,9 @@
 		"e2e:result": "playwright test --grep @result",
 		"type-check": "tsc --noEmit"
 	},
+	"dependencies": {
+		"@rondo/bots": "workspace:*"
+	},
 	"devDependencies": {
 		"@playwright/test": "1.63.0",
 		"@types/node": "20.17.6",

@@ -1161,3 +1161,159 @@ fn path(
     }
   }
 }
+
+// --- 入り直した人への隠れ側の通知（issue-29d） ---------------------------------------------
+
+/// a が鬼の部屋を探索の開始まで進め、探索の開始に全員へ届いた隠れ側の通知を返す。
+fn to_exploration_with_hiders(
+  ids: List(String),
+) -> #(Subject(Message), Subject(ServerMessage), Dynamic) {
+  let durations =
+    game.Durations(
+      oni_selection_ms: 30,
+      preparation_ms: 300,
+      painting_ms: 30,
+      exploration_ms: 60_000,
+      reveal_ms: 30,
+      reload_ms: 200,
+    )
+  let #(room, _) = open_room(ids, durations)
+  let a = subscribe(room, "a")
+  let _info = next_state(a)
+  let assert Ok(Nil) = room_actor.start_game(room)
+  room_actor.game_event(room, PlayerId("a"), move(0.0, 0.0))
+  until_phase(a, "preparation")
+  spread_in_room(room, list.filter(ids, fn(id) { id != "a" }))
+  until_phase(a, "exploration")
+  let hiders = next_state(a)
+  field(hiders, "type", decode.string) |> should.equal("hiders")
+  next_doors(a) |> should.equal([])
+  #(room, a, hiders)
+}
+
+/// 次に届く、隠れ側の通知（全員宛て・本人宛てのどちらでも）。ほかは読み飛ばす。
+fn next_hiders(outbox: Subject(ServerMessage)) -> Dynamic {
+  case process.receive(outbox, 1000) {
+    Ok(GameState(payload:, ..)) | Ok(message.GameStateTo(payload:, ..)) ->
+      case
+        decode.run(payload, decode.field("type", decode.string, decode.success))
+        == Ok("hiders")
+      {
+        True -> payload
+        False -> next_hiders(outbox)
+      }
+    Ok(_) -> next_hiders(outbox)
+    Error(Nil) -> panic as "隠れ側の通知が届かない"
+  }
+}
+
+/// 探索中に入り直した人へ、探索の開始に全員へ送ったのと同じ隠れ側の通知を、本人宛てで送り直す。
+pub fn hiders_notice_is_resent_to_rejoined_players_test() {
+  let #(room, a, hiders) = to_exploration_with_hiders(["a", "b", "c"])
+  room_actor.resync(room, PlayerId("a"))
+  next_hiders(a) |> should.equal(hiders)
+}
+
+/// 見つかった人も、送り直しに載る（探索の開始の時点の一覧から作る）。
+pub fn hiders_notice_resent_includes_found_hiders_test() {
+  let #(room, a, hiders) = to_exploration_with_hiders(["a", "b", "c"])
+  room_actor.game_event(room, PlayerId("a"), shoot(dynamic.string("b")))
+  hiding_ids(next_state(a)) |> should.equal(["c"])
+  room_actor.resync(room, PlayerId("a"))
+  next_hiders(a) |> should.equal(hiders)
+}
+
+/// 参加者でない接続には、送り直さない。
+pub fn hiders_notice_is_not_resent_to_outsiders_test() {
+  let #(room, _a, _hiders) = to_exploration_with_hiders(["a", "b", "c"])
+  let outsider = subscribe(room, "outsider")
+  room_actor.resync(room, PlayerId("outsider"))
+  let _ = room_actor.snapshot(room)
+  process.receive(outsider, 50) |> should.equal(Error(Nil))
+}
+
+/// 届いている電文を読み捨てる（50 ms 何も届かなくなるまで）。
+fn drain(outbox: Subject(ServerMessage)) -> Nil {
+  case process.receive(outbox, 50) {
+    Ok(_) -> drain(outbox)
+    Error(Nil) -> Nil
+  }
+}
+
+/// 入り直した（resync）後に届いた電文に、隠れ側の通知が無いことを確かめる。
+fn no_hiders_on_resync(
+  room: Subject(Message),
+  outbox: Subject(ServerMessage),
+  phase: String,
+) -> Nil {
+  drain(outbox)
+  room_actor.resync(room, PlayerId("a"))
+  let _ = room_actor.snapshot(room)
+  // 失敗したときに、どのフェーズかが分かるよう、フェーズの名前を添えて確かめる。
+  #(phase, list.contains(received_types(outbox, []), "hiders"))
+  |> should.equal(#(phase, False))
+}
+
+/// 指定のフェーズの通知が届くまで、ほかの電文（隠れ側の通知など）を読み飛ばす。
+fn until_phase_skipping(outbox: Subject(ServerMessage), name: String) -> Nil {
+  case process.receive(outbox, 1000) {
+    Ok(GameState(payload:, ..)) ->
+      case
+        decode.run(payload, {
+          use kind <- decode.field("type", decode.string)
+          use phase <- decode.field("phase", decode.string)
+          decode.success(#(kind, phase))
+        })
+      {
+        Ok(#("phase", phase)) if phase == name -> Nil
+        _ -> until_phase_skipping(outbox, name)
+      }
+    Ok(_) -> until_phase_skipping(outbox, name)
+    Error(Nil) -> panic as { "フェーズが届かない: " <> name }
+  }
+}
+
+fn received_types(
+  outbox: Subject(ServerMessage),
+  acc: List(String),
+) -> List(String) {
+  case process.receive(outbox, 50) {
+    Ok(GameState(payload:, ..)) | Ok(message.GameStateTo(payload:, ..)) -> {
+      let kind = case
+        decode.run(payload, decode.field("type", decode.string, decode.success))
+      {
+        Ok(kind) -> kind
+        Error(_) -> ""
+      }
+      received_types(outbox, [kind, ..acc])
+    }
+    Ok(_) -> received_types(outbox, acc)
+    Error(Nil) -> acc
+  }
+}
+
+/// 探索中と答え合わせ中「以外」（鬼選出・準備移動・ペイント・終了後）は、入り直した人へ
+/// 隠れ側の通知を送らない（issue-29d）。
+pub fn hiders_notice_is_not_resent_outside_exploration_and_reveal_test() {
+  let durations =
+    game.Durations(
+      oni_selection_ms: 30,
+      preparation_ms: 500,
+      painting_ms: 500,
+      exploration_ms: 30,
+      reveal_ms: 30,
+      reload_ms: 3000,
+    )
+  let #(room, _) = open_room(["a", "b"], durations)
+  let a = subscribe(room, "a")
+  let _info = next_state(a)
+  let assert Ok(Nil) = room_actor.start_game(room)
+  no_hiders_on_resync(room, a, "oni-selection")
+  room_actor.game_event(room, PlayerId("a"), move(0.0, 0.0))
+  until_phase(a, "preparation")
+  no_hiders_on_resync(room, a, "preparation")
+  until_phase(a, "painting")
+  no_hiders_on_resync(room, a, "painting")
+  until_phase_skipping(a, "ended")
+  no_hiders_on_resync(room, a, "ended")
+}

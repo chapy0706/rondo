@@ -3,6 +3,10 @@
 	"version": "0.0.0",
 	"private": true,
 	"type": "module",
+	"exports": {
+		"./plan": "./src/plan.ts",
+		"./stage": "./src/stage.ts"
+	},
 	"scripts": {
 		"bots": "node src/main.ts",
 		"test": "vitest run",

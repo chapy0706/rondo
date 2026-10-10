@@ -182,6 +182,10 @@ pub type Game(id) {
     /// 開いている襖（issue-29b / ADR 0042）。人間が開けた襖も、鬼 CPU が開けた襖も、ここだけが
     /// 持つ。準備移動の開始で全部開き、探索の開始で全部閉じ、答え合わせの開始で全部開く。
     open_doors: Set(Edge),
+    /// 探索の開始の時点で、まだ隠れていた隠れ側（参加順）。探索の開始で入れ、以後は変えない。
+    /// 入り直した人へ隠れ側の通知を送り直すため（issue-29d）だけに使い、勝敗の判定と
+    /// フェーズの遷移の分岐には使わない。
+    exploration_hiders: List(id),
   )
 }
 
@@ -242,6 +246,7 @@ pub fn new_with(
     seen: [],
     last_shot: None,
     shot_sight: True,
+    exploration_hiders: [],
   )
 }
 
@@ -276,6 +281,20 @@ pub fn hider_states(
 ) -> List(#(id, Position, Option(Placement))) {
   game.players
   |> list.filter(fn(id) { set.contains(game.still_hiding, id) })
+  |> list.map(fn(id) {
+    #(
+      id,
+      position_of(game, id),
+      option.from_result(dict.get(game.cpu_states, id)),
+    )
+  })
+}
+
+/// 探索の開始の時点の隠れ側の状態（hider_states と同じ形）。見つかった人も載る（issue-29d）。
+pub fn exploration_hider_states(
+  game: Game(id),
+) -> List(#(id, Position, Option(Placement))) {
+  game.exploration_hiders
   |> list.map(fn(id) {
     #(
       id,
@@ -739,6 +758,21 @@ fn next(game: Game(id), phase: Phase) -> Game(id) {
     _ -> game.open_doors
   }
   Game(..game, phase:, step: game.step + 1, open_doors:)
+  |> record_exploration_hiders
+}
+
+/// 探索の開始なら、その時点のまだ隠れている隠れ側を残す（issue-29d）。ほかのフェーズでは、そのまま。
+fn record_exploration_hiders(game: Game(id)) -> Game(id) {
+  case game.phase {
+    Exploration ->
+      Game(
+        ..game,
+        exploration_hiders: list.filter(game.players, fn(id) {
+          set.contains(game.still_hiding, id)
+        }),
+      )
+    _ -> game
+  }
 }
 
 /// 勝敗が決まった。答え合わせタイムへ進む。

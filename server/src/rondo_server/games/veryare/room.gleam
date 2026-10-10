@@ -272,6 +272,7 @@ fn wrap(state: Game(PlayerId), pick: fn(Int) -> Int) -> Driver(PlayerId) {
     [
       driver.Deliver([player], stage_notice.payload(state.layout)),
       driver.Deliver([player], stage_notice.doors_payload(state.open_doors)),
+      ..hiders_resend(state, player)
     ]
   })
 }
@@ -532,13 +533,26 @@ fn phase_payload(state: Game(PlayerId)) -> Dynamic {
   ])
 }
 
+/// 探索中・答え合わせ中に入り直した人へ、探索の開始に全員へ送ったのと同じ隠れ側の通知を
+/// 本人宛てで送り直す（issue-29d）。ほかのフェーズと終了後は送らない。
+fn hiders_resend(
+  state: Game(PlayerId),
+  player: PlayerId,
+) -> List(Effect(PlayerId)) {
+  case state.phase {
+    Exploration | Reveal(_) -> [driver.Deliver([player], hiders_payload(state))]
+    _ -> []
+  }
+}
+
 /// 探索開始時の、まだ隠れている隠れ側全員の状態（ADR 0025 / 0035）。
+/// 中身は探索の開始の時点の一覧（game.exploration_hiders）から作るので、送り直しても同じ。
 /// { type: "hiders", hiders: [{ playerId, x, z, facing, pose, paint }] }。
 /// 人間の隠れ側の向き・ポーズ・ペイントは、まだ持たないので null（issue-25 で足す）。
 /// 隠れ CPU のペイントは全面1色で { kind: "uniform", color: "#rrggbb" }。
 fn hiders_payload(state: Game(PlayerId)) -> Dynamic {
   let hiders =
-    game.hider_states(state)
+    game.exploration_hider_states(state)
     |> list.map(fn(entry) {
       let #(PlayerId(id), position, placement) = entry
       let #(facing, pose, paint) = case placement {

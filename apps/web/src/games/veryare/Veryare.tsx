@@ -21,7 +21,9 @@
 import type { VeryareHiderState, VeryareOniNotice } from "@rondo/contracts";
 import { VirtualPad, useRealtimeGame, useVirtualPad } from "@rondo/game-sdk";
 import { useEffect, useRef, useState } from "react";
+import { CAMERA_PITCH } from "./camera";
 import { veryareManifest } from "./manifest";
+import { WALK_SPEED, blinkLevel, blinkTargets, shouldReport } from "./motion";
 import { UNPAINTED_COLOR } from "./palette";
 import {
 	type Outcome,
@@ -62,17 +64,11 @@ import {
 	reconcile,
 } from "./stage";
 
-/** 歩く速さ（m/秒）。 */
 /** 「見つけた！」を出しておく時間（ミリ秒 / issue-27）。 */
 const FOUND_NOTICE_MS = 1500;
 
-const WALK_SPEED = 1.6;
 /** 視点パッドを倒しきったときの回転の速さ（ラジアン/秒）。 */
 const TURN_SPEED = 2.2;
-/** 位置の報告の最短間隔（ミリ秒）。 */
-const SEND_INTERVAL_MS = 100;
-/** 向きだけが変わったときに報告し直す角度の差（ラジアン）。 */
-const FACING_EPSILON = 0.05;
 /** アバターの既定の色（まだ塗っていない体の色。サーバーの palette.gleam と同じ）。 */
 const DEFAULT_COLOR = UNPAINTED_COLOR;
 /** 待機中ペイントで選べる色。本番のペイント（issue-25）とは別の簡易なもの。 */
@@ -113,6 +109,9 @@ function outcomeText(outcome: Outcome, role: Role): string {
 
 export default function Veryare() {
 	const { on, send, you } = useRealtimeGame(veryareManifest);
+	/** 通知の購読の中で、いまの自分の ID を読むための参照。 */
+	const youRef = useRef(you);
+	youRef.current = you;
 	const move = useVirtualPad("move");
 	const look = useVirtualPad("look");
 
@@ -168,7 +167,15 @@ export default function Veryare() {
 		});
 		const offHiders = on("hiders", (payload) => {
 			const next = parseHidersNotice(payload);
-			if (next !== null) setHiders(next.hiders);
+			if (next === null) return;
+			setHiders(next.hiders);
+			// 自分が載っていれば、それがサーバーの持つ自分の位置（探索中の隠れ側は動けない）。
+			// 再接続で玄関から始め直した自分の体も、隠れた場所へ戻る。
+			const self = next.hiders.find((h) => h.playerId === youRef.current);
+			if (self !== undefined) {
+				positionRef.current = { x: self.x, z: self.z };
+				serverRef.current = { x: self.x, z: self.z };
+			}
 		});
 		const offOni = on("oni", (payload) => {
 			const next = parseOniNotice(payload);
@@ -235,6 +242,13 @@ export default function Veryare() {
 						color: h.paint?.color ?? DEFAULT_COLOR,
 					}))
 			: [];
+	// 答え合わせの赤い点滅（ADR 0033）。探索の開始に届いた隠れ側全員（見つかった人も
+	// 逃げ切った人も）。被りで失格した人は一覧に無いので、点滅しない。
+	const blink = blinkTargets(
+		phase,
+		hiders === null ? null : hiders.map((h) => h.playerId),
+		you,
+	);
 	const painting = canPaintWhileWaiting(phase, role);
 	// 射撃（issue-27）。撃てるのは探索フェーズの鬼だけ。間隔は自分のタイマーで見せる。
 	const shootable = canShoot(phase, role, spectator);
@@ -287,6 +301,8 @@ export default function Veryare() {
 	// 鬼希望エリアは鬼選出中だけ見せる。
 	const area = phase === "oni-selection" ? (notice?.area ?? null) : null;
 	const latest = useRef({
+		blink,
+		phaseStartedAt,
 		phase,
 		role,
 		grid,
@@ -303,6 +319,8 @@ export default function Veryare() {
 		sceneHiders,
 	});
 	latest.current = {
+		blink,
+		phaseStartedAt,
 		phase,
 		role,
 		grid,
@@ -342,7 +360,10 @@ export default function Veryare() {
 			observer.observe(canvas);
 
 			let yaw = 0;
-			const pitch = 0.35;
+			const pitch = CAMERA_PITCH;
+			const reduceMotion = window.matchMedia(
+				"(prefers-reduced-motion: reduce)",
+			);
 			let last = performance.now();
 			let lastSent = 0;
 			let sentPosition: Point | null = null;
@@ -378,14 +399,16 @@ export default function Veryare() {
 					// 間引いて送る）。向きは観戦者へ送る鬼の向きに使う（issue-28）。
 					const position = positionRef.current;
 					const facing = facingOfYaw(yaw);
-					const moved =
-						sentPosition === null ||
-						sentPosition.x !== position.x ||
-						sentPosition.z !== position.z;
-					const turned =
-						sentFacing === null ||
-						Math.abs(facing - sentFacing) > FACING_EPSILON;
-					if ((moved || turned) && time - lastSent >= SEND_INTERVAL_MS) {
+					if (
+						shouldReport({
+							time,
+							lastSent,
+							position,
+							sentPosition,
+							facing,
+							sentFacing,
+						})
+					) {
 						current.send(moveReport(position, facing));
 						// サーバーは前の位置から報告の位置へ一度に動かす。その結果を再現して、
 						// 角や壁沿いで手元の小刻みな動きとずれたら、サーバーの位置に合わせる。
@@ -408,6 +431,11 @@ export default function Veryare() {
 				scene.setOni(current.sceneOni);
 				scene.setHiders(current.sceneHiders);
 				scene.setView(current.view);
+				scene.setBlink(
+					current.blink.others,
+					current.blink.self,
+					blinkLevel(time - current.phaseStartedAt, reduceMotion.matches),
+				);
 				scene.setCamera(yaw, pitch);
 				scene.render();
 				frame = requestAnimationFrame(loop);
@@ -453,6 +481,8 @@ export default function Veryare() {
 			className="flex w-full flex-col gap-3"
 			data-testid="veryare"
 			data-phase={phase}
+			data-open-doors={openDoors.size}
+			data-blinking={blink.others.length + (blink.self ? 1 : 0)}
 		>
 			<div className="flex items-center justify-between text-sm">
 				<span className="font-semibold text-fg">
