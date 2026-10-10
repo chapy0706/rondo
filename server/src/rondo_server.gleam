@@ -7,6 +7,7 @@ import gleam/io
 import gleam/string
 import mist.{type Connection, type ResponseData}
 import rondo_server/connection/connection.{type Deps, Deps}
+import rondo_server/connection/heap_guard
 import rondo_server/connection/heartbeat
 import rondo_server/connection/session
 import rondo_server/connection/sessions
@@ -38,6 +39,8 @@ pub fn main() {
   let assert Ok(directory) =
     room_directory.start(supervisor.data, catalog.room_limits())
   let assert Ok(registry) = sessions.start()
+  // ソケット1本ごとのメモリ上限（issue-51）が、この OTP で実質効くか。効かないなら1行警告する。
+  heap_guard.warn_if_unsupported()
   let port = port_from_env(get_env("RONDO_PORT"))
   // テスト用のフェーズ時間の短縮（issue-49）。環境変数が無ければ本番の時間のまま。
   let phase_timing = timing.from_env(get_env(timing.env_name))

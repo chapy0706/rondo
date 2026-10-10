@@ -393,3 +393,80 @@ pub fn stage_notice_is_resent_after_reconnect_test() {
   let a2 = send(deps, a2, Reconnect(room_id, a.resume_token))
   list.any(drain(a2), is_stage_notice) |> should.be_true
 }
+
+// --- 受信プロセスの異常終了（issue-51） --------------------------------------------------
+
+/// 落とせる別プロセスが所有するソケットで接続する。返り値は、接続・そのプロセス・中継の受け口。
+/// ソケットに届いた電文は relay（テスト側）へ中継するので、Session などはテストから読める。
+fn connect_killable(
+  deps: connection.Deps,
+) -> #(Client, process.Pid, Subject(ServerMessage)) {
+  let relay = process.new_subject()
+  let ready = process.new_subject()
+  let pid =
+    process.spawn_unlinked(fn() {
+      let socket = process.new_subject()
+      process.send(ready, socket)
+      forward(socket, relay)
+    })
+  let assert Ok(socket) = process.receive(ready, 500)
+  let actor = connection.open(deps, socket)
+  let assert Ok(Session(player_id:, resume_token:)) =
+    process.receive(relay, 500)
+  #(Client(socket:, actor:, player_id:, resume_token:), pid, relay)
+}
+
+fn forward(
+  socket: Subject(ServerMessage),
+  relay: Subject(ServerMessage),
+) -> Nil {
+  case process.receive(socket, 1000) {
+    Ok(message) -> {
+      process.send(relay, message)
+      forward(socket, relay)
+    }
+    Error(Nil) -> forward(socket, relay)
+  }
+}
+
+/// 受信プロセスがメモリ上限などで落ちても（on_close が呼ばれなくても）、ふつうの切断と同じく
+/// 再接続の猶予に入る（issue-51）。猶予の間はルームの人数に数えられ、過ぎると抜ける。
+/// 同じルームの他の接続は影響を受けない。
+pub fn killed_socket_process_still_enters_grace_test() {
+  let deps = server()
+  // A はふつうのソケットでルームを作る。
+  let a = connect(deps)
+  let a = send(deps, a, CreateRoom("veryare", None))
+  let room_id = joined_room(drain(a))
+  // B は、落とせる別プロセスのソケットで参加する。
+  let #(b, b_pid, _relay) = connect_killable(deps)
+  let b = send(deps, b, JoinRoom("veryare", room_id))
+  let _ = drain(a)
+
+  let assert Ok(room) = room_directory.find(deps.session.directory, room_id)
+  room_actor.snapshot(room).players |> list.length |> should.equal(2)
+
+  // B の受信プロセスを強制終了する（メモリ上限での落下に相当。on_close は呼ばれない）。
+  process.kill(b_pid)
+
+  // 猶予の間は、まだ2人に数えられ、A に離脱は伝わっていない。
+  process.sleep(grace_ms / 2)
+  room_actor.snapshot(room).players |> list.length |> should.equal(2)
+  drain(a) |> list.any(is_player_left) |> should.be_false
+
+  // 猶予を過ぎると、B はルームから抜け、A に player-left が届く。
+  process.sleep(grace_ms + 100)
+  room_actor.snapshot(room).players
+  |> list.map(fn(p) { p.id })
+  |> should.equal([PlayerId(a.player_id)])
+  list.contains(drain(a), PlayerLeft(room_id, b.player_id)) |> should.be_true
+
+  // 同じルームの A は影響を受けない。限定配信が、A のソケットに引き続き届く。
+  room_actor.send_to(
+    room,
+    [PlayerId(a.player_id)],
+    dynamic.string("still-alive"),
+  )
+  let assert [GameStateTo(to:, ..)] = drain(a)
+  to |> should.equal(a.player_id)
+}

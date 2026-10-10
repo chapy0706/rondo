@@ -20,6 +20,13 @@ services:
     networks:
       - coolify
     restart: unless-stopped
+    # メモリの上限（issue-51）。極端に大きな電文への最後の砦。ふだんの使用は数十 MB で、
+    # ソケット1本ごとの上限（connection/heap_guard: 64 MiB）が先に効くので、ここには当たらない。
+    # 同時に多数の接続が極端な電文を送る、まれな場合にだけ当たり、コンテナごと落ちて
+    # restart: unless-stopped で再起動する（全員が切れるが、再接続できる）。A1 の空きに対して
+    # 十分小さく、ソケット1本の上限が先に効くだけの余裕を取った値。必要なら増減してよい。
+    mem_limit: 1g
+    mem_reservation: 256m
 
 networks:
   coolify:

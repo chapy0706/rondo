@@ -34,6 +34,10 @@ pub fn open(
 ) -> Subject(session_actor.Message) {
   let assert Ok(started) =
     session_actor.start(deps.session, socket, deps.grace_ms)
+  // 接続アクターは、このソケットの受信プロセスと別の寿命を持つ（再接続猶予のため）。
+  // 起動でできたリンクを外し、ソケットが異常終了しても道連れにならないようにする。接続
+  // アクターは、代わりにソケットの受信プロセスを監視して切断を知る（issue-51 / session_actor）。
+  process.unlink(started.pid)
   let state = session_actor.get_session(started.data)
   sessions.register(
     deps.sessions,

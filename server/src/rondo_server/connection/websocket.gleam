@@ -20,6 +20,7 @@ import mist.{
   type WebsocketMessage, Binary, Closed, Custom, Shutdown, Text,
 }
 import rondo_server/connection/connection.{type Deps}
+import rondo_server/connection/heap_guard
 import rondo_server/connection/heartbeat
 import rondo_server/connection/session_actor
 import rondo_server/protocol/message.{type ServerMessage, ErrorMessage}
@@ -55,6 +56,9 @@ pub fn handle(req: Request(Connection), deps: Deps) -> Response(ResponseData) {
 }
 
 fn on_init(deps: Deps) -> #(State, Option(Selector(Event))) {
+  // このソケットのプロセスが使ってよいメモリに上限を設ける（issue-51）。極端に大きな電文で
+  // 受信バッファが膨らんでも、このプロセスだけが落ち、他の接続とルームに波及しないようにする。
+  heap_guard.limit_current_socket()
   // このソケットへの送信先。接続アクターからの電文は Custom として loop に届く。
   let socket: Subject(ServerMessage) = process.new_subject()
   let timed_out: Subject(Nil) = process.new_subject()

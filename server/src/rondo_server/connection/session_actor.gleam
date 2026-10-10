@@ -10,10 +10,11 @@
 ///   session と room-joined を送ってから、ためた配信を流す
 /// - 猶予を過ぎたらルームへ離脱（Leave）を伝えて止まる。ルームにいなければ切断で止まる
 /// - 復帰できるのは切断中だけ。つながっている間は、正しいトークンでも付け替えない
-import gleam/erlang/process.{type Subject}
+import gleam/erlang/process.{type Monitor, type Pid, type Subject}
 import gleam/list
 import gleam/option.{type Option, None, Some}
 import gleam/otp/actor
+import rondo_server/connection/heap_guard
 import rondo_server/connection/session.{type Deps, type Session}
 import rondo_server/protocol/message.{
   type ClientMessage, type ServerMessage, Ping, PlayerInfo, RoomJoined,
@@ -29,8 +30,11 @@ pub type Message {
   FromClient(ClientMessage)
   /// ルームからの配信。
   FromRoom(ServerMessage)
-  /// ソケットが閉じた。今のソケットのときだけ切断として扱う。
+  /// ソケットが閉じた（WebSocket の殻の on_close から）。今のソケットのときだけ切断として扱う。
   Detach(socket: Subject(ServerMessage))
+  /// 監視しているソケットの受信プロセスが落ちた（issue-51）。異常終了（メモリ上限など）で
+  /// on_close が呼ばれないときの受け皿。今のソケットのときだけ、Detach と同じ切断として扱う。
+  SocketDown(down: process.Down)
   /// 再接続。切断中で、トークンとルーム ID が一致すれば socket に付け替えて True を返す。
   Resume(
     room_id: String,
@@ -53,6 +57,9 @@ type State {
     grace_ms: Int,
     session: Session,
     socket: Option(Subject(ServerMessage)),
+    /// いま付いているソケットの受信プロセスの監視（issue-51）。付け替え・切断で張り直す。
+    socket_pid: Option(Pid),
+    monitor: Option(Monitor),
     /// 切断中にためた配信（新しいものが先頭）。
     buffer: List(ServerMessage),
     /// 切断・復帰のたびに進める。古い猶予タイマーを見分ける。
@@ -73,14 +80,19 @@ pub fn start(
       process.new_selector()
       |> process.select(self)
       |> process.select_map(room_outbox, FromRoom)
+      // ソケットの受信プロセスが落ちたら、SocketDown として受け取る（issue-51）。
+      |> process.select_monitors(SocketDown)
     let #(session, replies) = session.start(deps, room_outbox)
     list.each(replies, process.send(socket, _))
+    let #(socket_pid, monitor) = watch(socket)
     State(
       self:,
       deps:,
       grace_ms:,
       session:,
       socket: Some(socket),
+      socket_pid:,
+      monitor:,
       buffer: [],
       generation: 0,
     )
@@ -139,18 +151,28 @@ fn handle(state: State, message: Message) -> actor.Next(State, Message) {
       }
 
     Detach(socket) ->
-      case state.socket == Some(socket), state.session.room {
+      case state.socket == Some(socket) {
         // 今のソケットでなければ（付け替え済みの古いソケット）無視する。
-        False, _ -> actor.continue(state)
-        // ルームにいなければ、保つものが無いので終わる。
-        True, None -> actor.stop()
-        // ルームにいれば、猶予のタイマーを張って待つ。
-        True, Some(_) -> {
-          let generation = state.generation + 1
-          let _ =
-            process.send_after(state.self, state.grace_ms, Expire(generation))
-          actor.continue(State(..state, socket: None, generation:))
-        }
+        False -> actor.continue(state)
+        True -> detach_current(state)
+      }
+
+    SocketDown(down) ->
+      case down {
+        // 今のソケットの受信プロセスが落ちたときだけ、切断として扱う（issue-51）。
+        // normal（ふつうの閉じ）以外は、異常終了としてログに1行だけ残す。
+        process.ProcessDown(pid:, reason:, ..) ->
+          case state.socket_pid == Some(pid) {
+            True -> {
+              case reason {
+                process.Normal -> Nil
+                _ -> heap_guard.note_socket_killed()
+              }
+              detach_current(state)
+            }
+            False -> actor.continue(state)
+          }
+        process.PortDown(..) -> actor.continue(state)
       }
 
     Resume(room_id, resume_token, socket, reply) ->
@@ -184,6 +206,44 @@ fn handle(state: State, message: Message) -> actor.Next(State, Message) {
       process.send(reply, state.session)
       actor.continue(state)
     }
+  }
+}
+
+/// 今のソケットが切れた（on_close か、受信プロセスの落下）ときの共通の処理。監視を外し、
+/// ルームにいれば猶予のタイマーを張って待ち、いなければ終わる。どちらの入口から二重に
+/// 呼ばれても、二度目は socket が None なので、呼び出し側の照合で弾かれる。
+fn detach_current(state: State) -> actor.Next(State, Message) {
+  unwatch(state.monitor)
+  case state.session.room {
+    None -> actor.stop()
+    Some(_) -> {
+      let generation = state.generation + 1
+      let _ = process.send_after(state.self, state.grace_ms, Expire(generation))
+      actor.continue(
+        State(
+          ..state,
+          socket: None,
+          socket_pid: None,
+          monitor: None,
+          generation:,
+        ),
+      )
+    }
+  }
+}
+
+/// ソケットの受信プロセスを監視する。所有者が取れなければ監視しない（socket_pid は None）。
+fn watch(socket: Subject(ServerMessage)) -> #(Option(Pid), Option(Monitor)) {
+  case process.subject_owner(socket) {
+    Ok(pid) -> #(Some(pid), Some(process.monitor(pid)))
+    Error(Nil) -> #(None, None)
+  }
+}
+
+fn unwatch(monitor: Option(Monitor)) -> Nil {
+  case monitor {
+    Some(monitor) -> process.demonitor_process(monitor)
+    None -> Nil
   }
 }
 
@@ -227,10 +287,15 @@ fn resume_on(
     None -> Nil
   }
   list.each(list.reverse(state.buffer), process.send(socket, _))
+  // 新しいソケットの受信プロセスを監視し直す（古い監視は切断時に外してある / issue-51）。
+  unwatch(state.monitor)
+  let #(socket_pid, monitor) = watch(socket)
   actor.continue(
     State(
       ..state,
       socket: Some(socket),
+      socket_pid:,
+      monitor:,
       buffer: [],
       generation: state.generation + 1,
     ),
