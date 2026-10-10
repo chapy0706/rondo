@@ -10,6 +10,7 @@
 import type {
 	VeryareDoorsNotice,
 	VeryareOpenDoorEvent,
+	VeryarePaintEvent,
 	VeryareShootEvent,
 	VeryareStageNotice,
 } from "./veryare";
@@ -69,3 +70,47 @@ export const doorsNoticeSamples = [
 		],
 	},
 ] satisfies VeryareDoorsNotice[];
+
+/** ペイントの確定（issue-25）。fixtures/veryare-paint.json の valid と同じ。 */
+export const paintEventSamples = [
+	{
+		type: "paint",
+		paint: {
+			kind: "strokes",
+			strokes: [
+				{
+					part: "torso",
+					color: "#a07850",
+					size: 0.04,
+					points: [
+						{ u: 0, v: 0.5 },
+						{ u: 0.25, v: 0.5 },
+					],
+				},
+			],
+		},
+	},
+	{
+		type: "paint",
+		paint: {
+			kind: "strokes",
+			strokes: [
+				{
+					part: "torso",
+					color: "#b5a46a",
+					size: 0.01,
+					points: [
+						{ u: 1, v: 0 },
+						{ u: 0.999, v: 1 },
+					],
+				},
+				{
+					part: "torso",
+					color: "#6b5440",
+					size: 0.15,
+					points: [{ u: 0.5, v: 0.123 }],
+				},
+			],
+		},
+	},
+] as const satisfies readonly VeryarePaintEvent[];

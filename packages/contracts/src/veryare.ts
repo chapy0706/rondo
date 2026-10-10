@@ -12,14 +12,65 @@ import type { PlayerId } from "./messages";
 export type VeryarePose = "standing" | "crouching" | "lying";
 
 /**
- * 隠れ側のペイント。いまは全面1色（隠れ CPU が使う）だけ。
- * 人間のペイント（5本の円柱へのストローク / ADR 0037）は issue-25 で種類を足す。
+ * 隠れ側のペイント。全面1色（隠れ CPU が使う）と、人間が描いたストローク（issue-25）。
  */
-export type VeryarePaint = {
+export type VeryarePaint = VeryareUniformPaint | VeryareStrokesPaint;
+
+export interface VeryareUniformPaint {
 	readonly kind: "uniform";
 	/** "#rrggbb"。 */
 	readonly color: string;
-};
+}
+
+/**
+ * 人間のペイント（ADR 0037 の簡略版 / issue-25）。描き込み面は円柱で、面の上の位置は
+ * 円柱を回る角度 u（0〜1）と高さ v（0 が足もと、1 が頭）。いまの部位は胴（体全体）だけ。
+ */
+export interface VeryareStrokesPaint {
+	readonly kind: "strokes";
+	readonly strokes: readonly VeryareStroke[];
+}
+
+/** 描き込み面の部位。5本円柱（ADR 0037）で "left-arm" などを足す。 */
+export type VeryarePaintPart = "torso";
+
+export interface VeryareStroke {
+	readonly part: VeryarePaintPart;
+	/** "#rrggbb"（小文字）。 */
+	readonly color: string;
+	/** ブラシの半径（u・v の単位）。VERYARE_PAINT_LIMITS の minSize〜maxSize。 */
+	readonly size: number;
+	/** 1点以上。u・v は 0〜1 で、クライアントが小数第3位に丸めて送る。 */
+	readonly points: readonly VeryareStrokePoint[];
+}
+
+export interface VeryareStrokePoint {
+	readonly u: number;
+	readonly v: number;
+}
+
+/** ペイントの確定（ペイントフェーズの終わりに、隠れ側が一度だけ送る / ADR 0025）。 */
+export interface VeryarePaintEvent {
+	readonly type: "paint";
+	readonly paint: VeryareStrokesPaint;
+}
+
+/**
+ * ペイントの上限（電文の大きさを抑える / issue-25）。クライアントとサーバーで同じ値を使い、
+ * 共有の見本（fixtures/veryare-paint.json の limits）で一致を確かめる。上限を超えたペイントは、
+ * サーバーが丸ごと捨てる。
+ */
+export const VERYARE_PAINT_LIMITS = {
+	/** ストロークの本数の上限。 */
+	maxStrokes: 100,
+	/** 点の数の上限（全ストロークの合計）。 */
+	maxPoints: 1000,
+	/** u・v を丸める小数の桁数。 */
+	decimals: 3,
+	/** ブラシの半径の下限と上限（u・v の単位）。 */
+	minSize: 0.01,
+	maxSize: 0.15,
+} as const;
 
 /** 隠れ側1人の状態。座標は床の上（x, z）、向きはラジアン。 */
 export interface VeryareHiderState {

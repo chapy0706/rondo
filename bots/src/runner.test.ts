@@ -620,3 +620,126 @@ describe("seeded - 種から決まる乱数", () => {
 		}
 	});
 });
+
+describe("runScenario - ペイントの確定と一括配信（issue-25）", () => {
+	const scenario: Scenario = {
+		name: "ペイント",
+		bots: ["bot-a", "bot-b"],
+		steps: [
+			{ on: "joined", bot: "bot-a", action: { type: "touch-area" } },
+			{
+				on: { phase: "painting" },
+				bot: "bot-b",
+				action: { type: "paint", color: "#a07850" },
+			},
+			{
+				on: { phase: "painting" },
+				bot: "bot-b",
+				action: { type: "paint", color: "#6b5440" },
+				delayMs: 10,
+			},
+			{
+				on: { phase: "exploration" },
+				bot: "bot-a",
+				action: {
+					type: "expect-paint",
+					check: "最初のペイントだけが届く",
+					target: "bot-b",
+					color: "#a07850",
+				},
+				delayMs: 20,
+			},
+		],
+		receivers: ["bot-a", "bot-b"],
+		rankings: [
+			{ bot: "bot-b", rank: 1, score: 1, details: details.hiderWon },
+			{ bot: "bot-a", rank: 2, score: 0, details: details.oniLost },
+		],
+	};
+
+	/** keepLast なら、最後のペイントを（誤って）一括配信に載せる偽物のサーバー。 */
+	function paintServer(keepLast: boolean): FakeServer {
+		const server = new FakeServer();
+		const paints: unknown[] = [];
+		server.onEvent = (s, player, message) => {
+			if (message.type !== "game-event") return;
+			const payload = message.payload as {
+				type: string;
+				x?: number;
+				paint?: unknown;
+			};
+			if (payload.type === "move" && player === "p-1" && payload.x === 0) {
+				s.phase("painting");
+			}
+			if (payload.type === "paint" && player === "p-2") {
+				paints.push(payload.paint);
+				if (paints.length < 2) return;
+				s.phase("exploration");
+				s.broadcast({
+					type: "game-state",
+					gameType: "veryare",
+					roomId: "room-1",
+					payload: {
+						type: "hiders",
+						hiders: [
+							{
+								playerId: "p-2",
+								x: 0,
+								z: 0,
+								facing: null,
+								pose: null,
+								paint: keepLast ? paints[1] : paints[0],
+							},
+						],
+					},
+				});
+				setTimeout(
+					() =>
+						s.ended([
+							{ player: "p-2", rank: 1, score: 1, details: details.hiderWon },
+							{ player: "p-1", rank: 2, score: 0, details: details.oniLost },
+						]),
+					60,
+				);
+			}
+		};
+		return server;
+	}
+
+	it("ペイントフェーズに塗る（契約の VeryarePaintEvent）。探索の開始に届いたペイントを確かめる", async () => {
+		const server = paintServer(false);
+		const result = await run(server, scenario);
+		expect(result.problems).toEqual([]);
+		const sent = server.log.flatMap(({ player, message }) =>
+			message.type === "game-event" &&
+			(message.payload as { type?: string }).type === "paint"
+				? [[player, message.payload]]
+				: [],
+		);
+		expect(sent).toEqual([
+			[
+				"p-2",
+				{
+					type: "paint",
+					paint: {
+						kind: "strokes",
+						strokes: [
+							{
+								part: "torso",
+								color: "#a07850",
+								size: 0.04,
+								points: [{ u: 0.25, v: 0.5 }],
+							},
+						],
+					},
+				},
+			],
+			["p-2", expect.objectContaining({ type: "paint" })],
+		]);
+	});
+
+	it("違うペイントが届いたら、確かめの名前が問題に出る", async () => {
+		const result = await run(paintServer(true), scenario);
+		expect(result.problems.join("\n")).toContain("最初のペイントだけが届く");
+	});
+});

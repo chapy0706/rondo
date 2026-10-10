@@ -18,13 +18,39 @@
  * 切り替えられる。鬼の状態はサーバーが全員へ送る（鬼は動くたびに、向きを添えて報告する）。
  */
 
-import type { VeryareHiderState, VeryareOniNotice } from "@rondo/contracts";
+import type {
+	VeryareHiderState,
+	VeryareOniNotice,
+	VeryarePaint,
+} from "@rondo/contracts";
 import { VirtualPad, useRealtimeGame, useVirtualPad } from "@rondo/game-sdk";
-import { useEffect, useRef, useState } from "react";
+import {
+	type PointerEvent as ReactPointerEvent,
+	useEffect,
+	useRef,
+	useState,
+} from "react";
+import { type BrushName, type Hsl, PaintPanel } from "./PaintPanel";
 import { CAMERA_PITCH } from "./camera";
 import { veryareManifest } from "./manifest";
 import { WALK_SPEED, blinkLevel, blinkTargets, shouldReport } from "./motion";
-import { UNPAINTED_COLOR } from "./palette";
+import {
+	BRUSH_SIZES,
+	PAINT_LOCK_MS,
+	type PaintDraft,
+	beginStroke,
+	bodyColorAt,
+	canEditPaint,
+	clearPaint,
+	emptyDraft,
+	extendStroke,
+	hereColor,
+	hslToHex,
+	paintEvent,
+	shouldSubmitPaint,
+	undoStroke,
+} from "./paint";
+import { FLOOR_COLOR, UNPAINTED_COLOR } from "./palette";
 import {
 	type Outcome,
 	type Phase,
@@ -133,6 +159,19 @@ export default function Veryare() {
 	const [openDoors, setOpenDoors] = useState<ReadonlySet<string>>(
 		() => new Set(),
 	);
+	/** 描いているペイント（issue-25）。 */
+	const [draft, setDraft] = useState<PaintDraft>(emptyDraft);
+	/** 選んでいる色。null の間は「ここの色」。 */
+	const [paintColor, setPaintColor] = useState<string | null>(null);
+	const [hsl, setHsl] = useState<Hsl>({ h: 30, s: 40, l: 50 });
+	const [brush, setBrush] = useState<BrushName>("medium");
+	const [eyedropper, setEyedropper] = useState(false);
+	/** 「塗り終わり」を押したか。 */
+	const [paintConfirmed, setPaintConfirmed] = useState(false);
+	/** ペイントを送ったか（一度だけ）。 */
+	const [paintSubmitted, setPaintSubmitted] = useState(false);
+	const submittedRef = useRef(false);
+	const drawingRef = useRef(false);
 	/** まだ隠れている隠れ側の一覧。届くまでは null。 */
 	const [hiding, setHiding] = useState<readonly string[] | null>(null);
 	/** 探索中の隠れ側が、鬼 TPS 視点を選んでいるか。 */
@@ -239,7 +278,8 @@ export default function Veryare() {
 						id: h.playerId,
 						x: h.x,
 						z: h.z,
-						color: h.paint?.color ?? DEFAULT_COLOR,
+						color: h.paint?.kind === "uniform" ? h.paint.color : DEFAULT_COLOR,
+						paint: h.paint,
 					}))
 			: [];
 	// 答え合わせの赤い点滅（ADR 0033）。探索の開始に届いた隠れ側全員（見つかった人も
@@ -289,6 +329,89 @@ export default function Veryare() {
 		const timer = setInterval(() => setNow(performance.now()), 250);
 		return () => clearInterval(timer);
 	}, []);
+	const remainingMs =
+		notice?.durationMs == null
+			? Number.POSITIVE_INFINITY
+			: notice.durationMs - (now - phaseStartedAt);
+
+	// ペイント（issue-25）。ペイントフェーズの隠れ側が、自分の体の円柱に描く。描いている間は
+	// 自分の画面だけ（誰にも送らない）。終わりの 2 秒前か「塗り終わり」で、一度だけ送る。
+	const paintEditable = canEditPaint({
+		phase,
+		role,
+		spectator,
+		submitted: paintSubmitted,
+		remainingMs,
+	});
+	const showPaintPanel = phase === "painting" && role === "hider" && !spectator;
+	useEffect(() => {
+		if (
+			submittedRef.current ||
+			!shouldSubmitPaint({
+				phase,
+				remainingMs,
+				submitted: paintSubmitted,
+				confirmed: paintConfirmed,
+				strokeCount: draft.strokes.length,
+			})
+		) {
+			return;
+		}
+		submittedRef.current = true;
+		setPaintSubmitted(true);
+		send(paintEvent(draft.strokes));
+	}, [phase, remainingMs, paintSubmitted, paintConfirmed, draft, send]);
+	// 自分の体に映すペイント。探索の開始に届いた自分のペイント（サーバーが確定したもの）を先に、
+	// 無ければ描いている途中のもの。
+	const serverSelfPaint =
+		hiders?.find((h) => h.playerId === you)?.paint ?? null;
+	const selfPaint: VeryarePaint | null =
+		role !== "hider"
+			? null
+			: (serverSelfPaint ??
+				(draft.strokes.length > 0
+					? { kind: "strokes", strokes: draft.strokes }
+					: null));
+	const here = grid === null ? null : hereColor(grid, positionRef.current);
+	const brushColor = paintColor ?? here ?? FLOOR_COLOR;
+	const pointOnCanvas = (event: ReactPointerEvent<HTMLCanvasElement>) => {
+		const rect = event.currentTarget.getBoundingClientRect();
+		return sceneRef.current?.pickPaint(
+			((event.clientX - rect.left) / rect.width) * 2 - 1,
+			-(((event.clientY - rect.top) / rect.height) * 2 - 1),
+		);
+	};
+	const onPaintDown = (event: ReactPointerEvent<HTMLCanvasElement>) => {
+		if (!paintEditable) return;
+		const pick = pointOnCanvas(event);
+		if (pick == null) return;
+		if (eyedropper) {
+			setPaintColor(
+				pick.kind === "stage" ? pick.color : bodyColorAt(draft.strokes, pick),
+			);
+			setEyedropper(false);
+			return;
+		}
+		if (pick.kind !== "body") return;
+		event.currentTarget.setPointerCapture(event.pointerId);
+		drawingRef.current = true;
+		setDraft((current) =>
+			beginStroke(current, {
+				color: brushColor,
+				size: BRUSH_SIZES[brush],
+				point: pick,
+			}),
+		);
+	};
+	const onPaintMove = (event: ReactPointerEvent<HTMLCanvasElement>) => {
+		if (!paintEditable || !drawingRef.current) return;
+		const pick = pointOnCanvas(event);
+		if (pick?.kind !== "body") return;
+		setDraft((current) => extendStroke(current, pick));
+	};
+	const onPaintUp = () => {
+		drawingRef.current = false;
+	};
 	const remainingSeconds =
 		notice?.durationMs == null
 			? null
@@ -301,6 +424,7 @@ export default function Veryare() {
 	// 鬼希望エリアは鬼選出中だけ見せる。
 	const area = phase === "oni-selection" ? (notice?.area ?? null) : null;
 	const latest = useRef({
+		selfPaint,
 		blink,
 		phaseStartedAt,
 		phase,
@@ -319,6 +443,7 @@ export default function Veryare() {
 		sceneHiders,
 	});
 	latest.current = {
+		selfPaint,
 		blink,
 		phaseStartedAt,
 		phase,
@@ -427,7 +552,11 @@ export default function Veryare() {
 				scene.setStage(current.grid, current.openDoors);
 				scene.setSpace(current.space);
 				scene.setArea(current.area);
-				scene.setAvatar(positionRef.current, current.avatarColor);
+				scene.setAvatar(
+					positionRef.current,
+					current.avatarColor,
+					current.selfPaint,
+				);
 				scene.setOni(current.sceneOni);
 				scene.setHiders(current.sceneHiders);
 				scene.setView(current.view);
@@ -552,7 +681,15 @@ export default function Veryare() {
 			) : null}
 
 			<div className="relative aspect-[3/4] w-full overflow-hidden rounded-2xl">
-				<canvas ref={canvasRef} className="block size-full" />
+				<canvas
+					ref={canvasRef}
+					className="block size-full"
+					style={paintEditable ? { touchAction: "none" } : undefined}
+					onPointerDown={onPaintDown}
+					onPointerMove={onPaintMove}
+					onPointerUp={onPaintUp}
+					onPointerCancel={onPaintUp}
+				/>
 				<div
 					ref={fadeRef}
 					aria-hidden="true"
@@ -588,6 +725,29 @@ export default function Veryare() {
 				{/* 終了後の勝敗は、基盤の結果画面（game-ended）に任せる（issue-42）。 */}
 			</div>
 
+			{showPaintPanel ? (
+				<PaintPanel
+					editable={paintEditable}
+					submitted={paintSubmitted}
+					locked={remainingMs <= PAINT_LOCK_MS}
+					strokeCount={draft.strokes.length}
+					color={brushColor}
+					here={here}
+					brush={brush}
+					eyedropper={eyedropper}
+					hsl={hsl}
+					onColor={setPaintColor}
+					onHsl={(next) => {
+						setHsl(next);
+						setPaintColor(hslToHex(next.h, next.s, next.l));
+					}}
+					onBrush={setBrush}
+					onEyedropper={() => setEyedropper((current) => !current)}
+					onUndo={() => setDraft(undoStroke)}
+					onClear={() => setDraft(clearPaint)}
+					onConfirm={() => setPaintConfirmed(true)}
+				/>
+			) : null}
 			{painting ? (
 				<fieldset className="flex flex-col gap-2">
 					<legend className="mb-2 text-fg-muted text-sm">

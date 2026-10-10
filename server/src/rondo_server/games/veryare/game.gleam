@@ -37,6 +37,7 @@ import rondo_server/games/veryare/grid.{type Edge, type Grid}
 import rondo_server/games/veryare/hider_cpu.{type Placement}
 import rondo_server/games/veryare/oni_cpu.{type OniCpu, type Strength}
 import rondo_server/games/veryare/overlap
+import rondo_server/games/veryare/paint
 import rondo_server/games/veryare/palette
 import rondo_server/games/veryare/sight
 import rondo_server/games/veryare/stage.{type Layout}
@@ -186,6 +187,10 @@ pub type Game(id) {
     /// 入り直した人へ隠れ側の通知を送り直すため（issue-29d）だけに使い、勝敗の判定と
     /// フェーズの遷移の分岐には使わない。
     exploration_hiders: List(id),
+    /// 人間の隠れ側が確定したペイント（issue-25）。ペイントフェーズの間に、まだ隠れている
+    /// 隠れ側が送った最初の1回だけ。探索の開始の一括配信に載せるためだけに使い、勝敗・被り・
+    /// 発見の判定には使わない（鬼 CPU は、人間の隠れ側を未塗装として扱う）。
+    paints: Dict(id, List(paint.Stroke)),
   )
 }
 
@@ -247,6 +252,7 @@ pub fn new_with(
     last_shot: None,
     shot_sight: True,
     exploration_hiders: [],
+    paints: dict.new(),
   )
 }
 
@@ -288,6 +294,29 @@ pub fn hider_states(
       option.from_result(dict.get(game.cpu_states, id)),
     )
   })
+}
+
+/// ペイントの確定（issue-25 / ADR 0025）。ペイントフェーズの間に、まだ隠れている隠れ側が
+/// 送った最初の1回だけを受け付ける。2回目以降・ほかのフェーズ・鬼のペイントは無視する。
+/// 位置もフェーズも変えないので、被り判定（準備移動の終わり）にも勝敗にも関わらない。
+pub fn paint(
+  game: Game(id),
+  player: id,
+  strokes: List(paint.Stroke),
+) -> Game(id) {
+  case
+    game.phase == Painting
+    && set.contains(game.still_hiding, player)
+    && !dict.has_key(game.paints, player)
+  {
+    True -> Game(..game, paints: dict.insert(game.paints, player, strokes))
+    False -> game
+  }
+}
+
+/// 確定したペイント。送っていなければ None。
+pub fn paint_of(game: Game(id), player: id) -> Option(List(paint.Stroke)) {
+  option.from_result(dict.get(game.paints, player))
 }
 
 /// 探索の開始の時点の隠れ側の状態（hider_states と同じ形）。見つかった人も載る（issue-29d）。

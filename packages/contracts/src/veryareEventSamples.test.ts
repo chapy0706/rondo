@@ -1,10 +1,13 @@
 import { describe, expect, it } from "vitest";
 import fixture from "./fixtures/veryare-events.json";
 import movement from "./fixtures/veryare-movement.json";
+import paintFixture from "./fixtures/veryare-paint.json";
 import stageFixture from "./fixtures/veryare-stage.json";
+import { VERYARE_PAINT_LIMITS } from "./veryare";
 import {
 	doorsNoticeSamples,
 	openDoorEventSamples,
+	paintEventSamples,
 	shootEventSamples,
 	stageNoticeSamples,
 } from "./veryareEventSamples";
@@ -59,5 +62,24 @@ describe("veryare の襖の見本（issue-29b / ADR 0009）", () => {
 			JSON.parse(JSON.stringify(doorsNoticeSamples)),
 		);
 		expect(fixture.doorsNotice.invalid.length).toBeGreaterThan(0);
+	});
+});
+
+describe("veryare のペイントの見本（issue-25 / ADR 0009）", () => {
+	it("ペイントの確定の JSON の見本（valid）は、TS の型で書いた見本と一致する", () => {
+		expect(paintFixture.valid).toEqual(
+			JSON.parse(JSON.stringify(paintEventSamples)),
+		);
+		expect(paintFixture.invalid.length).toBeGreaterThan(0);
+	});
+
+	it("上限の見本（limits）は、契約の定数と同じ（サーバーの値との一致は Gleam のテストが確かめる）", () => {
+		expect(paintFixture.limits).toEqual(VERYARE_PAINT_LIMITS);
+	});
+
+	it("一括配信の見本のペイントは、valid の2つ目と同じ", () => {
+		expect(paintFixture.hiders.hiders[0]?.paint).toEqual(
+			paintFixture.valid[1]?.paint,
+		);
 	});
 });

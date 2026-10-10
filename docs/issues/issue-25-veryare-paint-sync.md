@@ -1,10 +1,12 @@
 ---
-status: open
+status: closed
 created_at: 2026-09-29
-closed_at:
+closed_at: 2026-10-10
 ---
 
 # issue-25: veryare ペイント（5本円柱投影）と状態の一括配信
+
+簡略版（胴1本の円柱）を実装済み。残りは issue-54 に移す。
 
 ## 背景
 

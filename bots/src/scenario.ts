@@ -37,6 +37,21 @@ export type Action =
 			readonly to: "c" | "s" | "r" | "w";
 			readonly doors: "open" | "closed";
 	  }
+	/**
+	 * 隠れ側として、ペイントを確定する（issue-25。契約の VeryarePaintEvent）。体の正面に、color の
+	 * 点を1つ描いたストローク1本を送る。
+	 */
+	| { readonly type: "paint"; readonly color: string }
+	/**
+	 * 確かめ（issue-25）: 探索の開始に届いた隠れ側の一括配信で、target のペイントが、color の
+	 * ストロークか。違えば、check の名前を添えて問題にする。
+	 */
+	| {
+			readonly type: "expect-paint";
+			readonly check: string;
+			readonly target: string;
+			readonly color: string;
+	  }
 	/** 選んだ襖（c と s の境）を開ける報告を送る（issue-29b。契約の VeryareOpenDoorEvent）。 */
 	| { readonly type: "open-door" }
 	/**

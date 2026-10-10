@@ -176,3 +176,30 @@ export function fusumaCount(tab: Tab): number {
 	const doors = (notice?.doors ?? []) as { kind?: unknown }[];
 	return doors.filter((door) => door.kind === "fusuma").length;
 }
+
+// --- ペイント（issue-25） ---------------------------------------------------------------
+
+/** このタブがサーバーへ送ったペイントの確定（game-event の payload.type が paint）の数。 */
+export function sentPaintEvents(tab: Tab): number {
+	return tab.link.frames.filter(({ direction, message }) => {
+		if (direction !== "sent" || message.type !== "game-event") return false;
+		const payload = message.payload as Record<string, unknown> | undefined;
+		return payload?.type === "paint";
+	}).length;
+}
+
+/**
+ * このタブに、探索の開始の一括配信（hiders）より前に、ストロークのペイントを含む電文が
+ * 届いたか（ペイントフェーズの間は、他の人のペイントを送らない / ADR 0025）。
+ */
+export function strokesBeforeHiders(tab: Tab): boolean {
+	const received = tab.link.frames.filter((f) => f.direction === "received");
+	const at = received.findIndex(({ message }) => {
+		const payload = message.payload as Record<string, unknown> | undefined;
+		return payload?.type === "hiders";
+	});
+	const before = at === -1 ? received : received.slice(0, at);
+	return before.some(({ message }) =>
+		JSON.stringify(message).includes('"strokes"'),
+	);
+}

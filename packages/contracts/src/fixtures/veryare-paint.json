@@ -1,0 +1,297 @@
+{
+	"note": "人間のペイントの確定（issue-25）。limits はクライアントとサーバーで同じ値を使う上限。上限ちょうどは受け付け、1つ超えると丸ごと捨てることは、両方のテストが limits から作って確かめる。hiders は、ペイントを載せた探索の開始の一括配信の見本。",
+	"limits": {
+		"maxStrokes": 100,
+		"maxPoints": 1000,
+		"decimals": 3,
+		"minSize": 0.01,
+		"maxSize": 0.15
+	},
+	"valid": [
+		{
+			"type": "paint",
+			"paint": {
+				"kind": "strokes",
+				"strokes": [
+					{
+						"part": "torso",
+						"color": "#a07850",
+						"size": 0.04,
+						"points": [
+							{
+								"u": 0,
+								"v": 0.5
+							},
+							{
+								"u": 0.25,
+								"v": 0.5
+							}
+						]
+					}
+				]
+			}
+		},
+		{
+			"type": "paint",
+			"paint": {
+				"kind": "strokes",
+				"strokes": [
+					{
+						"part": "torso",
+						"color": "#b5a46a",
+						"size": 0.01,
+						"points": [
+							{
+								"u": 1,
+								"v": 0
+							},
+							{
+								"u": 0.999,
+								"v": 1
+							}
+						]
+					},
+					{
+						"part": "torso",
+						"color": "#6b5440",
+						"size": 0.15,
+						"points": [
+							{
+								"u": 0.5,
+								"v": 0.123
+							}
+						]
+					}
+				]
+			}
+		}
+	],
+	"invalid": [
+		{
+			"type": "paint"
+		},
+		{
+			"type": "paint",
+			"paint": {
+				"kind": "uniform",
+				"color": "#a07850"
+			}
+		},
+		{
+			"type": "paint",
+			"paint": {
+				"kind": "strokes",
+				"strokes": []
+			}
+		},
+		{
+			"type": "paint",
+			"paint": {
+				"kind": "strokes",
+				"strokes": [
+					{
+						"part": "left-arm",
+						"color": "#a07850",
+						"size": 0.04,
+						"points": [
+							{
+								"u": 0.1,
+								"v": 0.5
+							}
+						]
+					}
+				]
+			}
+		},
+		{
+			"type": "paint",
+			"paint": {
+				"kind": "strokes",
+				"strokes": [
+					{
+						"part": "torso",
+						"color": "red",
+						"size": 0.04,
+						"points": [
+							{
+								"u": 0.1,
+								"v": 0.5
+							}
+						]
+					}
+				]
+			}
+		},
+		{
+			"type": "paint",
+			"paint": {
+				"kind": "strokes",
+				"strokes": [
+					{
+						"part": "torso",
+						"color": "#A07850",
+						"size": 0.04,
+						"points": [
+							{
+								"u": 0.1,
+								"v": 0.5
+							}
+						]
+					}
+				]
+			}
+		},
+		{
+			"type": "paint",
+			"paint": {
+				"kind": "strokes",
+				"strokes": [
+					{
+						"part": "torso",
+						"color": "#a07850",
+						"size": 0.009,
+						"points": [
+							{
+								"u": 0.1,
+								"v": 0.5
+							}
+						]
+					}
+				]
+			}
+		},
+		{
+			"type": "paint",
+			"paint": {
+				"kind": "strokes",
+				"strokes": [
+					{
+						"part": "torso",
+						"color": "#a07850",
+						"size": 0.151,
+						"points": [
+							{
+								"u": 0.1,
+								"v": 0.5
+							}
+						]
+					}
+				]
+			}
+		},
+		{
+			"type": "paint",
+			"paint": {
+				"kind": "strokes",
+				"strokes": [
+					{
+						"part": "torso",
+						"color": "#a07850",
+						"size": 0.04,
+						"points": []
+					}
+				]
+			}
+		},
+		{
+			"type": "paint",
+			"paint": {
+				"kind": "strokes",
+				"strokes": [
+					{
+						"part": "torso",
+						"color": "#a07850",
+						"size": 0.04,
+						"points": [
+							{
+								"u": 1.001,
+								"v": 0.5
+							}
+						]
+					}
+				]
+			}
+		},
+		{
+			"type": "paint",
+			"paint": {
+				"kind": "strokes",
+				"strokes": [
+					{
+						"part": "torso",
+						"color": "#a07850",
+						"size": 0.04,
+						"points": [
+							{
+								"u": 0.5,
+								"v": -0.001
+							}
+						]
+					}
+				]
+			}
+		},
+		{
+			"type": "paint",
+			"paint": {
+				"kind": "strokes",
+				"strokes": [
+					{
+						"part": "torso",
+						"color": "#a07850",
+						"size": 0.04,
+						"points": [
+							{
+								"u": "0.5",
+								"v": 0.5
+							}
+						]
+					}
+				]
+			}
+		}
+	],
+	"hiders": {
+		"type": "hiders",
+		"hiders": [
+			{
+				"playerId": "b",
+				"x": 1.5,
+				"z": 2.5,
+				"facing": null,
+				"pose": null,
+				"paint": {
+					"kind": "strokes",
+					"strokes": [
+						{
+							"part": "torso",
+							"color": "#b5a46a",
+							"size": 0.01,
+							"points": [
+								{
+									"u": 1,
+									"v": 0
+								},
+								{
+									"u": 0.999,
+									"v": 1
+								}
+							]
+						},
+						{
+							"part": "torso",
+							"color": "#6b5440",
+							"size": 0.15,
+							"points": [
+								{
+									"u": 0.5,
+									"v": 0.123
+								}
+							]
+						}
+					]
+				}
+			}
+		]
+	}
+}

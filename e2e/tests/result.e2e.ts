@@ -1,7 +1,7 @@
 /**
  * シナリオ5（issue-48）: 鬼選出から結果画面まで。フェーズの時間は本番の既定のまま
  * （鬼選出のカウント 10 秒 → 準備 20 秒 → ペイント 20 秒 → 探索 40 秒 → 答え合わせ 20 秒、
- * 合わせて約 110 秒）。探索中の襖の開閉と、答え合わせの襖・点滅も確かめる（issue-29d）。時間がかかるので @result を付け、`make e2e/result` で分けて動かす。
+ * 合わせて約 110 秒）。探索中の襖の開閉と、答え合わせの襖・点滅（issue-29d）、ペイントの確定と一括配信（issue-25）も確かめる。時間がかかるので @result を付け、`make e2e/result` で分けて動かす。
  */
 
 import { expect } from "@playwright/test";
@@ -10,7 +10,10 @@ import {
 	expectOpenDoors,
 	expectPhase,
 	fusumaCount,
+	receivedPayloads,
 	roomWithTwo,
+	sentPaintEvents,
+	strokesBeforeHiders,
 	test,
 	touchArea,
 	walkAndOpenDoor,
@@ -25,10 +28,31 @@ test("シナリオ5: 鬼選出から結果画面まで @result", async ({ openTa
 	touchArea(a, roomId);
 	await expectArea(b, "blue");
 
+	// ペイント（issue-25）: B が自分の体（画面の中央）をタップして塗り、「塗り終わり」で確定する。
+	const panel = b.page.getByTestId("veryare-paint");
+	await expect(panel).toBeVisible({ timeout: 60_000 });
+	await b.page.getByTestId("veryare").locator("canvas").click();
+	await expect(panel).toHaveAttribute("data-strokes", "1");
+	await b.page.getByTestId("veryare-paint-done").click();
+	await expect(panel).toHaveAttribute("data-submitted", "true");
+
 	// 探索の開始で、襖は全部閉じる。鬼（A）が襖の前まで歩いて開けると、両方のタブで開く
 	// （issue-29d）。B は玄関に立ったまま、撃たれずに逃げ切る。
 	for (const tab of [a, b]) await expectPhase(tab, "exploration", 90_000);
 	for (const tab of [a, b]) await expectOpenDoors(tab, 0);
+	// B のペイントは一度だけ送られ、A には探索の開始の一括配信で初めて届く（ADR 0025）。
+	expect(sentPaintEvents(b)).toBe(1);
+	await expect
+		.poll(() => receivedPayloads(a, "hiders").length)
+		.toBeGreaterThan(0);
+	expect(strokesBeforeHiders(a)).toBe(false);
+	const [hidersNotice] = receivedPayloads(a, "hiders");
+	const [hider] = (hidersNotice?.hiders ?? []) as {
+		paint?: { kind?: string; strokes?: unknown[] };
+	}[];
+	expect(hider?.paint?.kind).toBe("strokes");
+	expect(hider?.paint?.strokes).toHaveLength(1);
+
 	walkAndOpenDoor(a, roomId);
 	for (const tab of [a, b]) await expectOpenDoors(tab, 1);
 

@@ -14,6 +14,7 @@ import type {
 	VeryarePose,
 	VeryareShootEvent,
 } from "@rondo/contracts";
+import { parsePaint } from "./paint";
 
 export type Phase =
 	| "oni-selection"
@@ -102,17 +103,13 @@ function isHiderState(value: unknown): value is VeryareHiderState {
 	if (typeof x !== "number" || typeof z !== "number") return false;
 	if (facing !== null && typeof facing !== "number") return false;
 	if (pose !== null && !POSES.includes(pose as VeryarePose)) return false;
-	if (paint === null) return true;
-	return (
-		isRecord(paint) &&
-		paint.kind === "uniform" &&
-		typeof paint.color === "string"
-	);
+	// ペイントは全面1色（隠れ CPU）か、人間のストローク（issue-25）。上限まで検証する。
+	return paint === null || parsePaint(paint) !== null;
 }
 
 /**
  * 探索開始時の一括配信（まだ隠れている隠れ側全員の状態 / ADR 0025 / 0035）を検証して読む。
- * 人間の隠れ側の向き・ポーズ・ペイントは、まだ null で届く（issue-25 で足す）。
+ * 人間の隠れ側の向き・ポーズは、まだ null で届く。ペイントは、確定したストロークか null（issue-25）。
  */
 export function parseHidersNotice(
 	payload: unknown,

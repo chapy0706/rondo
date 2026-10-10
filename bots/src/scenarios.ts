@@ -222,4 +222,39 @@ export const scenarios: readonly Scenario[] = [
 			oni("bot-a", false),
 		],
 	},
+	{
+		// ペイントの確定と一括配信（issue-25）。隠れ側 B がペイントフェーズに2回塗りを送り、
+		// 探索の開始に鬼 A へ届いた一括配信で、最初の1回だけが載っていることを確かめる。
+		// 誰も撃たないので、時間切れで隠れ側の勝ち。
+		name: "ペイントの確定と一括配信",
+		bots: ["bot-a", "bot-b"],
+		steps: [
+			{ on: "joined", bot: "bot-a", action: { type: "touch-area" } },
+			{
+				on: { phase: "painting" },
+				bot: "bot-b",
+				action: { type: "paint", color: "#a07850" },
+				delayMs: 50,
+			},
+			{
+				on: { phase: "painting" },
+				bot: "bot-b",
+				action: { type: "paint", color: "#6b5440" },
+				delayMs: 150,
+			},
+			{
+				on: { phase: "exploration" },
+				bot: "bot-a",
+				action: {
+					type: "expect-paint",
+					check: "最初のペイントだけが届く",
+					target: "bot-b",
+					color: "#a07850",
+				},
+				delayMs: 100,
+			},
+		],
+		receivers: ["bot-a", "bot-b"],
+		rankings: [hider("bot-b", true), oni("bot-a", false)],
+	},
 ];

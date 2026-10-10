@@ -37,6 +37,7 @@ import rondo_server/games/veryare/hider_cpu.{
   type Placement, Crouching, Lying, Standing,
 }
 import rondo_server/games/veryare/oni_cpu.{type Strength}
+import rondo_server/games/veryare/paint
 import rondo_server/games/veryare/palette
 import rondo_server/games/veryare/result as final_result
 import rondo_server/games/veryare/stage
@@ -244,7 +245,13 @@ fn wrap(state: Game(PlayerId), pick: fn(Int) -> Int) -> Driver(PlayerId) {
           case decode.run(payload, stage_notice.open_door_decoder()) {
             // 襖を開ける報告（issue-29b）。開けられるかは状態機械が決める。
             Ok(door) -> step(state, game.open_door(state, player, door), pick)
-            Error(_) -> moved(state, player, payload, pick)
+            Error(_) ->
+              case decode.run(payload, paint.event_decoder()) {
+                // ペイントの確定（issue-25）。受け付けるかは状態機械が決める。誰にも送らない。
+                Ok(strokes) ->
+                  step(state, game.paint(state, player, strokes), pick)
+                Error(_) -> moved(state, player, payload, pick)
+              }
           }
       }
     },
@@ -564,7 +571,15 @@ fn hiders_payload(state: Game(PlayerId)) -> Dynamic {
             #(dynamic.string("color"), dynamic.string(palette.to_hex(p.color))),
           ]),
         )
-        None -> #(dynamic.nil(), dynamic.nil(), dynamic.nil())
+        // 人間の隠れ側: 向き・ポーズはまだ持たない。ペイントは確定したものがあれば載せる。
+        None -> #(
+          dynamic.nil(),
+          dynamic.nil(),
+          case game.paint_of(state, PlayerId(id)) {
+            Some(strokes) -> paint.payload(strokes)
+            None -> dynamic.nil()
+          },
+        )
       }
       dynamic.properties([
         #(dynamic.string("playerId"), dynamic.string(id)),

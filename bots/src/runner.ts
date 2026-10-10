@@ -13,6 +13,8 @@
 import type {
 	ServerMessage,
 	VeryareOpenDoorEvent,
+	VeryarePaint,
+	VeryarePaintEvent,
 	VeryareShootEvent,
 } from "@rondo/contracts";
 import { Bot, type CreateSocket } from "./client.ts";
@@ -237,6 +239,36 @@ function act(
 			context.at.set(bot.name, plan[action.to]);
 			break;
 		}
+		case "paint": {
+			const payload: VeryarePaintEvent = {
+				type: "paint",
+				paint: {
+					kind: "strokes",
+					strokes: [
+						{
+							part: "torso",
+							color: action.color,
+							size: 0.04,
+							points: [{ u: 0.25, v: 0.5 }],
+						},
+					],
+				},
+			};
+			bot.send({ type: "game-event", gameType: GAME_TYPE, roomId, payload });
+			break;
+		}
+		case "expect-paint": {
+			const id = idOf(action.target);
+			const paint = id === null ? undefined : latestPaint(bot, id);
+			const colors =
+				paint?.kind === "strokes" ? paint.strokes.map((s) => s.color) : null;
+			if (colors === null || colors.join() !== action.color) {
+				context.problems.push(
+					`${action.check}: ${action.target} のペイントは ${action.color} のはず（届いたもの: ${colors?.join(", ") ?? "なし"}）`,
+				);
+			}
+			break;
+		}
 		case "open-door": {
 			const plan = planOf(bot, context);
 			if (plan === null) break;
@@ -292,6 +324,25 @@ function planOf(bot: Bot, context: Context): DoorShotPlan | null {
 		);
 	}
 	return context.plan;
+}
+
+/** いちばん新しい隠れ側の一括配信での、player のペイント。届いていなければ undefined。 */
+function latestPaint(
+	bot: Bot,
+	player: string,
+): VeryarePaint | null | undefined {
+	let latest: VeryarePaint | null | undefined;
+	for (const { message } of bot.received) {
+		if (message.type !== "game-state" && message.type !== "game-state-to")
+			continue;
+		const payload = message.payload as { type?: unknown; hiders?: unknown };
+		if (payload.type !== "hiders" || !Array.isArray(payload.hiders)) continue;
+		const entry = (
+			payload.hiders as { playerId?: unknown; paint?: VeryarePaint | null }[]
+		).find((h) => h.playerId === player);
+		if (entry !== undefined) latest = entry.paint ?? null;
+	}
+	return latest;
 }
 
 /** いちばん新しい、まだ隠れている一覧。届いていなければ null。 */

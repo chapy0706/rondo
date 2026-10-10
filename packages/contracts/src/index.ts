@@ -40,7 +40,13 @@ export type {
 	VeryareHidingNotice,
 	VeryareOniNotice,
 	VeryarePaint,
+	VeryarePaintEvent,
+	VeryarePaintPart,
 	VeryarePose,
+	VeryareStroke,
+	VeryareStrokePoint,
+	VeryareStrokesPaint,
+	VeryareUniformPaint,
 	VeryareShootEvent,
 	VeryareDoorKind,
 	VeryareDoorsNotice,
@@ -49,3 +55,4 @@ export type {
 	VeryareStageDoor,
 	VeryareStageNotice,
 } from "./veryare";
+export { VERYARE_PAINT_LIMITS } from "./veryare";

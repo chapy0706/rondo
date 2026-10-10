@@ -11,8 +11,18 @@
  * ない。鬼の位置は届くたびに跳ばさず、表示を滑らかに寄せる（酔いを避ける）。
  */
 
+import type { VeryarePaint } from "@rondo/contracts";
 import * as THREE from "three";
+import type { SwapSlot } from "../../infrastructure/assets";
+import {
+	type BodyKit,
+	type PaintSurface,
+	createPaintSurface,
+	paintedMaterial,
+	placeholderBodyKit,
+} from "./body";
 import { CAMERA_DISTANCE, CAMERA_PITCH, EYE_HEIGHT } from "./camera";
+import { intersectCylinder } from "./paint";
 import type { View } from "./rules";
 import {
 	type AreaState,
@@ -51,7 +61,11 @@ export interface VeryareScene {
 	/** 鬼希望エリアの状態（鬼選出中だけ。null ならエリアを隠す）。 */
 	setArea(area: AreaState | null): void;
 	/** 自分のアバターの位置と色。 */
-	setAvatar(position: Point, color: string): void;
+	/**
+	 * 自分のアバターの位置と色。color は塗っていない部分の色、paint は自分のペイント
+	 * （ペイントフェーズで描いている途中を含む / issue-25）。
+	 */
+	setAvatar(position: Point, color: string, paint: VeryarePaint | null): void;
 	/** 三人称カメラの向き（yaw: Y 軸まわり、pitch: 見下ろす角度）。 */
 	setCamera(yaw: number, pitch: number): void;
 	/** カメラの中心。self は自分、oni は鬼（ADR 0034）。 */
@@ -65,6 +79,12 @@ export interface VeryareScene {
 	 * level（0〜1）の強さで赤く光らせる。ids が空で self が false なら、光らせない。
 	 */
 	setBlink(ids: readonly string[], self: boolean, level: number): void;
+	/**
+	 * ペイント画面のタップ（画面の正規化座標 -1〜1）が当たったもの（issue-25）。自分の体に
+	 * 当たれば描き込み面の u・v（壁より先）、当たらなければステージの箱の色（スポイト）。
+	 * 何にも当たらなければ null。
+	 */
+	pickPaint(x: number, y: number): PaintPick | null;
 	/** 画面の中央（照準）に重なっている隠れ側の ID。重なっていなければ null（issue-27）。 */
 	pickHider(): string | null;
 	resize(width: number, height: number): void;
@@ -82,7 +102,22 @@ export interface SceneHider {
 	readonly id: string;
 	readonly x: number;
 	readonly z: number;
+	/** 塗っていない部分の色。 */
 	readonly color: string;
+	/** 探索の開始に届いたペイント（issue-25）。無ければ null。 */
+	readonly paint: VeryarePaint | null;
+}
+
+export type PaintPick =
+	| { readonly kind: "body"; readonly u: number; readonly v: number }
+	| { readonly kind: "stage"; readonly color: string };
+
+export interface SceneOptions {
+	/**
+	 * 体を作る口の差し替え（素材の X Bot / issue-25・issue-43）。待機ルームにいる間だけ take() し、
+	 * ステージへ移ったら lock() する。無ければ、ずっと仮のカプセル。
+	 */
+	readonly bodies?: SwapSlot<BodyKit>;
 }
 
 /** 鬼の表示を、届いた位置へ寄せる速さ（1秒あたりの割合の目安）。 */
@@ -180,12 +215,17 @@ function stageMeshes(boxes: readonly StageBox[]): THREE.InstancedMesh[] {
 		});
 		mesh.instanceMatrix.needsUpdate = true;
 		mesh.computeBoundingSphere();
+		// スポイトで拾う色（表の色そのもの / issue-25）。
+		mesh.userData.color = color;
 		meshes.push(mesh);
 	}
 	return meshes;
 }
 
-export function createScene(canvas: HTMLCanvasElement): VeryareScene {
+export function createScene(
+	canvas: HTMLCanvasElement,
+	options: SceneOptions = {},
+): VeryareScene {
 	const renderer = new THREE.WebGLRenderer({ canvas, antialias: true });
 	renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
 
@@ -204,13 +244,26 @@ export function createScene(canvas: HTMLCanvasElement): VeryareScene {
 	};
 	scene.add(spaces["waiting-room"], spaces.stage);
 
-	const avatarMaterial = new THREE.MeshStandardMaterial({ color: 0xece8f5 });
-	const avatar = new THREE.Mesh(
-		new THREE.CapsuleGeometry(0.2, 0.6, 4, 12),
-		avatarMaterial,
-	);
+	let bodyKit: BodyKit = placeholderBodyKit;
+	const avatarSurface = createPaintSurface();
+	const avatarMaterial = paintedMaterial(avatarSurface.texture);
+	let avatar = bodyKit.create(avatarMaterial);
 	avatar.position.y = 0.5;
 	scene.add(avatar);
+	/** 体を作る口が替わったら、自分の体を作り直す（位置はそのまま）。隠れ側は次の setHiders で作り直す。 */
+	const useBodyKit = (kit: BodyKit) => {
+		if (kit === bodyKit) return;
+		bodyKit = kit;
+		const next = kit.create(avatarMaterial);
+		next.position.copy(avatar.position);
+		scene.remove(avatar);
+		avatar.geometry.dispose();
+		avatar = next;
+		scene.add(avatar);
+		hiderKey = "";
+	};
+	// 隠れ側の描き込み面（作り直すときに捨てる）。
+	const hiderSurfaces: PaintSurface[] = [];
 
 	// 鬼。正面が分かるよう、前に小さな印を付ける。
 	const oni = new THREE.Group();
@@ -282,6 +335,12 @@ export function createScene(canvas: HTMLCanvasElement): VeryareScene {
 			}
 		},
 		setSpace(space) {
+			if (space === "waiting-room") {
+				const kit = options.bodies?.take();
+				if (kit != null) useBodyKit(kit);
+			} else {
+				options.bodies?.lock();
+			}
 			spaces["waiting-room"].visible = space === "waiting-room";
 			spaces.stage.visible = space === "stage";
 		},
@@ -292,10 +351,10 @@ export function createScene(canvas: HTMLCanvasElement): VeryareScene {
 			room.areaFill.color.setHex(color);
 			room.areaRim.color.setHex(color);
 		},
-		setAvatar(position, color) {
+		setAvatar(position, color, paint) {
 			avatar.position.x = position.x;
 			avatar.position.z = position.z;
-			avatarMaterial.color.set(color);
+			avatarSurface.draw(color, paint);
 		},
 		setCamera(nextYaw, nextPitch) {
 			yaw = nextYaw;
@@ -319,7 +378,9 @@ export function createScene(canvas: HTMLCanvasElement): VeryareScene {
 		},
 		setHiders(hiders) {
 			const key = hiders
-				.map((h) => `${h.id}:${h.x}:${h.z}:${h.color}`)
+				.map(
+					(h) => `${h.id}:${h.x}:${h.z}:${h.color}:${JSON.stringify(h.paint)}`,
+				)
 				.join("|");
 			if (key === hiderKey) return;
 			hiderKey = key;
@@ -330,11 +391,12 @@ export function createScene(canvas: HTMLCanvasElement): VeryareScene {
 					(child.material as THREE.Material).dispose();
 				}
 			}
+			for (const surface of hiderSurfaces.splice(0)) surface.dispose();
 			for (const hider of hiders) {
-				const mesh = new THREE.Mesh(
-					new THREE.CapsuleGeometry(0.2, 0.6, 4, 12),
-					new THREE.MeshStandardMaterial({ color: hider.color }),
-				);
+				const surface = createPaintSurface();
+				surface.draw(hider.color, hider.paint);
+				hiderSurfaces.push(surface);
+				const mesh = bodyKit.create(paintedMaterial(surface.texture));
 				mesh.position.set(hider.x, 0.5, hider.z);
 				mesh.userData.playerId = hider.id;
 				hiderGroup.add(mesh);
@@ -355,6 +417,28 @@ export function createScene(canvas: HTMLCanvasElement): VeryareScene {
 					typeof id === "string" && targets.has(id),
 				);
 			}
+		},
+		pickPaint(x, y) {
+			placeCamera();
+			avatar.updateMatrixWorld();
+			const raycaster = new THREE.Raycaster();
+			raycaster.setFromCamera(new THREE.Vector2(x, y), camera);
+			// 自分の体: 光線を体のローカル座標へ移し、描き込み面の円柱との交差を求める。
+			const inverse = avatar.matrixWorld.clone().invert();
+			const origin = raycaster.ray.origin.clone().applyMatrix4(inverse);
+			const direction = raycaster.ray.direction
+				.clone()
+				.transformDirection(inverse);
+			const body = intersectCylinder({ origin, direction });
+			// 体に当たれば、体を先にする（カメラが壁の裏に回っても、自分の体には描ける。
+			// カメラの壁へのめり込みは許容している / ADR 0034）。
+			if (body !== null) return { kind: "body", u: body.u, v: body.v };
+			// ステージの箱（スポイト）。箱の色は、描画の色ではなく、表の色（userData.color）。
+			const [stageHit] = spaces.stage.visible
+				? raycaster.intersectObjects(spaces.stage.children, false)
+				: [];
+			const color: unknown = stageHit?.object.userData.color;
+			return typeof color === "string" ? { kind: "stage", color } : null;
 		},
 		pickHider() {
 			// 照準は画面の中央。鬼自身の体は当てる対象に入れず、隠れ側だけを見る。
@@ -393,6 +477,8 @@ export function createScene(canvas: HTMLCanvasElement): VeryareScene {
 					for (const material of materials) material.dispose();
 				}
 			});
+			avatarSurface.dispose();
+			for (const surface of hiderSurfaces.splice(0)) surface.dispose();
 			renderer.dispose();
 		},
 	};

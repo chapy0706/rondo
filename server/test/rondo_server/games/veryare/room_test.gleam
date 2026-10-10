@@ -11,6 +11,7 @@ import gleeunit/should
 import rondo_server/games/veryare/game
 import rondo_server/games/veryare/grid
 import rondo_server/games/veryare/oni_cpu
+import rondo_server/games/veryare/paint
 import rondo_server/games/veryare/room.{
   type Settings, HiderCpus, NoCpu, OniCpu, Settings,
 } as veryare
@@ -1316,4 +1317,125 @@ pub fn hiders_notice_is_not_resent_outside_exploration_and_reveal_test() {
   no_hiders_on_resync(room, a, "painting")
   until_phase_skipping(a, "ended")
   no_hiders_on_resync(room, a, "ended")
+}
+
+// --- ペイント（issue-25） -------------------------------------------------------------------
+
+fn paint_event(color: String) -> Dynamic {
+  dynamic.properties([
+    #(dynamic.string("type"), dynamic.string("paint")),
+    #(
+      dynamic.string("paint"),
+      dynamic.properties([
+        #(dynamic.string("kind"), dynamic.string("strokes")),
+        #(
+          dynamic.string("strokes"),
+          dynamic.list([
+            dynamic.properties([
+              #(dynamic.string("part"), dynamic.string("torso")),
+              #(dynamic.string("color"), dynamic.string(color)),
+              #(dynamic.string("size"), dynamic.float(0.04)),
+              #(
+                dynamic.string("points"),
+                dynamic.list([
+                  dynamic.properties([
+                    #(dynamic.string("u"), dynamic.float(0.25)),
+                    #(dynamic.string("v"), dynamic.float(0.5)),
+                  ]),
+                ]),
+              ),
+            ]),
+          ]),
+        ),
+      ]),
+    ),
+  ])
+}
+
+/// 隠れ側のペイント（hiders の一覧の、playerId が id の人）。
+fn paint_in(hiders: Dynamic, id: String) -> Dynamic {
+  let assert Ok(list) =
+    decode.run(hiders, decode.at(["hiders"], decode.list(decode.dynamic)))
+  let assert Ok(entry) =
+    list.find(list, fn(h) { field(h, "playerId", decode.string) == id })
+  field(entry, "paint", decode.dynamic)
+}
+
+/// a が鬼の部屋で、ペイントフェーズに入ったところまで進める（ペイントフェーズは 300 ms）。
+fn to_painting(
+  ids: List(String),
+) -> #(Subject(Message), Subject(ServerMessage)) {
+  let durations =
+    game.Durations(
+      oni_selection_ms: 30,
+      preparation_ms: 300,
+      painting_ms: 300,
+      exploration_ms: 60_000,
+      reveal_ms: 30,
+      reload_ms: 3000,
+    )
+  let #(room, _) = open_room(ids, durations)
+  let a = subscribe(room, "a")
+  let _info = next_state(a)
+  let assert Ok(Nil) = room_actor.start_game(room)
+  room_actor.game_event(room, PlayerId("a"), move(0.0, 0.0))
+  until_phase(a, "preparation")
+  spread_in_room(room, list.filter(ids, fn(id) { id != "a" }))
+  until_phase(a, "painting")
+  #(room, a)
+}
+
+/// ペイントフェーズに送ったペイント（最初の1回だけ）が、探索の開始の一括配信に載り、
+/// 入り直した人への送り直しにも同じく載る。送らなかった人のペイントは null。
+/// ペイントフェーズの間は、誰にもペイントを含む電文を送らない。
+pub fn paint_is_broadcast_at_exploration_start_test() {
+  let #(room, a) = to_painting(["a", "b", "c"])
+  room_actor.game_event(room, PlayerId("b"), paint_event("#a07850"))
+  room_actor.game_event(room, PlayerId("b"), paint_event("#6b5440"))
+  room_actor.game_event(room, PlayerId("a"), paint_event("#6b5440"))
+  let _ = room_actor.snapshot(room)
+  // ペイントフェーズの間は、ペイントを受け付けても誰にも何も送らない。
+  received_types(a, []) |> should.equal([])
+  until_phase(a, "exploration")
+  let hiders = next_state(a)
+  field(hiders, "type", decode.string) |> should.equal("hiders")
+  let assert Ok(strokes) =
+    decode.run(paint_in(hiders, "b"), paint.paint_decoder())
+  let assert [stroke] = strokes
+  stroke.color |> should.equal("#a07850")
+  decode.run(paint_in(hiders, "c"), decode.optional(decode.dynamic))
+  |> should.equal(Ok(None))
+  room_actor.resync(room, PlayerId("a"))
+  next_hiders(a) |> should.equal(hiders)
+}
+
+/// 被り判定（準備移動の終わり）の結果は、ペイントで変わらない。準備移動中のペイントは無視され、
+/// ペイントフェーズのペイントを受け付けても、まだ隠れている一覧は変わらない。
+pub fn paint_does_not_change_the_overlap_judgement_test() {
+  let durations =
+    game.Durations(
+      oni_selection_ms: 30,
+      preparation_ms: 300,
+      painting_ms: 300,
+      exploration_ms: 60_000,
+      reveal_ms: 30,
+      reload_ms: 3000,
+    )
+  let #(room, _) = open_room(["a", "b", "c", "d"], durations)
+  let a = subscribe(room, "a")
+  let _info = next_state(a)
+  let assert Ok(Nil) = room_actor.start_game(room)
+  room_actor.game_event(room, PlayerId("a"), move(0.0, 0.0))
+  until_phase(a, "preparation")
+  // b と c は玄関に重なったまま。d だけ離れる。準備移動中のペイントは無視される。
+  spread_in_room(room, ["d"])
+  room_actor.game_event(room, PlayerId("b"), paint_event("#a07850"))
+  until_phase(a, "painting")
+  hiding_ids(next_state(a)) |> should.equal(["d"])
+  room_actor.game_event(room, PlayerId("d"), paint_event("#a07850"))
+  let _ = room_actor.snapshot(room)
+  list.contains(received_types(a, []), "hiding") |> should.equal(False)
+  until_phase(a, "exploration")
+  let hiders = next_state(a)
+  let assert Ok(_) = decode.run(paint_in(hiders, "d"), paint.paint_decoder())
 }
