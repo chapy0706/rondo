@@ -47,8 +47,6 @@ export interface Point {
 export const WAITING_ROOM_RADIUS = 2;
 /** 鬼希望エリア（待機ルーム中央の円）の半径（m）。 */
 export const ONI_AREA_RADIUS = 0.6;
-/** ステージの半幅（m）。issue-29 までの仮の広さ。 */
-export const STAGE_HALF = 5;
 
 const PHASES: readonly Phase[] = [
 	"oni-selection",
@@ -280,10 +278,8 @@ export function canPaintWhileWaiting(phase: Phase, role: Role): boolean {
 	return role === "oni" && (phase === "preparation" || phase === "painting");
 }
 
-/** 空間に入ったときの初期位置。待機ルームでは鬼希望エリアの外に立つ。 */
-export function spawnOf(space: Space): Point {
-	return space === "waiting-room" ? { x: 0, z: 1.3 } : { x: 0, z: 3 };
-}
+/** 待機ルームに入ったときの初期位置。鬼希望エリアの外に立つ。ステージは、ステージの通知の玄関。 */
+export const WAITING_ROOM_SPAWN: Point = { x: 0, z: 1.3 };
 
 /** サーバーへの移動の報告（room.gleam の move_decoder が受ける形）。 */
 export interface MoveReport {
@@ -313,15 +309,8 @@ export function yawOfFacing(facing: number): number {
 	return Math.atan2(-Math.cos(facing), -Math.sin(facing));
 }
 
-function clamp(value: number, half: number): number {
-	return Math.min(half, Math.max(-half, value));
-}
-
-/** 空間の範囲に丸める。待機ルームは半径2mの円、ステージは仮の四角。 */
-export function clampToSpace(space: Space, point: Point): Point {
-	if (space === "stage") {
-		return { x: clamp(point.x, STAGE_HALF), z: clamp(point.z, STAGE_HALF) };
-	}
+/** 待機ルーム（半径2mの円）に丸める（サーバーの game.move と同じ）。ステージは移動の規則（stage.ts）。 */
+export function clampToWaitingRoom(point: Point): Point {
 	const distance = Math.hypot(point.x, point.z);
 	if (distance <= WAITING_ROOM_RADIUS) return point;
 	const scale = WAITING_ROOM_RADIUS / distance;
@@ -329,25 +318,22 @@ export function clampToSpace(space: Space, point: Point): Point {
 }
 
 /**
- * 方向入力で位置を進める。入力の y は下が正（VirtualPad の約束）で、上に倒すと
- * カメラの向いている方へ進む。yaw は Y 軸まわりの回転（0 で -z 方向を向く）。
+ * 方向入力で進もうとする位置（壁や円の範囲は、stage.ts の mirrorMove が決める）。
+ * 入力の y は下が正（VirtualPad の約束）で、上に倒すとカメラの向いている方へ進む。
+ * yaw は Y 軸まわりの回転（0 で -z 方向を向く）。
  */
-export function stepPosition(
+export function walkTarget(
 	position: Point,
 	input: { readonly x: number; readonly y: number },
 	yaw: number,
 	speed: number,
 	dtSeconds: number,
-	space: Space,
 ): Point {
 	const forward = -input.y;
 	const right = input.x;
 	const dx = (-Math.sin(yaw) * forward + Math.cos(yaw) * right) * speed;
 	const dz = (-Math.cos(yaw) * forward - Math.sin(yaw) * right) * speed;
-	return clampToSpace(space, {
-		x: position.x + dx * dtSeconds,
-		z: position.z + dz * dtSeconds,
-	});
+	return { x: position.x + dx * dtSeconds, z: position.z + dz * dtSeconds };
 }
 
 // --- 射撃（issue-27 / ADR 0022） ------------------------------------------------

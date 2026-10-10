@@ -3,7 +3,7 @@
  *
  * 1つのシーンの中に、待機ルームとステージを別々のグループとして持ち、自分がいる空間の
  * グループだけを表示する（ADR 0024）。待機ルームは半径2mの円柱形の部屋で、中央に
- * 同心円の鬼希望エリアを置く。エリアの色は赤（待機）/ 緑（開始）/ 青（鬼希望）。ステージは issue-29 で作り込むまでの仮の床と箱である。
+ * 同心円の鬼希望エリアを置く。エリアの色は赤（待機）/ 緑（開始）/ 青（鬼希望）。ステージは、ステージの通知から組む床・壁・襖の箱（stageBoxes.ts / issue-29c）で、素材は使わない。
  * 判定は持たない。何を表示するかは rules.ts とサーバーの通知が決める。
  *
  * 観戦（issue-28）: 鬼と隠れ側（探索開始時の一括配信）も描く。カメラは自分か鬼を中央に
@@ -17,11 +17,12 @@ import {
 	type AreaState,
 	ONI_AREA_RADIUS,
 	type Point,
-	STAGE_HALF,
 	type Space,
 	WAITING_ROOM_RADIUS,
 	areaLook,
 } from "./rules";
+import type { StageGrid } from "./stage";
+import { type StageBox, stageBoxes } from "./stageBoxes";
 
 /** テーマの色（globals.css のトークンと揃える）。 */
 const COLORS = {
@@ -40,7 +41,6 @@ const AREA_COLORS = {
 } as const;
 
 const WALL_HEIGHT = 1.2;
-const WALL_THICKNESS = 0.08;
 /** 目線の高さ（カメラが見る点）。 */
 const EYE_HEIGHT = 0.8;
 /** カメラとアバターの距離（三人称）。 */
@@ -49,6 +49,8 @@ const CAMERA_DISTANCE = 2.6;
 export interface VeryareScene {
 	/** 表示する空間を切り替える。もう一方のグループは描かない。 */
 	setSpace(space: Space): void;
+	/** ステージの地図と、開いている襖（edgeKey）。地図が null なら何も描かない（issue-29c）。 */
+	setStage(grid: StageGrid | null, open: ReadonlySet<string>): void;
 	/** 鬼希望エリアの状態（鬼選出中だけ。null ならエリアを隠す）。 */
 	setArea(area: AreaState | null): void;
 	/** 自分のアバターの位置と色。 */
@@ -84,34 +86,6 @@ export interface SceneHider {
 /** 鬼の表示を、届いた位置へ寄せる速さ（1秒あたりの割合の目安）。 */
 const ONI_FOLLOW_RATE = 6;
 const ONI_COLOR = 0xef4444;
-
-function floor(size: number, color: number): THREE.Mesh {
-	const mesh = new THREE.Mesh(
-		new THREE.PlaneGeometry(size, size),
-		new THREE.MeshStandardMaterial({ color }),
-	);
-	mesh.rotation.x = -Math.PI / 2;
-	return mesh;
-}
-
-/** 床の四辺に低い壁を立てる。 */
-function walls(half: number, color: number): THREE.Group {
-	const group = new THREE.Group();
-	const material = new THREE.MeshStandardMaterial({ color });
-	const long = new THREE.BoxGeometry(half * 2, WALL_HEIGHT, WALL_THICKNESS);
-	for (const [x, z, turned] of [
-		[0, -half, false],
-		[0, half, false],
-		[-half, 0, true],
-		[half, 0, true],
-	] as const) {
-		const wall = new THREE.Mesh(long, material);
-		wall.position.set(x, WALL_HEIGHT / 2, z);
-		if (turned) wall.rotation.y = Math.PI / 2;
-		group.add(wall);
-	}
-	return group;
-}
 
 interface WaitingRoom {
 	readonly group: THREE.Group;
@@ -175,31 +149,36 @@ function waitingRoom(): WaitingRoom {
 	return { group, area, areaFill, areaRim };
 }
 
-function stage(): THREE.Group {
-	const group = new THREE.Group();
-	group.add(floor(STAGE_HALF * 2, COLORS.surface));
-	const grid = new THREE.GridHelper(
-		STAGE_HALF * 2,
-		10,
-		COLORS.line,
-		COLORS.line,
-	);
-	grid.position.y = 0.004;
-	group.add(grid);
-	group.add(walls(STAGE_HALF, COLORS.line));
-
-	// 仮の遮蔽物。issue-29 で本来のステージに置き換える。
-	const crate = new THREE.MeshStandardMaterial({ color: COLORS.sub });
-	for (const [x, z, size] of [
-		[-2.5, -1.5, 1],
-		[2, 1.5, 0.8],
-		[0.5, -3, 1.2],
-	] as const) {
-		const box = new THREE.Mesh(new THREE.BoxGeometry(size, size, size), crate);
-		box.position.set(x, size / 2, z);
-		group.add(box);
+/**
+ * ステージの箱（stageBoxes.ts の一覧）を、色ごとに1つの InstancedMesh にまとめて描く。
+ * 最も大きい骨格でも描画の呼び出しは十数回に収まる。
+ */
+function stageMeshes(boxes: readonly StageBox[]): THREE.InstancedMesh[] {
+	const byColor = new Map<string, StageBox[]>();
+	for (const box of boxes) {
+		const list = byColor.get(box.color) ?? [];
+		list.push(box);
+		byColor.set(box.color, list);
 	}
-	return group;
+	const unit = new THREE.BoxGeometry(1, 1, 1);
+	const matrix = new THREE.Matrix4();
+	const meshes: THREE.InstancedMesh[] = [];
+	for (const [color, list] of byColor) {
+		const mesh = new THREE.InstancedMesh(
+			unit,
+			new THREE.MeshStandardMaterial({ color }),
+			list.length,
+		);
+		list.forEach((box, index) => {
+			matrix.makeScale(box.width, box.height, box.depth);
+			matrix.setPosition(box.x, box.y, box.z);
+			mesh.setMatrixAt(index, matrix);
+		});
+		mesh.instanceMatrix.needsUpdate = true;
+		mesh.computeBoundingSphere();
+		meshes.push(mesh);
+	}
+	return meshes;
 }
 
 export function createScene(canvas: HTMLCanvasElement): VeryareScene {
@@ -216,7 +195,8 @@ export function createScene(canvas: HTMLCanvasElement): VeryareScene {
 	const room = waitingRoom();
 	const spaces: Record<Space, THREE.Group> = {
 		"waiting-room": room.group,
-		stage: stage(),
+		// ステージの通知が届くまでは、何も描かない（setStage で組む）。
+		stage: new THREE.Group(),
 	};
 	scene.add(spaces["waiting-room"], spaces.stage);
 
@@ -270,7 +250,33 @@ export function createScene(canvas: HTMLCanvasElement): VeryareScene {
 		camera.lookAt(target);
 	};
 
+	let stageGrid: StageGrid | null = null;
+	let stageOpen: ReadonlySet<string> | null = null;
+	const clearStage = () => {
+		const meshes = [...spaces.stage.children];
+		spaces.stage.clear();
+		const geometries = new Set<THREE.BufferGeometry>();
+		for (const mesh of meshes) {
+			if (!(mesh instanceof THREE.InstancedMesh)) continue;
+			geometries.add(mesh.geometry);
+			(mesh.material as THREE.Material).dispose();
+			mesh.dispose();
+		}
+		for (const geometry of geometries) geometry.dispose();
+	};
+
 	return {
+		setStage(grid, open) {
+			// 地図か襖の状態が変わったときだけ組み直す（襖の通知はまれ）。
+			if (grid === stageGrid && open === stageOpen) return;
+			stageGrid = grid;
+			stageOpen = open;
+			clearStage();
+			if (grid === null) return;
+			for (const mesh of stageMeshes(stageBoxes(grid, open))) {
+				spaces.stage.add(mesh);
+			}
+		},
 		setSpace(space) {
 			spaces["waiting-room"].visible = space === "waiting-room";
 			spaces.stage.visible = space === "stage";

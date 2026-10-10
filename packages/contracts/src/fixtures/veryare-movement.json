@@ -325,5 +325,178 @@
 				"z": 0.5
 			}
 		}
+	],
+	"moves": [
+		{
+			"name": "準備移動の隠れ側は、ステージで動ける",
+			"phase": "preparation",
+			"role": "hider",
+			"space": "stage",
+			"open": [],
+			"from": {
+				"x": 0.5,
+				"z": 0.5
+			},
+			"to": {
+				"x": 1.5,
+				"z": 4.5
+			},
+			"expect": {
+				"x": 1.5,
+				"z": 4.5
+			}
+		},
+		{
+			"name": "準備移動の隠れ側も、壁の手前で止まる",
+			"phase": "preparation",
+			"role": "hider",
+			"space": "stage",
+			"open": [],
+			"from": {
+				"x": 1.5,
+				"z": 0.5
+			},
+			"to": {
+				"x": 2.8,
+				"z": 0.5
+			},
+			"expect": {
+				"x": 1.999,
+				"z": 0.5
+			}
+		},
+		{
+			"name": "ペイント中の隠れ側の報告は、無視される",
+			"phase": "painting",
+			"role": "hider",
+			"space": "stage",
+			"open": [],
+			"from": {
+				"x": 0.5,
+				"z": 0.5
+			},
+			"to": {
+				"x": 1.5,
+				"z": 0.5
+			},
+			"expect": {
+				"x": 0.5,
+				"z": 0.5
+			}
+		},
+		{
+			"name": "探索中の隠れ側（観戦中を含む）の報告は、無視される",
+			"phase": "exploration",
+			"role": "hider",
+			"space": "stage",
+			"open": [],
+			"from": {
+				"x": 0.5,
+				"z": 0.5
+			},
+			"to": {
+				"x": 1.5,
+				"z": 0.5
+			},
+			"expect": {
+				"x": 0.5,
+				"z": 0.5
+			}
+		},
+		{
+			"name": "探索中の鬼は、ステージで動ける",
+			"phase": "exploration",
+			"role": "oni",
+			"space": "stage",
+			"open": [],
+			"from": {
+				"x": 0.5,
+				"z": 0.5
+			},
+			"to": {
+				"x": 0.5,
+				"z": 3.5
+			},
+			"expect": {
+				"x": 0.5,
+				"z": 3.5
+			}
+		},
+		{
+			"name": "ペイント中の鬼は、待機ルームの円の中で動ける",
+			"phase": "painting",
+			"role": "oni",
+			"space": "waiting-room",
+			"open": [],
+			"from": {
+				"x": 0,
+				"z": 0
+			},
+			"to": {
+				"x": 3,
+				"z": 0
+			},
+			"expect": {
+				"x": 2,
+				"z": 0
+			}
+		},
+		{
+			"name": "鬼選出の間は、待機ルームの円の中で動ける",
+			"phase": "oni-selection",
+			"role": "undecided",
+			"space": "waiting-room",
+			"open": [],
+			"from": {
+				"x": 1.3,
+				"z": 0
+			},
+			"to": {
+				"x": 1,
+				"z": -1
+			},
+			"expect": {
+				"x": 1,
+				"z": -1
+			}
+		},
+		{
+			"name": "答え合わせの間の報告は、無視される",
+			"phase": "reveal",
+			"role": "oni",
+			"space": "stage",
+			"open": [],
+			"from": {
+				"x": 0.5,
+				"z": 0.5
+			},
+			"to": {
+				"x": 0.5,
+				"z": 3.5
+			},
+			"expect": {
+				"x": 0.5,
+				"z": 0.5
+			}
+		},
+		{
+			"name": "終了の後の報告は、無視される",
+			"phase": "ended",
+			"role": "oni",
+			"space": "stage",
+			"open": [],
+			"from": {
+				"x": 0.5,
+				"z": 0.5
+			},
+			"to": {
+				"x": 0.5,
+				"z": 3.5
+			},
+			"expect": {
+				"x": 0.5,
+				"z": 0.5
+			}
+		}
 	]
 }

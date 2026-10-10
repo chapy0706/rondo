@@ -1,7 +1,12 @@
+import gleam/bit_array
+import gleam/dynamic
+import gleam/dynamic/decode
+import gleam/json
 import gleam/list
 import gleeunit/should
 import rondo_server/games/veryare/palette.{Rgb}
 import rondo_server/games/veryare/stage
+import rondo_server/games/veryare/stage_notice
 
 /// 同じ色の差は 0。
 pub fn same_color_is_zero_test() {
@@ -47,4 +52,35 @@ pub fn every_room_type_has_a_representative_color_test() {
 pub fn color_is_written_as_hex_test() {
   palette.to_hex(Rgb(0, 128, 255)) |> should.equal("#0080ff")
   palette.to_hex(Rgb(255, 255, 255)) |> should.equal("#ffffff")
+}
+
+// --- クライアントとの共有の見本（issue-29c） --------------------------------------------
+
+@external(erlang, "file", "read_file")
+fn read_palette_file(path: String) -> Result(BitArray, dynamic.Dynamic)
+
+/// 代表色の見本（packages/contracts/src/fixtures/veryare-palette.json）が、サーバーの値と一致する。
+/// クライアントの床の色と、ペイントの代表色は、この見本と同じ表を使う。
+pub fn palette_fixture_matches_the_server_test() {
+  let assert Ok(bytes) =
+    read_palette_file("../packages/contracts/src/fixtures/veryare-palette.json")
+  let assert Ok(text) = bit_array.to_string(bytes)
+  let field = fn(path: List(String)) {
+    let assert Ok(value) = json.parse(text, decode.at(path, decode.string))
+    value
+  }
+  field(["floor"]) |> should.equal(palette.to_hex(palette.floor_color))
+  field(["unpainted"]) |> should.equal(palette.to_hex(palette.unpainted))
+  list.each(
+    [
+      stage.Washitsu,
+      stage.WashitsuWithOshiire,
+      stage.WashitsuWithKakejiku,
+      stage.Oshiire,
+    ],
+    fn(room) {
+      field(["rooms", stage_notice.room_name(room)])
+      |> should.equal(palette.to_hex(palette.room_color(room)))
+    },
+  )
 }

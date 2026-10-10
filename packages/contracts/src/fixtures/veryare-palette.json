@@ -1,0 +1,11 @@
+{
+	"note": "部屋タイプの代表色（issue-29c）。クライアントの床の色と、隠れ側を塗る代表色（issue-25）が同じ表を使う。サーバーの palette.gleam と一致することを、server の palette_test が確かめる。",
+	"floor": "#a07850",
+	"unpainted": "#ece8f5",
+	"rooms": {
+		"washitsu": "#b5a46a",
+		"washitsu-oshiire": "#a8956a",
+		"washitsu-kakejiku": "#c2b280",
+		"oshiire": "#6b5440"
+	}
+}

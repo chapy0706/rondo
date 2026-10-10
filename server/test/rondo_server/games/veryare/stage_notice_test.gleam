@@ -9,8 +9,10 @@ import gleam/dynamic/decode
 import gleam/float
 import gleam/json
 import gleam/list
+import gleam/option
 import gleam/set
 import gleeunit/should
+import rondo_server/games/veryare/game
 import rondo_server/games/veryare/grid
 import rondo_server/games/veryare/stage
 import rondo_server/games/veryare/stage_notice
@@ -176,5 +178,78 @@ pub fn skeleton_stage_fixture_matches_the_server_test() {
     let assert Ok(decoded) = stage_notice.decode(notice)
     decoded.grid |> should.equal(grid.of_layout(layout))
     decoded.spawn |> should.equal(skeleton.spawn)
+  })
+}
+
+/// 移動の見本の moves（issue-29c）: フェーズ・役割・空間ごとに、サーバーの game.move が報告を
+/// どう扱うか（動かす・待機ルームの円に丸める・無視する）。クライアントは、同じ見本で、サーバーの
+/// 結果を再現する。
+pub fn movement_fixture_moves_follow_game_move_test() {
+  let movement = fixture("veryare-movement")
+  let assert Ok(decoded) = stage_notice.decode(at(movement, ["stage"]))
+  let point = fn(value: Dynamic) {
+    let assert Ok(p) =
+      decode.run(value, {
+        use x <- decode.field("x", number())
+        use z <- decode.field("z", number())
+        decode.success(#(x, z))
+      })
+    p
+  }
+  let text = fn(value: Dynamic, key: String) {
+    let assert Ok(s) = decode.run(value, decode.at([key], decode.string))
+    s
+  }
+  list.each(items(at(movement, ["moves"])), fn(case_) {
+    let phase = case text(case_, "phase") {
+      "oni-selection" -> game.OniSelection
+      "preparation" -> game.Preparation
+      "painting" -> game.Painting
+      "exploration" -> game.Exploration
+      "reveal" -> game.Reveal(game.OniWins)
+      _ -> game.Ended(game.OniWins)
+    }
+    let space = case text(case_, "space") {
+      "stage" -> game.Stage
+      _ -> game.WaitingRoom
+    }
+    let #(player, oni) = case text(case_, "role") {
+      "oni" -> #("a", option.Some("a"))
+      "hider" -> #("b", option.Some("a"))
+      _ -> #("b", option.None)
+    }
+    let #(fx, fz) = point(at(case_, ["from"]))
+    let #(tx, tz) = point(at(case_, ["to"]))
+    let base =
+      game.new(
+        ["a", "b"],
+        game.durations(exploration_ms: 40_000),
+        stage.generate(0),
+      )
+    let g =
+      game.Game(
+        ..base,
+        grid: decoded.grid,
+        open_doors: set.new(),
+        phase:,
+        oni:,
+        positions: dict.insert(
+          base.positions,
+          player,
+          game.Position(space, fx, fz),
+        ),
+      )
+    let assert Ok(after) =
+      dict.get(game.move(g, player, tx, tz).positions, player)
+    let expected = point(at(case_, ["expect"]))
+    let ok =
+      float.absolute_value(after.x -. expected.0) <. 0.000001
+      && float.absolute_value(after.z -. expected.1) <. 0.000001
+    case ok {
+      True -> Nil
+      False ->
+        #(text(case_, "name"), #(after.x, after.z))
+        |> should.equal(#(text(case_, "name"), expected))
+    }
   })
 }

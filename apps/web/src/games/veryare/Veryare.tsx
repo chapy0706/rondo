@@ -22,12 +22,15 @@ import type { VeryareHiderState, VeryareOniNotice } from "@rondo/contracts";
 import { VirtualPad, useRealtimeGame, useVirtualPad } from "@rondo/game-sdk";
 import { useEffect, useRef, useState } from "react";
 import { veryareManifest } from "./manifest";
+import { UNPAINTED_COLOR } from "./palette";
 import {
 	type Outcome,
 	type Phase,
 	type PhaseNotice,
 	type Point,
 	type Role,
+	type Space,
+	WAITING_ROOM_SPAWN,
 	areaLook,
 	canMove,
 	canPaintWhileWaiting,
@@ -45,11 +48,19 @@ import {
 	roleOf,
 	shootEvent,
 	spaceOf,
-	spawnOf,
-	stepPosition,
 	viewOf,
+	walkTarget,
 } from "./rules";
 import type { SceneHider, SceneOni, VeryareScene } from "./scene";
+import {
+	type StageGrid,
+	doorToOpen,
+	mirrorMove,
+	openDoorEvent,
+	parseDoorsNotice,
+	parseStageNotice,
+	reconcile,
+} from "./stage";
 
 /** 歩く速さ（m/秒）。 */
 /** 「見つけた！」を出しておく時間（ミリ秒 / issue-27）。 */
@@ -62,8 +73,8 @@ const TURN_SPEED = 2.2;
 const SEND_INTERVAL_MS = 100;
 /** 向きだけが変わったときに報告し直す角度の差（ラジアン）。 */
 const FACING_EPSILON = 0.05;
-/** アバターの既定の色。 */
-const DEFAULT_COLOR = "#ece8f5";
+/** アバターの既定の色（まだ塗っていない体の色。サーバーの palette.gleam と同じ）。 */
+const DEFAULT_COLOR = UNPAINTED_COLOR;
 /** 待機中ペイントで選べる色。本番のペイント（issue-25）とは別の簡易なもの。 */
 const WAITING_COLORS = [
 	"#f5b841",
@@ -117,6 +128,12 @@ export default function Veryare() {
 	);
 	/** 探索中の鬼の状態（観戦・鬼 TPS 視点に使う）。 */
 	const [oniState, setOniState] = useState<VeryareOniNotice | null>(null);
+	/** ステージの地図（ステージの通知 / issue-29c）。届くまでは null で、ステージを描かない。 */
+	const [grid, setGrid] = useState<StageGrid | null>(null);
+	/** 開いている襖（襖の通知のとおり。クライアントは変えない）。 */
+	const [openDoors, setOpenDoors] = useState<ReadonlySet<string>>(
+		() => new Set(),
+	);
 	/** まだ隠れている隠れ側の一覧。届くまでは null。 */
 	const [hiding, setHiding] = useState<readonly string[] | null>(null);
 	/** 探索中の隠れ側が、鬼 TPS 視点を選んでいるか。 */
@@ -129,6 +146,13 @@ export default function Veryare() {
 	/** 最後に撃った相手と、直前の隠れている一覧（命中を一覧の更新で知るため）。 */
 	const shotTargetRef = useRef<string | null>(null);
 	const hidingRef = useRef<readonly string[] | null>(null);
+
+	const positionRef = useRef<Point>(WAITING_ROOM_SPAWN);
+	/**
+	 * サーバーが持っているはずの自分の位置（issue-29c）。報告のたびに、サーバーの game.move を
+	 * 再現して進め（mirrorMove）、手元の位置と 1 cm 以上ずれたら手元を合わせる（reconcile）。
+	 */
+	const serverRef = useRef<Point>(WAITING_ROOM_SPAWN);
 
 	// サーバーの通知を購読する（全員宛てのフェーズ通知と、入室後の案内）。
 	useEffect(() => {
@@ -162,7 +186,17 @@ export default function Veryare() {
 			hidingRef.current = next.playerIds;
 			setHiding(next.playerIds);
 		});
+		const offStage = on("stage", (payload) => {
+			const next = parseStageNotice(payload);
+			if (next !== null) setGrid(next);
+		});
+		const offDoors = on("doors", (payload) => {
+			const next = parseDoorsNotice(payload);
+			if (next !== null) setOpenDoors(next);
+		});
 		return () => {
+			offStage();
+			offDoors();
 			offPhase();
 			offInfo();
 			offHiders();
@@ -215,6 +249,23 @@ export default function Veryare() {
 		setNow(at);
 		send(shootEvent(target));
 	};
+	// 襖を開けるボタン（issue-29c）。閉じた襖の境から 1.5 m 以内のとき、いちばん近い襖を
+	// 開ける報告を送る。表示は襖の通知を待って変える（クライアントは襖の状態を変えない）。
+	// 位置は描画ループの参照なので、残り時間の更新（250 ms ごと）に合わせて見直す。
+	const door =
+		grid === null
+			? null
+			: doorToOpen({
+					grid,
+					open: openDoors,
+					phase,
+					movable,
+					space,
+					position: positionRef.current,
+				});
+	const openDoor = () => {
+		if (door !== null) send(openDoorEvent(door));
+	};
 	// 待機中ペイントは待機ルームの中だけで見せる。ステージの見た目には一切持ち込まない。
 	const avatarColor =
 		role === "oni" && space === "waiting-room" ? waitingColor : DEFAULT_COLOR;
@@ -236,6 +287,10 @@ export default function Veryare() {
 	// 鬼希望エリアは鬼選出中だけ見せる。
 	const area = phase === "oni-selection" ? (notice?.area ?? null) : null;
 	const latest = useRef({
+		phase,
+		role,
+		grid,
+		openDoors,
 		move,
 		look,
 		movable,
@@ -248,6 +303,10 @@ export default function Veryare() {
 		sceneHiders,
 	});
 	latest.current = {
+		phase,
+		role,
+		grid,
+		openDoors,
 		move,
 		look,
 		movable,
@@ -263,7 +322,6 @@ export default function Veryare() {
 	const canvasRef = useRef<HTMLCanvasElement | null>(null);
 	const fadeRef = useRef<HTMLDivElement | null>(null);
 	const sceneRef = useRef<VeryareScene | null>(null);
-	const positionRef = useRef<Point>(spawnOf("waiting-room"));
 
 	// three.js のシーンを作り、描画ループを回す。three.js は遅延読み込みする。
 	useEffect(() => {
@@ -297,14 +355,25 @@ export default function Veryare() {
 
 				yaw -= current.look.x * TURN_SPEED * dt;
 				if (current.movable) {
-					positionRef.current = stepPosition(
-						positionRef.current,
-						current.move,
-						yaw,
-						WALK_SPEED,
-						dt,
-						current.space,
-					);
+					// 手元でも、サーバーと同じ規則（壁・襖・待機ルームの円）で動かす。
+					const rule = {
+						phase: current.phase,
+						role: current.role,
+						space: current.space,
+						grid: current.grid,
+						open: current.openDoors,
+					};
+					positionRef.current = mirrorMove({
+						...rule,
+						from: positionRef.current,
+						to: walkTarget(
+							positionRef.current,
+							current.move,
+							yaw,
+							WALK_SPEED,
+							dt,
+						),
+					});
 					// 位置と向きはクライアントが報告し、サーバーが制限する（変わったときだけ
 					// 間引いて送る）。向きは観戦者へ送る鬼の向きに使う（issue-28）。
 					const position = positionRef.current;
@@ -318,12 +387,21 @@ export default function Veryare() {
 						Math.abs(facing - sentFacing) > FACING_EPSILON;
 					if ((moved || turned) && time - lastSent >= SEND_INTERVAL_MS) {
 						current.send(moveReport(position, facing));
+						// サーバーは前の位置から報告の位置へ一度に動かす。その結果を再現して、
+						// 角や壁沿いで手元の小刻みな動きとずれたら、サーバーの位置に合わせる。
+						serverRef.current = mirrorMove({
+							...rule,
+							from: serverRef.current,
+							to: position,
+						});
+						positionRef.current = reconcile(position, serverRef.current);
 						sentPosition = position;
 						sentFacing = facing;
 						lastSent = time;
 					}
 				}
 
+				scene.setStage(current.grid, current.openDoors);
 				scene.setSpace(current.space);
 				scene.setArea(current.area);
 				scene.setAvatar(positionRef.current, current.avatarColor);
@@ -347,11 +425,18 @@ export default function Veryare() {
 	}, []);
 
 	// 空間が変わったら、その空間の初期位置に立ち、暗転から明ける短い演出を入れる。
-	const previousSpace = useRef(space);
+	// ステージの初期位置は、ステージの通知の玄関（サーバーも同じ所へ置く / issue-29a）。
+	// 通知が届く前にステージへ移ったら、届いたときに立つ。同じ地図が届き直しても
+	// （再接続の後など）、立ち直さない。
+	const placedRef = useRef<Space>("waiting-room");
 	useEffect(() => {
-		if (previousSpace.current === space) return;
-		previousSpace.current = space;
-		positionRef.current = spawnOf(space);
+		if (placedRef.current === space) return;
+		if (space === "stage" && grid === null) return;
+		placedRef.current = space;
+		const start =
+			space === "stage" && grid !== null ? grid.spawn : WAITING_ROOM_SPAWN;
+		positionRef.current = start;
+		serverRef.current = start;
 		const reduce = window.matchMedia(
 			"(prefers-reduced-motion: reduce)",
 		).matches;
@@ -361,7 +446,7 @@ export default function Veryare() {
 				easing: "ease-out",
 			});
 		}
-	}, [space]);
+	}, [space, grid]);
 
 	return (
 		<div
@@ -508,6 +593,16 @@ export default function Veryare() {
 					// 動けない間（観戦中を含む）は移動パッドを出さない。
 					<div aria-hidden="true" className="size-[120px]" />
 				)}
+				{door !== null ? (
+					<button
+						type="button"
+						onClick={openDoor}
+						data-testid="veryare-open-door"
+						className="min-h-11 rounded-xl bg-surface px-4 font-semibold text-fg text-sm ring-1 ring-line ring-inset active:scale-95"
+					>
+						襖を開ける
+					</button>
+				) : null}
 				{shootable ? (
 					<button
 						type="button"

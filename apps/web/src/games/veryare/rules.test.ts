@@ -4,13 +4,13 @@ import {
 	ONI_AREA_RADIUS,
 	type Phase,
 	SHOT_RELOAD_MS,
-	STAGE_HALF,
 	WAITING_ROOM_RADIUS,
+	WAITING_ROOM_SPAWN,
 	areaLook,
 	canMove,
 	canPaintWhileWaiting,
 	canShoot,
-	clampToSpace,
+	clampToWaitingRoom,
 	facingOfYaw,
 	foundByShot,
 	isSpectator,
@@ -24,9 +24,8 @@ import {
 	roleOf,
 	shootEvent,
 	spaceOf,
-	spawnOf,
-	stepPosition,
 	viewOf,
+	walkTarget,
 	yawOfFacing,
 } from "./rules";
 
@@ -205,75 +204,41 @@ describe("canPaintWhileWaiting - 鬼の待機中ペイント", () => {
 	});
 });
 
-describe("clampToSpace - 空間の範囲（待機ルームは円柱形）", () => {
-	it("待機ルームは半径2mの円。外に出ると円の縁へ寄せる", () => {
-		expect(WAITING_ROOM_RADIUS).toBe(2);
-		const p = clampToSpace("waiting-room", { x: 6, z: 0 });
-		expect(p.x).toBeCloseTo(2);
+describe("clampToWaitingRoom - 待機ルームは半径2mの円", () => {
+	it("円の外は、円周に丸める。内側はそのまま", () => {
+		const p = clampToWaitingRoom({ x: 6, z: 0 });
+		expect(p.x).toBeCloseTo(WAITING_ROOM_RADIUS);
 		expect(p.z).toBeCloseTo(0);
-		const q = clampToSpace("waiting-room", { x: 3, z: 3 });
-		expect(Math.hypot(q.x, q.z)).toBeCloseTo(2);
-	});
-
-	it("円の内側ならそのまま", () => {
-		expect(clampToSpace("waiting-room", { x: 1, z: -1 })).toEqual({
-			x: 1,
-			z: -1,
-		});
-	});
-
-	it("ステージは仮の四角（issue-29 まで）", () => {
-		expect(clampToSpace("stage", { x: 9, z: -9 })).toEqual({
-			x: STAGE_HALF,
-			z: -STAGE_HALF,
-		});
+		const q = clampToWaitingRoom({ x: 3, z: 3 });
+		expect(Math.hypot(q.x, q.z)).toBeCloseTo(WAITING_ROOM_RADIUS);
+		expect(clampToWaitingRoom({ x: 1, z: -1 })).toEqual({ x: 1, z: -1 });
 	});
 });
 
-describe("stepPosition - 移動の計算", () => {
+describe("walkTarget - 進もうとする位置", () => {
 	it("パッドの上（y < 0）でカメラの向いている方へ進む", () => {
 		// yaw 0 のカメラは -z 方向を向く。
-		const next = stepPosition(
-			{ x: 0, z: 0 },
-			{ x: 0, y: -1 },
-			0,
-			2,
-			0.5,
-			"stage",
-		);
+		const next = walkTarget({ x: 0, z: 0 }, { x: 0, y: -1 }, 0, 2, 0.5);
 		expect(next.x).toBeCloseTo(0);
 		expect(next.z).toBeCloseTo(-1);
 	});
 
 	it("カメラを右に90度回すと、前進は +x 方向になる", () => {
-		const next = stepPosition(
+		const next = walkTarget(
 			{ x: 0, z: 0 },
 			{ x: 0, y: -1 },
 			-Math.PI / 2,
 			2,
 			0.5,
-			"stage",
 		);
 		expect(next.x).toBeCloseTo(1);
 		expect(next.z).toBeCloseTo(0);
-	});
-
-	it("待機ルームの円の外へは出ない", () => {
-		const next = stepPosition(
-			{ x: 1.9, z: 0 },
-			{ x: 1, y: 0 },
-			0,
-			10,
-			1,
-			"waiting-room",
-		);
-		expect(Math.hypot(next.x, next.z)).toBeCloseTo(WAITING_ROOM_RADIUS);
 	});
 });
 
 describe("初期位置", () => {
 	it("待機ルームの初期位置は鬼希望エリアの外で、円の内側（入らなければ立候補にならない）", () => {
-		const { x, z } = spawnOf("waiting-room");
+		const { x, z } = WAITING_ROOM_SPAWN;
 		expect(Math.hypot(x, z)).toBeGreaterThan(ONI_AREA_RADIUS);
 		expect(Math.hypot(x, z)).toBeLessThan(WAITING_ROOM_RADIUS);
 	});
