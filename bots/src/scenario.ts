@@ -9,6 +9,8 @@
  * - rankings: 期待する結果の行（順位・score・details）。名前はボットの名前
  * - targeted: 限定配信（ADR 0021）の確認をするか。宛先でないボットに game-state-to が
  *   届かないこと、少なくとも1通は観測できたことを確かめる
+ * - settings: ルーム作成時の設定（create-room の settings。例: 平屋は { stage: 1 } / issue-44）。
+ *   無ければ送らない（サーバーの既定）
  */
 
 /** ボットの動き。 */
@@ -65,7 +67,26 @@ export type Action =
 			readonly hiding: boolean;
 	  }
 	/** 鬼として撃つ（issue-27。契約の VeryareShootEvent）。target はボットの名前、null は狙いなし。 */
-	| { readonly type: "shoot"; readonly target: string | null };
+	| { readonly type: "shoot"; readonly target: string | null }
+	/**
+	 * 確かめ（issue-44）: 届いたステージの通知の、1マスの大きさが cellSize、リスポーン位置が
+	 * spawn か。違えば、check の名前を添えて問題にする。
+	 */
+	| {
+			readonly type: "expect-stage";
+			readonly check: string;
+			readonly cellSize: number;
+			readonly spawn: { readonly x: number; readonly z: number };
+	  }
+	/**
+	 * 確かめ（issue-44）: いちばん新しい襖の通知で、開いている襖の辺の数が open か。違えば、
+	 * check の名前を添えて問題にする。襖の通知はフェーズの通知の後に届くので、delayMs を空ける。
+	 */
+	| {
+			readonly type: "expect-doors";
+			readonly check: string;
+			readonly open: number;
+	  };
 
 /** 手順を動かす時点。 */
 export type Trigger =
@@ -97,6 +118,7 @@ export interface Scenario {
 	readonly receivers: readonly string[];
 	readonly rankings: readonly ExpectedRow[];
 	readonly targeted?: boolean;
+	readonly settings?: Readonly<Record<string, number>>;
 }
 
 /** 隠れ側・鬼の details（サーバーの games/veryare/result.gleam の写し方）。 */

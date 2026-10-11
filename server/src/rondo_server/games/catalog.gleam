@@ -39,9 +39,9 @@ pub fn spec_for(
 ) -> Result(#(RoomSpec, StartPolicy), CatalogError) {
   case game_type {
     "veryare" ->
-      case veryare.parse_settings(settings) {
-        Ok(parsed) ->
-          Ok(#(veryare.spec_timed(id, parsed, timing), StartOnCreate))
+      case veryare.parse_room(settings) {
+        Ok(#(parsed, stage)) ->
+          Ok(#(veryare.spec_on(id, parsed, stage, timing), StartOnCreate))
         Error(Nil) -> Error(InvalidSettings)
       }
     "tilt-maze" ->

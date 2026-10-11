@@ -250,9 +250,10 @@ const door_a = Door(Cell(3, 2), Cell(2, 2))
 fn tiny_room(open: List(grid.Edge)) -> Game(String) {
   ready()
   |> fn(g) {
+    let assert game.Skeleton(layout:, ..) = g.ground
     game.Game(
       ..g,
-      sight_map: tiny(),
+      ground: game.Skeleton(layout:, sight_map: tiny()),
       shot_sight: True,
       open_doors: set.from_list(open),
     )

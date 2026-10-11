@@ -76,7 +76,15 @@ export async function runScenario(
 		const creator = bots.get(creatorName ?? "");
 		if (creator === undefined) throw new Error("ボットがいない");
 
-		creator.send({ type: "create-room", gameType: GAME_TYPE });
+		creator.send(
+			scenario.settings === undefined
+				? { type: "create-room", gameType: GAME_TYPE }
+				: {
+						type: "create-room",
+						gameType: GAME_TYPE,
+						settings: scenario.settings,
+					},
+		);
 		const created = await creator.waitFor(
 			(m) => m.type === "room-joined",
 			stepTimeoutMs,
@@ -290,6 +298,29 @@ function act(
 			}
 			break;
 		}
+		case "expect-stage": {
+			const stage = stageOf(bot);
+			const matches =
+				stage !== null &&
+				stage.cellSize === action.cellSize &&
+				stage.spawn.x === action.spawn.x &&
+				stage.spawn.z === action.spawn.z;
+			if (!matches) {
+				context.problems.push(
+					`${action.check}: ステージは 1マス ${action.cellSize} m・玄関 (${action.spawn.x}, ${action.spawn.z}) のはず（届いたもの: ${stage === null ? "なし" : `1マス ${stage.cellSize} m・玄関 (${stage.spawn.x}, ${stage.spawn.z})`}）`,
+				);
+			}
+			break;
+		}
+		case "expect-doors": {
+			const open = latestDoors(bot);
+			if (open !== action.open) {
+				context.problems.push(
+					`${action.check}: 開いている襖の辺は ${action.open} のはず（届いたもの: ${open ?? "なし"}）`,
+				);
+			}
+			break;
+		}
 		case "shoot": {
 			const payload: VeryareShootEvent = {
 				type: "shoot",
@@ -355,6 +386,20 @@ function latestHiding(bot: Bot): readonly string[] | null {
 			latest = payload.playerIds.filter(
 				(id): id is string => typeof id === "string",
 			);
+		}
+	}
+	return latest;
+}
+
+/** いちばん新しい襖の通知（契約: VeryareDoorsNotice）の、開いている辺の数。届いていなければ null。 */
+function latestDoors(bot: Bot): number | null {
+	let latest: number | null = null;
+	for (const { message } of bot.received) {
+		if (message.type !== "game-state" && message.type !== "game-state-to")
+			continue;
+		const payload = message.payload as { type?: unknown; open?: unknown };
+		if (payload.type === "doors" && Array.isArray(payload.open)) {
+			latest = payload.open.length;
 		}
 	}
 	return latest;

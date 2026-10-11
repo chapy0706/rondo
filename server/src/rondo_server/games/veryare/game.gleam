@@ -15,8 +15,10 @@
 /// この集合から抜ける。個別の分岐を持たないので、結果の状態は完全に一致する。
 /// 準備移動フェーズの終わりの被り判定（ADR 0026）で失格した隠れ側も、同じ remove_hider を通る。
 ///
-/// ステージ（骨格と部屋の割り当て / ADR 0032）は開始時に受け取って持つ。隠れ CPU の置き場所、
-/// 玄関からのリスポーン、ステージでの移動の規則（grid / issue-29a・ADR 0042）に使う。
+/// ステージ（骨格と部屋の割り当て / ADR 0032、または固定ステージの平屋 / ADR 0039）は開始時に
+/// 受け取って持つ（ground）。隠れ CPU の置き場所、玄関からのリスポーン、ステージでの移動の規則
+/// （grid / issue-29a・ADR 0042）に使う。平屋は、見通しと CPU の一般化（issue-45）までは、
+/// CPU を持たず（ルームの設定で拒む）、射撃は当たらない。
 ///
 /// CPU（ADR 0038 / issue-33）は参加者の一種として players に入り、人数の判定・勝敗・
 /// 「まだ隠れている」集合に人間と同じように入る。違いは3つだけ: 隠れ側 CPU は鬼の抽選の
@@ -35,6 +37,7 @@ import gleam/option.{type Option, None, Some}
 import gleam/set.{type Set}
 import rondo_server/games/veryare/grid.{type Edge, type Grid}
 import rondo_server/games/veryare/hider_cpu.{type Placement}
+import rondo_server/games/veryare/hiraya
 import rondo_server/games/veryare/oni_cpu.{type OniCpu, type Strength}
 import rondo_server/games/veryare/overlap
 import rondo_server/games/veryare/paint
@@ -137,6 +140,15 @@ pub type Durations {
   )
 }
 
+/// ステージの種類と、その種類だけが持つデータ。
+pub type Ground {
+  /// ランダム間取り（ADR 0032）。layout は開始時に選ばれた骨格と部屋の割り当て、sight_map は
+  /// 鬼 CPU と射撃が使う見通しの地図（layout から作っておく）。
+  Skeleton(layout: Layout, sight_map: sight.Map)
+  /// 固定ステージ「平屋」（ADR 0039 / issue-44）。データは hiraya.gleam。
+  Hiraya
+}
+
 /// ルームに加わっている CPU。どちらも players に含まれる参加者の ID。
 /// strength は鬼 CPU の強さ（鬼 CPU がいないときは使わない）。
 pub type Cpus(id) {
@@ -162,13 +174,11 @@ pub type Game(id) {
     counting: Bool,
     /// 立候補者（カウント中にエリアへ触れた人）。触れた後はエリアを離れても残る。
     candidates: Set(id),
-    /// 開始時に選ばれたステージ（骨格と部屋の割り当て）。
-    layout: Layout,
+    /// 開始時に選ばれたステージ。
+    ground: Ground,
     cpus: Cpus(id),
     /// 準備移動の終わりに確定した、隠れ CPU の状態。
     cpu_states: Dict(id, Placement),
-    /// 鬼 CPU が使う見通しの地図（ステージから作っておく）。
-    sight_map: sight.Map,
     /// 探索中の鬼 CPU。鬼が CPU のときだけ、探索の開始時に作る。
     oni_cpu: Option(OniCpu),
     /// 直前の tick で鬼 CPU の視界に入っていた隠れ側（見逃しポイント / issue-32 で使う）。
@@ -230,6 +240,33 @@ pub fn new_with(
   layout: Layout,
   cpus: Cpus(id),
 ) -> Game(id) {
+  start_on(
+    players,
+    durations,
+    Skeleton(layout:, sight_map: sight.map_of(layout)),
+    grid.of_layout(layout),
+    cpus,
+  )
+}
+
+/// 平屋（ADR 0039 / issue-44）で始める。issue-45 までは CPU を加えない。
+pub fn new_hiraya(players: List(id), durations: Durations) -> Game(id) {
+  start_on(
+    players,
+    durations,
+    Hiraya,
+    hiraya.grid(),
+    Cpus(hiders: [], oni: None, strength: oni_cpu.Normal),
+  )
+}
+
+fn start_on(
+  players: List(id),
+  durations: Durations,
+  ground: Ground,
+  grid: Grid,
+  cpus: Cpus(id),
+) -> Game(id) {
   Game(
     phase: OniSelection,
     step: 0,
@@ -241,12 +278,11 @@ pub fn new_with(
     still_hiding: set.new(),
     counting: False,
     candidates: set.new(),
-    layout:,
+    ground:,
     cpus:,
     cpu_states: dict.new(),
-    sight_map: sight.map_of(layout),
-    grid: grid.of_layout(layout),
-    open_doors: grid.fusuma(grid.of_layout(layout)),
+    grid:,
+    open_doors: grid.fusuma(grid),
     oni_cpu: None,
     seen: [],
     last_shot: None,
@@ -451,10 +487,15 @@ pub fn shot_line_clear(
 
 /// 開いている襖を、見通しの判定（sight）と鬼 CPU が使う形（廊下側のマスと部屋側のマス）に
 /// 直す。どちらが廊下側かは、見通しの地図の領域で決める。
+/// 平屋は見通しの地図を持たない（issue-45）ので、辺の a を廊下側として写す。
 pub fn sight_doors(game: Game(id)) -> Set(stage.Door) {
   game.open_doors
   |> set.map(fn(edge) {
-    case sight.region_at(game.sight_map, edge.a) {
+    let region = case game.ground {
+      Skeleton(sight_map:, ..) -> sight.region_at(sight_map, edge.a)
+      Hiraya -> Ok(sight.Open)
+    }
+    case region {
       Ok(sight.Open) -> stage.Door(corridor: edge.a, slot: edge.b)
       _ -> stage.Door(corridor: edge.b, slot: edge.a)
     }
@@ -462,7 +503,8 @@ pub fn sight_doors(game: Game(id)) -> Set(stage.Door) {
 }
 
 /// 襖を開ける報告（issue-29b）。準備移動・ペイント・探索の間に、ステージにいる人が、
-/// 襖（戸の一覧の開閉できる戸）の境から door_reach 以内にいるときだけ開く。開けた襖は
+/// 襖（戸の一覧の開閉できる戸）の境から door_reach 以内にいるときだけ開く。開くのは、その辺が
+/// 属する襖の組の辺すべて（平屋の襖は辺 6〜12 本で1組 / issue-44。骨格の襖は辺1本）。開けた襖は
 /// 開けっぱなし。条件に合わなければ何もしない。
 pub fn open_door(game: Game(id), player: id, edge: Edge) -> Game(id) {
   let phase_ok = case game.phase {
@@ -475,7 +517,11 @@ pub fn open_door(game: Game(id), player: id, edge: Edge) -> Game(id) {
     _ -> False
   }
   case phase_ok && near && set.contains(grid.fusuma(game.grid), edge) {
-    True -> Game(..game, open_doors: set.insert(game.open_doors, edge))
+    True ->
+      Game(
+        ..game,
+        open_doors: set.union(game.open_doors, grid.door_group(game.grid, edge)),
+      )
     False -> game
   }
 }
@@ -495,19 +541,25 @@ fn hits(game: Game(id), oni: id, target: id) -> Bool {
     dict.get(game.positions, oni),
     dict.get(game.positions, target)
   {
-    True, Ok(Position(Stage, ox, oz)), Ok(Position(Stage, tx, tz)) -> {
-      let dx = tx -. ox
-      let dz = tz -. oz
-      let in_range = dx *. dx +. dz *. dz <=. shot_range *. shot_range
-      in_range
-      && {
-        !game.shot_sight
-        || shot_line_clear(game.sight_map, sight_doors(game), #(ox, oz), #(
-          tx,
-          tz,
-        ))
+    True, Ok(Position(Stage, ox, oz)), Ok(Position(Stage, tx, tz)) ->
+      case game.ground {
+        Skeleton(sight_map:, ..) -> {
+          let dx = tx -. ox
+          let dz = tz -. oz
+          let in_range = dx *. dx +. dz *. dz <=. shot_range *. shot_range
+          in_range
+          && {
+            !game.shot_sight
+            || shot_line_clear(sight_map, sight_doors(game), #(ox, oz), #(
+              tx,
+              tz,
+            ))
+          }
+        }
+        // 見通しを戸の一覧へ一般化する（issue-45）までは、壁越しに当たる食い違いを出さないよう、
+        // 当てない。
+        Hiraya -> False
       }
-    }
     _, _, _ -> False
   }
 }
@@ -633,9 +685,9 @@ fn settle_cpus(game: Game(id), pick: fn(Int) -> Int) -> Game(id) {
     game.players
     |> list.filter(fn(id) { set.contains(game.still_hiding, id) })
     |> list.partition(fn(id) { list.contains(game.cpus.hiders, id) })
-  case cpus {
-    [] -> game
-    _ -> {
+  case cpus, game.ground {
+    [], _ | _, Hiraya -> game
+    _, Skeleton(layout:, ..) -> {
       let occupied =
         list.filter_map(humans, fn(id) {
           case dict.get(game.positions, id) {
@@ -645,7 +697,7 @@ fn settle_cpus(game: Game(id), pick: fn(Int) -> Int) -> Game(id) {
         })
       let placed =
         hider_cpu.place(
-          game.layout,
+          layout,
           occupied,
           list.length(cpus),
           pick(cpu_seed_range),
@@ -665,10 +717,10 @@ fn settle_cpus(game: Game(id), pick: fn(Int) -> Int) -> Game(id) {
 
 /// 鬼が待機ルームからステージへ移り、探索を始める。鬼 CPU は玄関から出る。
 fn start_exploration(game: Game(id), pick: fn(Int) -> Int) -> Game(id) {
-  case game.oni, game.cpus.oni {
-    Some(oni), Some(cpu) if oni == cpu -> {
+  case game.oni, game.cpus.oni, game.ground {
+    Some(oni), Some(cpu), Skeleton(layout:, ..) if oni == cpu -> {
       let walker =
-        oni_cpu.start(game.layout, game.cpus.strength, pick(cpu_seed_range))
+        oni_cpu.start(layout, game.cpus.strength, pick(cpu_seed_range))
       let #(x, z) = walker.position
       Game(
         ..next(game, Exploration),
@@ -676,12 +728,12 @@ fn start_exploration(game: Game(id), pick: fn(Int) -> Int) -> Game(id) {
         oni_cpu: Some(walker),
       )
     }
-    Some(oni), _ ->
+    Some(oni), _, _ ->
       Game(
         ..next(game, Exploration),
         positions: dict.insert(game.positions, oni, spawn_position(game)),
       )
-    None, _ -> next(game, Exploration)
+    None, _, _ -> next(game, Exploration)
   }
 }
 
@@ -693,8 +745,8 @@ pub fn oni_cpu_active(game: Game(id)) -> Bool {
 /// 鬼 CPU の 0.5秒ぶん。歩いて、視界に入った隠れ側に発見の乱数を引く。見つけた隠れ側は
 /// found（人間の鬼が当てたときと同じ処理）で抜ける。探索中でなければ何もしない。
 pub fn tick(game: Game(id)) -> Game(id) {
-  case game.phase, game.oni_cpu, game.oni {
-    Exploration, Some(walker), Some(oni) -> {
+  case game.phase, game.oni_cpu, game.oni, game.ground {
+    Exploration, Some(walker), Some(oni), Skeleton(layout:, sight_map:) -> {
       let hiders =
         game.players
         |> list.filter(fn(id) { set.contains(game.still_hiding, id) })
@@ -714,7 +766,7 @@ pub fn tick(game: Game(id)) -> Game(id) {
       // 鬼 CPU は、ゲームの襖の状態を見て歩き、開けた襖をゲームの状態へ返す（issue-29b）。
       let walker = oni_cpu.OniCpu(..walker, open_doors: sight_doors(game))
       let #(walker, found_ids, seen) =
-        oni_cpu.step(walker, game.sight_map, game.layout, hiders)
+        oni_cpu.step(walker, sight_map, layout, hiders)
       let #(x, z) = walker.position
       let opened =
         walker.open_doors
@@ -729,7 +781,7 @@ pub fn tick(game: Game(id)) -> Game(id) {
         )
       list.fold(found_ids, moved, found)
     }
-    _, _, _ -> game
+    _, _, _, _ -> game
   }
 }
 
@@ -772,9 +824,16 @@ fn moved_to(game: Game(id), current: Position, x: Float, z: Float) -> Position {
   }
 }
 
-/// 玄関（骨格の spawn）。鬼と隠れ側のリスポーン位置（ADR 0032）。
+/// 玄関（骨格の spawn、平屋は (4.7, 11.3)）。鬼と隠れ側のリスポーン位置（ADR 0032 / 0039）。
+pub fn spawn(game: Game(id)) -> #(Float, Float) {
+  case game.ground {
+    Skeleton(layout:, ..) -> layout.skeleton.spawn
+    Hiraya -> hiraya.spawn
+  }
+}
+
 fn spawn_position(game: Game(id)) -> Position {
-  let #(x, z) = game.layout.skeleton.spawn
+  let #(x, z) = spawn(game)
   Position(Stage, x, z)
 }
 

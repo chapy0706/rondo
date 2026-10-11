@@ -1,7 +1,7 @@
 ---
-status: open
+status: closed
 created_at: 2026-10-09
-closed_at:
+closed_at: 2026-10-10
 ---
 
 # issue-29d: 答え合わせの演出、歩く速さの調整、マイルストーン1の通し

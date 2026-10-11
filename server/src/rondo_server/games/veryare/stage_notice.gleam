@@ -43,32 +43,55 @@ pub fn payload(layout: Layout) -> Dynamic {
     skeleton.slots
     |> list.filter(fn(slot) { dict.has_key(layout.rooms, slot.id) })
     |> list.flat_map(fn(slot) { slot.doors })
-    |> list.map(fn(door) {
+    |> list.map(fn(door) { #(door.corridor, door.slot, Fusuma) })
+  payload_of(
+    cell_size: 1.0,
+    origin: #(0.0, 0.0),
+    width: skeleton.width,
+    depth: skeleton.depth,
+    rows:,
+    regions:,
+    rooms: layout.rooms
+      |> dict.to_list
+      |> list.map(fn(entry) { #(entry.0, room_name(entry.1)) }),
+    doors:,
+    spawn: skeleton.spawn,
+  )
+}
+
+/// ステージの通知の形（契約: VeryareStageNotice）。骨格（payload）と固定ステージ（平屋 /
+/// issue-44）が、同じ形で送る。doors は境の2マスと種類。
+pub fn payload_of(
+  cell_size cell_size: Float,
+  origin origin: #(Float, Float),
+  width width: Int,
+  depth depth: Int,
+  rows rows: List(String),
+  regions regions: List(#(String, String)),
+  rooms rooms: List(#(String, String)),
+  doors doors: List(#(Cell, Cell, DoorKind)),
+  spawn spawn: #(Float, Float),
+) -> Dynamic {
+  let doors =
+    list.map(doors, fn(door) {
+      let #(a, b, kind) = door
       dynamic.properties([
-        #(dynamic.string("a"), cell(door.corridor)),
-        #(dynamic.string("b"), cell(door.slot)),
-        #(dynamic.string("kind"), dynamic.string(kind_name(Fusuma))),
+        #(dynamic.string("a"), cell(a)),
+        #(dynamic.string("b"), cell(b)),
+        #(dynamic.string("kind"), dynamic.string(kind_name(kind))),
       ])
     })
-  let #(spawn_x, spawn_z) = skeleton.spawn
   dynamic.properties([
     #(dynamic.string("type"), dynamic.string("stage")),
-    #(dynamic.string("cellSize"), dynamic.float(1.0)),
-    #(dynamic.string("origin"), point(0.0, 0.0)),
-    #(dynamic.string("width"), dynamic.int(skeleton.width)),
-    #(dynamic.string("depth"), dynamic.int(skeleton.depth)),
+    #(dynamic.string("cellSize"), dynamic.float(cell_size)),
+    #(dynamic.string("origin"), point(origin.0, origin.1)),
+    #(dynamic.string("width"), dynamic.int(width)),
+    #(dynamic.string("depth"), dynamic.int(depth)),
     #(dynamic.string("rows"), dynamic.list(list.map(rows, dynamic.string))),
     #(dynamic.string("regions"), string_dict(regions)),
-    #(
-      dynamic.string("rooms"),
-      string_dict(
-        layout.rooms
-        |> dict.to_list
-        |> list.map(fn(entry) { #(entry.0, room_name(entry.1)) }),
-      ),
-    ),
+    #(dynamic.string("rooms"), string_dict(rooms)),
     #(dynamic.string("doors"), dynamic.list(doors)),
-    #(dynamic.string("spawn"), point(spawn_x, spawn_z)),
+    #(dynamic.string("spawn"), point(spawn.0, spawn.1)),
   ])
 }
 
@@ -175,6 +198,8 @@ pub fn decode(value: Dynamic) -> Result(Decoded, Nil) {
               #(grid.edge(a, b), kind)
             })
             |> dict.from_list,
+          // 通知は襖の組を載せない（契約の形）。読み戻した地図では、辺1本で1組。
+          groups: dict.new(),
         ),
         spawn:,
         rooms:,

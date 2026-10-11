@@ -8,7 +8,7 @@ import gleam/float
 import gleam/int
 import gleam/list
 import gleam/set
-import rondo_server/games/veryare/game.{type Game}
+import rondo_server/games/veryare/game.{type Game, spawn}
 import rondo_server/games/veryare/grid.{type Grid}
 import rondo_server/games/veryare/stage.{type Cell, Cell}
 
@@ -55,8 +55,7 @@ pub fn spots(
 
 /// 準備移動の間に、ids の隠れ側を別々の位置へ動かす（game.move を通す）。
 pub fn hiders(game: Game(String), ids: List(String)) -> Game(String) {
-  let targets =
-    spots(game.grid, game.layout.skeleton.spawn, list.length(ids), 7.0)
+  let targets = spots(game.grid, spawn(game), list.length(ids), 7.0)
   list.zip(ids, targets)
   |> list.fold(game, fn(g, pair) {
     let #(id, #(x, z)) = pair

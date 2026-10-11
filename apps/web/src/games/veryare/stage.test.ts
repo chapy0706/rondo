@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import events from "../../../../../packages/contracts/src/fixtures/veryare-events.json";
+import hirayaFixture from "../../../../../packages/contracts/src/fixtures/veryare-hiraya-stage.json";
 import movement from "../../../../../packages/contracts/src/fixtures/veryare-movement.json";
 import skeletons from "../../../../../packages/contracts/src/fixtures/veryare-skeleton-stages.json";
 import stageFixture from "../../../../../packages/contracts/src/fixtures/veryare-stage.json";
@@ -92,6 +93,31 @@ describe("移動の規則（サーバーの grid.gleam の移植 / issue-29c）"
 			false,
 		);
 	});
+});
+
+describe("平屋の固定ステージ（issue-44）: 通知を読み、サーバーと同じ止まり方をする", () => {
+	const hiraya = parseStageNotice(hirayaFixture.stage);
+	if (hiraya === null) throw new Error("平屋の見本が読めない");
+	const fusuma = keys(
+		hirayaFixture.stage.doors.filter((door) => door.kind === "fusuma"),
+	);
+
+	it("1マス 0.3 m・原点・41 × 45・玄関 (4.7, 11.3) の通知を読む。襖は辺 108 本", () => {
+		expect(hiraya.cellSize).toBe(0.3);
+		expect(hiraya.origin).toEqual({ x: -6.225, z: -0.275 });
+		expect([hiraya.width, hiraya.depth]).toEqual([41, 45]);
+		expect(hiraya.spawn).toEqual({ x: 4.7, z: 11.3 });
+		expect(cellAt(hiraya, hiraya.spawn)).toEqual({ x: 36, z: 38 });
+		expect(fusuma.size).toBe(108);
+	});
+
+	it.each(hirayaFixture.cases.map((c) => [c.name, c] as const))(
+		"共有の見本: %s",
+		(_name, c) => {
+			const open = c.fusuma === "open" ? fusuma : new Set<string>();
+			close(stepOnGrid(hiraya, open, c.from, c.to), c.expect);
+		},
+	);
 });
 
 describe("mirrorMove - サーバーが報告をどう扱うかを再現する（issue-29c）", () => {

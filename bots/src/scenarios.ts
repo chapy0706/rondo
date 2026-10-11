@@ -257,4 +257,59 @@ export const scenarios: readonly Scenario[] = [
 		receivers: ["bot-a", "bot-b"],
 		rankings: [hider("bot-b", true), oni("bot-a", false)],
 	},
+	{
+		// 平屋の固定ステージ（issue-44）で、3人。隠れ側は玄関から別々の場所へ動き、探索が
+		// 時間切れになる。ステージの通知に平屋のデータ（1マス 0.3 m・玄関 (4.7, 11.3)）が載り、
+		// 襖10組（辺 108 本）は、準備移動で全部開き、探索の開始で全部閉じ、答え合わせの開始で
+		// 全部開く。襖の通知はフェーズの通知の後に届くので、確かめは少し待ってから行う。
+		name: "平屋のステージで時間切れ",
+		settings: { stage: 1 },
+		bots: ["bot-a", "bot-b", "bot-c"],
+		steps: [
+			{ on: "joined", bot: "bot-a", action: { type: "touch-area" } },
+			...hide(["bot-b", "bot-c"]),
+			{
+				on: { phase: "preparation" },
+				bot: "bot-a",
+				action: {
+					type: "expect-stage",
+					check: "平屋のステージの通知",
+					cellSize: 0.3,
+					spawn: { x: 4.7, z: 11.3 },
+				},
+			},
+			{
+				on: { phase: "preparation" },
+				bot: "bot-a",
+				action: {
+					type: "expect-doors",
+					check: "準備移動の間、襖は全部開いている",
+					open: 108,
+				},
+				delayMs: 100,
+			},
+			{
+				on: { phase: "exploration" },
+				bot: "bot-a",
+				action: {
+					type: "expect-doors",
+					check: "探索の開始で、襖が全部閉じる",
+					open: 0,
+				},
+				delayMs: 100,
+			},
+			{
+				on: { phase: "reveal" },
+				bot: "bot-b",
+				action: {
+					type: "expect-doors",
+					check: "答え合わせの開始で、襖が全部開く",
+					open: 108,
+				},
+				delayMs: 100,
+			},
+		],
+		receivers: ["bot-a", "bot-b", "bot-c"],
+		rankings: [hider("bot-b", true), hider("bot-c", true), oni("bot-a", false)],
+	},
 ];

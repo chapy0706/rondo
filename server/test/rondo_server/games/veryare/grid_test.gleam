@@ -50,6 +50,7 @@ fn tiny(cell_size: Float, origin: #(Float, Float)) -> grid.Grid {
       #(grid.edge(Cell(1, 3), Cell(2, 3)), AlwaysOpen),
       #(grid.edge(Cell(1, 4), Cell(2, 4)), AlwaysClosed),
     ]),
+    groups: dict.new(),
   )
 }
 

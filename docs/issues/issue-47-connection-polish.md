@@ -1,7 +1,7 @@
 ---
-status: open
+status: closed
 created_at: 2026-10-05
-closed_at:
+closed_at: 2026-10-10
 ---
 
 # issue-47: 接続まわりの仕上げ（入口・タイムアウト・取り残しの防止）

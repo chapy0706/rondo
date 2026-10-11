@@ -45,6 +45,9 @@ pub type Grid {
     /// 歩けるマスの領域。ここに無いマスは歩けない。
     regions: Dict(Cell, String),
     doors: Dict(Edge, DoorKind),
+    /// 襖の組（issue-44）。同じ番号の辺は、1つの襖としてまとめて開く。ここに無い襖の辺は、
+    /// 辺1本で1組（骨格の襖は、どれも辺1本）。
+    groups: Dict(Edge, Int),
   )
 }
 
@@ -62,6 +65,18 @@ pub fn fusuma(grid: Grid) -> Set(Edge) {
   |> dict.filter(fn(_edge, kind) { kind == Fusuma })
   |> dict.keys
   |> set.from_list
+}
+
+/// 辺が属する襖の組の辺すべて（issue-44）。組が無ければ、その辺だけ。
+pub fn door_group(grid: Grid, edge: Edge) -> Set(Edge) {
+  case dict.get(grid.groups, edge) {
+    Ok(group) ->
+      grid.groups
+      |> dict.filter(fn(_edge, other) { other == group })
+      |> dict.keys
+      |> set.from_list
+    Error(Nil) -> set.from_list([edge])
+  }
 }
 
 pub fn walkable(grid: Grid, cell: Cell) -> Bool {
@@ -375,6 +390,7 @@ pub fn of_layout(layout: Layout) -> Grid {
     depth: skeleton.depth,
     regions: dict.from_list(list.append(open, rooms)),
     doors: dict.from_list(doors),
+    groups: dict.new(),
   )
 }
 

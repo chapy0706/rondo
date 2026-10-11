@@ -19,6 +19,10 @@
 ///
 /// 射撃（issue-27）: 鬼の game-event { type: "shoot", target } を受けた時刻を付けて、状態機械の
 /// shoot に渡す。命中の知らせは、上の一覧の更新で全員に届く（専用の電文は作らない）。
+///
+/// ステージの選び方（issue-44）: 作成時の設定 stage で、ランダム間取り（0、既定）か平屋（1）かを
+/// 選ぶ。ロビーに選択肢を出すのは issue-46。平屋と CPU の組み合わせは、見通しと CPU の一般化
+/// （issue-45）まで拒む。
 import gleam/dict
 import gleam/dynamic.{type Dynamic}
 import gleam/dynamic/decode
@@ -36,6 +40,7 @@ import rondo_server/games/veryare/game.{
 import rondo_server/games/veryare/hider_cpu.{
   type Placement, Crouching, Lying, Standing,
 }
+import rondo_server/games/veryare/hiraya
 import rondo_server/games/veryare/oni_cpu.{type Strength}
 import rondo_server/games/veryare/paint
 import rondo_server/games/veryare/palette
@@ -75,6 +80,9 @@ pub const cpu_choices = [0, 1, 2, 3, 4]
 /// 鬼 CPU の強さの選択肢の値。0 = よわい、1 = ふつう、2 = つよい。
 pub const cpu_strength_choices = [0, 1, 2]
 
+/// ステージの選択肢の値。0 = ランダム間取り、1 = 平屋（issue-44）。
+pub const stage_choices = [0, 1]
+
 /// 鬼 CPU が歩く間隔（ミリ秒）。
 const tick_ms = 500
 
@@ -85,6 +93,14 @@ pub type CpuChoice {
   HiderCpus(count: Int)
   /// 鬼 CPU（1体）。
   OniCpu
+}
+
+/// ステージの選び方（issue-44）。
+pub type StageChoice {
+  /// 骨格10種から選び、部屋を割り当てる（ADR 0032）。
+  RandomLayout
+  /// 固定ステージ「平屋」（ADR 0039）。
+  Hiraya
 }
 
 /// ルーム作成時の設定。
@@ -122,6 +138,29 @@ pub fn parse_settings(raw: Option(Dynamic)) -> Result(Settings, Nil) {
         Error(_) -> Error(Nil)
       }
     }
+  }
+}
+
+/// create-room の settings（unknown）から、設定とステージの選び方を読む（issue-44）。
+/// stage は省略時 0（ランダム間取り）。選択肢にない値は拒む。平屋と CPU の組み合わせは、
+/// 見通しと CPU の一般化（issue-45）まで拒む。
+pub fn parse_room(
+  raw: Option(Dynamic),
+) -> Result(#(Settings, StageChoice), Nil) {
+  use settings <- result.try(parse_settings(raw))
+  let stage = case raw {
+    None -> Ok(0)
+    Some(data) ->
+      decode.run(
+        data,
+        decode.optional_field("stage", 0, decode.int, decode.success),
+      )
+      |> result.replace_error(Nil)
+  }
+  case stage {
+    Ok(0) -> Ok(#(settings, RandomLayout))
+    Ok(1) if settings.cpu == NoCpu -> Ok(#(settings, Hiraya))
+    _ -> Error(Nil)
   }
 }
 
@@ -184,20 +223,43 @@ pub fn spec(id: RoomId, settings: Settings) -> RoomSpec {
 }
 
 /// フェーズの長さにテスト用の短縮（issue-49）を当てはめたルーム設定。Normal なら spec と同じ。
+/// ステージはランダム間取り。
 pub fn spec_timed(id: RoomId, settings: Settings, timing: Timing) -> RoomSpec {
-  spec_with(
+  spec_on(id, settings, RandomLayout, timing)
+}
+
+/// ステージを選んだルーム設定（issue-44）。
+pub fn spec_on(
+  id: RoomId,
+  settings: Settings,
+  stage: StageChoice,
+  timing: Timing,
+) -> RoomSpec {
+  spec_with_stage(
     id,
     settings,
+    stage,
     game.durations(exploration_ms: settings.exploration_seconds * 1000)
       |> timing.apply(timing),
     int.random,
   )
 }
 
-/// フェーズの長さと乱数を差し替えられるルーム設定（テスト用）。
+/// フェーズの長さと乱数を差し替えられるルーム設定（テスト用）。ステージはランダム間取り。
 pub fn spec_with(
   id: RoomId,
   settings: Settings,
+  durations: game.Durations,
+  pick: fn(Int) -> Int,
+) -> RoomSpec {
+  spec_with_stage(id, settings, RandomLayout, durations, pick)
+}
+
+/// ステージ・フェーズの長さ・乱数を差し替えられるルーム設定（テスト用）。
+pub fn spec_with_stage(
+  id: RoomId,
+  settings: Settings,
+  stage: StageChoice,
   durations: game.Durations,
   pick: fn(Int) -> Int,
 ) -> RoomSpec {
@@ -208,7 +270,13 @@ pub fn spec_with(
     max_players:,
     authority: None,
     driver: Some(fn(players) {
-      start(players, durations, cpus_of(settings.cpu, settings.strength), pick)
+      start(
+        players,
+        durations,
+        stage,
+        cpus_of(settings.cpu, settings.strength),
+        pick,
+      )
     }),
     member_info: Some(room_info(settings)),
     bots: cpu_players(settings.cpu),
@@ -220,15 +288,25 @@ pub fn spec_with(
 fn start(
   players: List(PlayerId),
   durations: game.Durations,
+  stage_choice: StageChoice,
   cpus: game.Cpus(PlayerId),
   pick: fn(Int) -> Int,
 ) -> #(Driver(PlayerId), List(Effect(PlayerId))) {
-  // ステージは開始時に、骨格10種から1つを選び部屋を割り当てる（ADR 0032）。
-  let layout = stage.generate(pick(stage_seed_range))
-  let initial = game.new_with(players, durations, layout, cpus)
+  let initial = case stage_choice {
+    // 開始時に、骨格10種から1つを選び部屋を割り当てる（ADR 0032）。
+    RandomLayout ->
+      game.new_with(
+        players,
+        durations,
+        stage.generate(pick(stage_seed_range)),
+        cpus,
+      )
+    // 平屋は CPU を持たない（parse_room が拒む / issue-45 まで）。
+    Hiraya -> game.new_hiraya(players, durations)
+  }
   // ステージの通知（issue-29a）を全員へ送ってから、フェーズの通知を送る。
   #(wrap(initial, pick), [
-    driver.Broadcast(stage_notice.payload(layout)),
+    driver.Broadcast(stage_payload(initial)),
     driver.Broadcast(stage_notice.doors_payload(initial.open_doors)),
     ..phase_effects(initial)
   ])
@@ -277,11 +355,19 @@ fn wrap(state: Game(PlayerId), pick: fn(Int) -> Int) -> Driver(PlayerId) {
   // （issue-29b）を送る。
   |> driver.on_subscribe(fn(player) {
     [
-      driver.Deliver([player], stage_notice.payload(state.layout)),
+      driver.Deliver([player], stage_payload(state)),
       driver.Deliver([player], stage_notice.doors_payload(state.open_doors)),
       ..hiders_resend(state, player)
     ]
   })
+}
+
+/// ステージの通知（issue-29a / ADR 0042）。選ばれたステージの地図のデータそのもの。
+fn stage_payload(state: Game(PlayerId)) -> Dynamic {
+  case state.ground {
+    game.Skeleton(layout:, ..) -> stage_notice.payload(layout)
+    game.Hiraya -> hiraya.notice()
+  }
 }
 
 /// 移動の報告（move）。形の違う電文は無視する。

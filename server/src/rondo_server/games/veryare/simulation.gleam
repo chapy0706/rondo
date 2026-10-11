@@ -20,7 +20,7 @@ import rondo_server/games/veryare/game.{
 }
 import rondo_server/games/veryare/oni_cpu.{type Strength}
 import rondo_server/games/veryare/sight
-import rondo_server/games/veryare/stage.{type Skeleton}
+import rondo_server/games/veryare/stage.{type Layout, type Skeleton}
 
 /// 隠れ CPU の数（定員5人 = 鬼1 + 隠れ側4 のうち、鬼 CPU との対戦では3体まで並べる）。
 pub const hider_count = 3
@@ -150,9 +150,17 @@ fn found_check(
     True -> []
     False -> ["視界に無い隠れ側を見つけた"]
   }
-  let through = case after.oni_cpu, after.oni, dict.get(before.positions, id) {
-    Some(walker), Some(oni), Ok(Position(Stage, x, z)) -> {
-      let map = after.sight_map
+  let through = case
+    after.oni_cpu,
+    after.oni,
+    dict.get(before.positions, id),
+    after.ground
+  {
+    Some(walker),
+      Some(oni),
+      Ok(Position(Stage, x, z)),
+      game.Skeleton(layout:, sight_map: map)
+    -> {
       let hider_region = sight.region_at(map, sight.cell_of(#(x, z)))
       let oni_region = case dict.get(after.positions, oni) {
         Ok(Position(_, ox, oz)) ->
@@ -162,7 +170,8 @@ fn found_check(
       case hider_region {
         Ok(sight.Room(slot)) ->
           case
-            oni_region == Ok(sight.Room(slot)) || door_open(after, walker, slot)
+            oni_region == Ok(sight.Room(slot))
+            || door_open(layout, walker, slot)
           {
             True -> []
             False -> ["壁や閉じた襖の向こうを見つけた"]
@@ -170,13 +179,13 @@ fn found_check(
         _ -> []
       }
     }
-    _, _, _ -> []
+    _, _, _, _ -> []
   }
   list.append(seen, through)
 }
 
-fn door_open(g: Game(String), walker: oni_cpu.OniCpu, slot_id: String) -> Bool {
-  case list.find(g.layout.skeleton.slots, fn(slot) { slot.id == slot_id }) {
+fn door_open(layout: Layout, walker: oni_cpu.OniCpu, slot_id: String) -> Bool {
+  case list.find(layout.skeleton.slots, fn(slot) { slot.id == slot_id }) {
     Ok(slot) ->
       list.any(slot.doors, fn(door) { set.contains(walker.open_doors, door) })
     Error(Nil) -> False

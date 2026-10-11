@@ -1,7 +1,7 @@
 ---
-status: open
+status: closed
 created_at: 2026-10-03
-closed_at:
+closed_at: 2026-10-10
 ---
 
 # issue-41: WebSocket のハートビート

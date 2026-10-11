@@ -1,5 +1,6 @@
 import type { ClientMessage, ServerMessage } from "@rondo/contracts";
 import { describe, expect, it } from "vitest";
+import hirayaFixture from "../../packages/contracts/src/fixtures/veryare-hiraya-stage.json";
 import stageFixture from "../../packages/contracts/src/fixtures/veryare-stage.json";
 import type { SocketLike } from "./client.ts";
 import { runScenario, seeded } from "./runner.ts";
@@ -741,5 +742,123 @@ describe("runScenario - ペイントの確定と一括配信（issue-25）", () 
 	it("違うペイントが届いたら、確かめの名前が問題に出る", async () => {
 		const result = await run(paintServer(true), scenario);
 		expect(result.problems.join("\n")).toContain("最初のペイントだけが届く");
+	});
+});
+
+describe("runScenario - 平屋のステージ（issue-44）", () => {
+	const fusuma = hirayaFixture.stage.doors
+		.filter((door) => door.kind === "fusuma")
+		.map(({ a, b }) => ({ a, b }));
+
+	/** 作成で平屋の通知と襖の通知（open の辺）を送り、立候補で終わる台本。 */
+	const script =
+		(open: readonly { a: unknown; b: unknown }[]) =>
+		(s: FakeServer, _player: string, message: ClientMessage) => {
+			if (message.type === "create-room") {
+				s.broadcast({
+					type: "game-state",
+					gameType: "veryare",
+					roomId: "room-1",
+					payload: hirayaFixture.stage,
+				});
+				s.broadcast({
+					type: "game-state",
+					gameType: "veryare",
+					roomId: "room-1",
+					payload: { type: "doors", open },
+				});
+			}
+			if (message.type === "game-event") {
+				s.ended([
+					{ player: "p-2", rank: 1, score: 1, details: details.hiderWon },
+					{ player: "p-1", rank: 2, score: 0, details: details.oniLost },
+				]);
+			}
+		};
+
+	const hirayaScenario: Scenario = {
+		name: "平屋",
+		settings: { stage: 1 },
+		bots: ["bot-a", "bot-b"],
+		steps: [
+			{
+				on: "joined",
+				bot: "bot-a",
+				action: {
+					type: "expect-stage",
+					check: "平屋の通知",
+					cellSize: 0.3,
+					spawn: { x: 4.7, z: 11.3 },
+				},
+			},
+			{
+				on: "joined",
+				bot: "bot-a",
+				action: {
+					type: "expect-doors",
+					check: "襖が全部開いている",
+					open: 108,
+				},
+			},
+			{ on: "joined", bot: "bot-a", action: { type: "touch-area" } },
+		],
+		receivers: ["bot-a", "bot-b"],
+		rankings: [
+			{ bot: "bot-b", rank: 1, score: 1, details: details.hiderWon },
+			{ bot: "bot-a", rank: 2, score: 0, details: details.oniLost },
+		],
+	};
+
+	it("作成時の設定を create-room の settings で送り、平屋の通知と襖の数の確かめが通る", async () => {
+		const server = new FakeServer();
+		server.onEvent = script(fusuma);
+		const result = await run(server, hirayaScenario);
+		expect(result.problems).toEqual([]);
+		const created = server.log.find(
+			({ message }) => message.type === "create-room",
+		);
+		expect(created?.message).toEqual({
+			type: "create-room",
+			gameType: "veryare",
+			settings: { stage: 1 },
+		});
+	});
+
+	it("設定の無いシナリオは、settings を送らない", async () => {
+		const server = new FakeServer();
+		server.onEvent = oniLeavesScript;
+		await run(server);
+		const created = server.log.find(
+			({ message }) => message.type === "create-room",
+		);
+		expect(created?.message).toEqual({
+			type: "create-room",
+			gameType: "veryare",
+		});
+	});
+
+	it("襖の数やステージが違えば、確かめの名前を問題に出す", async () => {
+		const server = new FakeServer();
+		server.onEvent = script([]);
+		const result = await run(server, {
+			...hirayaScenario,
+			steps: [
+				{
+					on: "joined",
+					bot: "bot-a",
+					action: {
+						type: "expect-stage",
+						check: "骨格のはず",
+						cellSize: 1,
+						spawn: { x: 4.7, z: 11.3 },
+					},
+				},
+				...hirayaScenario.steps.slice(1),
+			],
+		});
+		expect(result.problems).toEqual([
+			"骨格のはず: ステージは 1マス 1 m・玄関 (4.7, 11.3) のはず（届いたもの: 1マス 0.3 m・玄関 (4.7, 11.3)）",
+			"襖が全部開いている: 開いている襖の辺は 108 のはず（届いたもの: 0）",
+		]);
 	});
 });

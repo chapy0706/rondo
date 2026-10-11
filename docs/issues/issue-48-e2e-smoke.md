@@ -1,7 +1,7 @@
 ---
-status: open
+status: closed
 created_at: 2026-10-06
-closed_at:
+closed_at: 2026-10-10
 ---
 
 # issue-48: 実接続の一発起動と、2タブのE2Eスモークテスト

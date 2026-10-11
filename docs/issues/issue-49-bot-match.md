@@ -1,7 +1,7 @@
 ---
-status: open
+status: closed
 created_at: 2026-10-06
-closed_at:
+closed_at: 2026-10-10
 ---
 
 # issue-49: ボット同士の対戦による、ブラウザなしの自動確認

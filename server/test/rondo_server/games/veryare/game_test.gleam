@@ -295,8 +295,7 @@ pub fn movement_inside_waiting_room_is_kept_test() {
 /// 準備中、隠れ側はステージの中を動ける（玄関から一直線にたどれる場所へは、そのまま着く）。
 pub fn hider_moves_on_stage_during_preparation_test() {
   let g = selected_with_oni_a()
-  let assert [#(x, z), ..] =
-    spread.spots(g.grid, g.layout.skeleton.spawn, 1, 7.0)
+  let assert [#(x, z), ..] = spread.spots(g.grid, game.spawn(g), 1, 7.0)
   g
   |> game.move("b", x, z)
   |> position("b")
@@ -330,8 +329,7 @@ pub fn oni_moves_in_waiting_room_during_painting_test() {
 /// 探索フェーズ中も鬼は動ける。
 pub fn oni_moves_during_exploration_test() {
   let g = exploration_with_oni_a()
-  let assert [#(x, z), ..] =
-    spread.spots(g.grid, g.layout.skeleton.spawn, 1, 7.0)
+  let assert [#(x, z), ..] = spread.spots(g.grid, game.spawn(g), 1, 7.0)
   g
   |> game.move("a", x, z)
   |> position("a")
@@ -425,7 +423,8 @@ pub fn ended_game_ignores_everything_test() {
 
 /// ゲームは開始時に選ばれたステージ（骨格と部屋の割り当て）を持つ。
 pub fn game_holds_the_generated_stage_test() {
-  start().layout |> should.equal(stage.generate(0))
+  let assert game.Skeleton(layout:, ..) = start().ground
+  layout |> should.equal(stage.generate(0))
 }
 
 /// 準備移動フェーズの終わりに、球が重なっていた隠れ側だけが失格になる。
@@ -674,7 +673,7 @@ fn ticks(g: Game(String), n: Int) -> List(Game(String)) {
 pub fn oni_cpu_starts_from_the_entrance_test() {
   let g = exploration_with_oni_cpu(oni_cpu.Normal)
   g.phase |> should.equal(Exploration)
-  let #(x, z) = g.layout.skeleton.spawn
+  let #(x, z) = game.spawn(g)
   position(g, "cpu-1") |> should.equal(Position(Stage, x, z))
   game.oni_cpu_active(g) |> should.be_true
 }
@@ -720,7 +719,7 @@ pub fn oni_cpu_is_deterministic_test() {
 /// 隠れ側は、準備移動の開始で、全員が玄関（骨格の spawn）に現れる（ADR 0032）。
 pub fn hiders_respawn_at_the_entrance_test() {
   let g = selected_with_oni_a()
-  let #(x, z) = g.layout.skeleton.spawn
+  let #(x, z) = game.spawn(g)
   list.each(["b", "c", "d"], fn(id) {
     position(g, id) |> should.equal(Position(Stage, x, z))
   })
@@ -729,7 +728,7 @@ pub fn hiders_respawn_at_the_entrance_test() {
 /// 人間の鬼は、探索の開始で玄関に現れる。
 pub fn human_oni_respawns_at_the_entrance_test() {
   let g = exploration_with_oni_a()
-  let #(x, z) = g.layout.skeleton.spawn
+  let #(x, z) = game.spawn(g)
   position(g, "a") |> should.equal(Position(Stage, x, z))
 }
 
@@ -742,7 +741,7 @@ pub fn stage_movement_follows_the_grid_test() {
   grid.walkable(g.grid, grid.cell_at(g.grid, #(moved.x, moved.z)))
   |> should.be_true
   // 移動の規則で動かした位置と同じ。
-  let #(sx, sz) = g.layout.skeleton.spawn
+  let #(sx, sz) = game.spawn(g)
   #(moved.x, moved.z)
   |> should.equal(grid.step(g.grid, g.open_doors, #(sx, sz), #(100.0, -100.0)))
 }
@@ -751,5 +750,6 @@ pub fn stage_movement_follows_the_grid_test() {
 pub fn doors_are_treated_as_open_until_29b_test() {
   let g = start()
   g.open_doors |> should.equal(grid.fusuma(g.grid))
-  g.grid |> should.equal(grid.of_layout(g.layout))
+  let assert game.Skeleton(layout:, ..) = g.ground
+  g.grid |> should.equal(grid.of_layout(layout))
 }

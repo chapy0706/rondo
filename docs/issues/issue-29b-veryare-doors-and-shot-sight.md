@@ -1,7 +1,7 @@
 ---
-status: open
+status: closed
 created_at: 2026-10-09
-closed_at:
+closed_at: 2026-10-10
 ---
 
 # issue-29b: 襖の開閉の状態と通知、射撃の見通しの有効化

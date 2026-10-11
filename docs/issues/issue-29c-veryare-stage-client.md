@@ -1,7 +1,7 @@
 ---
-status: open
+status: closed
 created_at: 2026-10-09
-closed_at:
+closed_at: 2026-10-10
 ---
 
 # issue-29c: クライアントの仮素材のステージ表示と移動、襖を開けるボタン

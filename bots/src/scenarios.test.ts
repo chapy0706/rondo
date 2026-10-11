@@ -3,7 +3,7 @@ import { scenarios } from "./scenarios.ts";
 import { BOTS_PHASE_DIVISOR, SERVER_DEFAULTS, scaled } from "./timing.ts";
 
 describe("scenarios - 宣言の整合（書き間違いを、サーバーなしで見つける）", () => {
-	it("issue-49 の4つと、issue-27 の全員発見、issue-29b の壁越し・襖越し、issue-25 のペイントがそろっている", () => {
+	it("issue-49 の4つと、issue-27 の全員発見、issue-29b の壁越し・襖越し、issue-25 のペイント、issue-44 の平屋がそろっている", () => {
 		expect(scenarios.map((s) => s.name)).toEqual([
 			"時間切れで隠れ側の勝ち",
 			"鬼の離脱で隠れ側の勝ち",
@@ -12,6 +12,7 @@ describe("scenarios - 宣言の整合（書き間違いを、サーバーなし�
 			"全員発見で鬼の勝ち",
 			"壁越し・襖越しの射撃",
 			"ペイントの確定と一括配信",
+			"平屋のステージで時間切れ",
 		]);
 	});
 
@@ -31,6 +32,14 @@ describe("scenarios - 宣言の整合（書き間違いを、サーバーなし�
 
 	it("限定配信（ADR 0021）を、少なくとも1つのシナリオで確かめる", () => {
 		expect(scenarios.some((s) => s.targeted === true)).toBe(true);
+	});
+
+	it("平屋（issue-44）のシナリオは、作成時の設定で平屋を選び、CPU を加えない", () => {
+		const hiraya = scenarios.filter((s) => s.settings?.stage === 1);
+		expect(hiraya.map((s) => s.name)).toEqual(["平屋のステージで時間切れ"]);
+		for (const scenario of hiraya) {
+			expect(scenario.settings?.cpu ?? 0).toBe(0);
+		}
 	});
 
 	it("定員（5人）を超えない", () => {
