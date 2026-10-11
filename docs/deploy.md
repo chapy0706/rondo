@@ -33,7 +33,9 @@ A1: Traefik（coolify-proxy を流用 / entryPoint: http / 80 番）
 | `docker-compose.assets.prod.yml` | 素材の配信の本番構成。サービス・コンテナ名 `rondo-assets`。`deploy/assets/` を起点にビルドし、A1 の素材ディレクトリ（既定 `/srv/rondo-assets`）を読み取り専用でマウントする |
 | `deploy/assets/` | 素材の配信の nginx（`Dockerfile` と設定の雛形 `default.conf.template`。CORS とキャッシュのヘッダ） |
 | `docs/ops/traefik-rondo.yaml` | A1 の Traefik 動的設定の見本。`/data/coolify/proxy/dynamic/rondo.yaml` に置く内容 |
-| `deploy/a1-deploy.sh` | A1 での更新のスクリプト。prod の確認、git pull、docker compose build、up -d、起動の確認を順に行う |
+| `deploy/a1-deploy.sh` | A1 での更新のスクリプト。prod の確認、git pull、docker compose build、up -d、起動の確認を順に行う。`--verify` で最後にデプロイ後の確認も行う |
+| `tools/verify.sh` | デプロイ後の確認のうち、公開 URL に対して外から確かめる部分（issue-50）。手元の Mac からも A1 からも実行できる。中身は `bots/src/verify.ts` |
+| `tools/verify-a1.sh` | デプロイ後の確認のうち、A1 の中で確かめる部分（コンテナ、ログ。issue-50） |
 | `docs/ops/assets-manifest.example.json` | 素材の一覧（manifest.json）の例。素材そのものはリポジトリに入れない |
 | `docker-compose.yml` | ローカルで2サービスを本番相当に起動して確かめる用（本番では使わない） |
 
@@ -55,6 +57,8 @@ NEXT_PUBLIC_RONDO_WS_URL=wss://ws-rondo.chapy0706.com/ws
 NEXT_PUBLIC_ASSET_BASE_URL=https://assets-rondo.chapy0706.com
 # 素材の配信が CORS で許可するオリジン（省略時は https://rondo.chapy0706.com）
 ASSET_ALLOWED_ORIGIN=https://rondo.chapy0706.com
+# デプロイ後の確認（--verify / tools/verify.sh）で確かめる web の URL
+RONDO_VERIFY_WEB_URL=https://rondo.chapy0706.com
 ```
 
 - `NEXT_PUBLIC_RONDO_WS_URL` と `NEXT_PUBLIC_ASSET_BASE_URL` は、**2行とも必ず書く**。`deploy/a1-deploy.sh` は、web をビルドするとき、どちらかの行が無いか、値が空なら、止まって警告する（片方を忘れると、その機能が黙って止まるため）。わざと空にするときだけ、`--allow-empty` を付ける
@@ -71,6 +75,7 @@ deploy/a1-deploy.sh --env-file ~/rondo.env web      # フロントだけ
 deploy/a1-deploy.sh --env-file ~/rondo.env ws       # リアルタイム基盤だけ
 deploy/a1-deploy.sh --env-file ~/rondo.env assets   # 素材の配信だけ
 deploy/a1-deploy.sh --env-file ~/rondo.env all      # 3つとも（ws → assets → web の順）
+deploy/a1-deploy.sh --env-file ~/rondo.env --verify all   # 最後にデプロイ後の確認も行う（下の「デプロイ後の確認」）
 ```
 
 - 対象は、引数の代わりに環境変数 `RONDO_DEPLOY_TARGET`、env ファイルは `RONDO_ENV_FILE` でも渡せる（引数が優先）
@@ -295,6 +300,93 @@ docker compose -f docker-compose.server.prod.yml stop
 
 - 素材を読み込まないようにする: env ファイルの `NEXT_PUBLIC_ASSET_BASE_URL` を空にして（`NEXT_PUBLIC_RONDO_WS_URL` は今の値のまま）、`deploy/a1-deploy.sh --env-file ~/rondo.env --allow-empty web` を実行する。素材を読み込まず、仮の表示に戻る
 - 素材の配信だけを止める: `docker compose -f docker-compose.assets.prod.yml stop`。web はそのままでも、読み込みが失敗して仮の表示で続く（利用者に警告は出ない）
+
+## デプロイ後の確認（issue-50）
+
+デプロイの後に、動いていることを自動で確かめる。発表会の当日など、デプロイしていないときに状態だけを確かめるのにも使える。確認は、利用者に影響しない操作だけで行う（作ったルームは、必ず退出する）。秘密の値は出さない（env ファイルからは、下の表の URL の行だけを読む）。
+
+### 実行の仕方
+
+```bash
+# A1 で、デプロイと続けて行う（A1 の中の確認と、外からの確認の両方）
+deploy/a1-deploy.sh --env-file ~/rondo.env --verify web
+
+# A1 で、確認だけを行う
+tools/verify-a1.sh
+tools/verify.sh --env-file ~/rondo.env
+
+# 手元（Mac）から、外からの確認だけを行う（URL は引数で渡す）
+tools/verify.sh --web https://rondo.chapy0706.com --ws wss://ws-rondo.chapy0706.com/ws \
+  --assets https://assets-rondo.chapy0706.com
+```
+
+- `tools/verify.sh` は Node 22.18 以降が要る（TypeScript をそのまま実行する。`pnpm install` は要らない）。A1 に node が無いときは、`--verify` は外からの確認を「実行できなかった」と表示して 0 以外で終わる。そのときは、手元から上の3つ目を実行する
+- 確認の対象の URL（前ほど優先）: 引数、env ファイル、環境変数
+
+  | 確認 | 引数 | env ファイルの名前 |
+  | --- | --- | --- |
+  | web | `--web` | `RONDO_VERIFY_WEB_URL` |
+  | WebSocket | `--ws` | `RONDO_VERIFY_WS_URL`、無ければ `NEXT_PUBLIC_RONDO_WS_URL` |
+  | 素材の配信 | `--assets` | `NEXT_PUBLIC_ASSET_BASE_URL`（空なら素材の項目を省く） |
+  | 素材の CORS のオリジン | `--origin` | `ASSET_ALLOWED_ORIGIN`、無ければ web のオリジン |
+
+- 調整の引数: `--retries N`（失敗した項目を試し直す回数。既定 3）、`--interval-ms N`（試し直す間隔。既定 3000）、`--ping-timeout-ms N`（ping を待つ時間。既定 25000。サーバーは約20秒ごとに送る）、`--skip-ping`（ping の項目を省く）、`--title <文字列>`（web のタイトルに入っているはずの文字列。既定 `rondo`）
+- `tools/verify-a1.sh` の調整は環境変数で行う: `RONDO_VERIFY_LOG_LINES`（直近に見るログの行数。既定 200）、`RONDO_VERIFY_ERROR_THRESHOLD`（エラーらしき行がこの数以上で失敗。既定 5）
+
+### 確かめること
+
+外から（`tools/verify.sh`）:
+
+| 項目 | 通る条件 |
+| --- | --- |
+| web の応答 | 200、`content-type` が HTML、`<title>` に `rondo` が入っている |
+| WebSocket の接続と session | つながり、`session`（プレイヤー識別子）が届く |
+| ルームの作成と退出 | veryare のルームを作り、すぐ退出する。別の接続で取った一覧に、そのルームが残っていない |
+| ping の受信 | 接続から 25 秒のうちに `ping` が届く（issue-41） |
+| 素材の manifest.json | 200、`access-control-allow-origin` が許可したオリジン、`cache-control` が `max-age=60` |
+| 素材の glb とキャッシュ | manifest.json のいちばん小さい素材を2回取る。1回目が 200・`model/gltf-binary`・`immutable`、2回目の `cf-cache-status` が `HIT` |
+
+A1 の中で（`tools/verify-a1.sh`）:
+
+| 項目 | 通る条件 |
+| --- | --- |
+| コンテナ | `rondo-app`、`rondo-ws` が起動している。`rondo-assets` は、あれば起動している（無ければ省く） |
+| 直近のログ | 各コンテナの直近 200 行に、エラーらしき行（error / crash report / panic / exception）が 5 件未満 |
+| メモリ上限の警告 | `rondo-ws` の起動ログに「include_shared_binaries を使えません」が出ていない（OTP が古いと出る。issue-51） |
+
+- 1つの項目が失敗しても、残りの項目は続けて確かめる。最後に `[OK  ]` / `[FAIL]` / `[SKIP]` の一覧と、日付つきの集計を出す
+- 終了コードは、全部通れば 0、1つでも失敗すれば 1。`tools/verify.sh` は、実行できない（node が無い、引数の誤り、URL が無い）ときは 2
+- 素材の配信を設定していない環境では、素材の項目を `[SKIP]` にして、その旨を出す
+
+### 失敗したときの見方
+
+`[FAIL]` の行が、失敗した項目と、その理由（応答の状態やヘッダの値）。外側から疑わず、A1 の中の確認から見る（下の「うまく動かないときの切り分け」と同じ順）。
+
+- 起動直後は、一時的に失敗することがある（各項目は既定で3回まで試し直す）。少し待ってから、確認だけを実行し直す
+- A1 の中の確認が失敗: コンテナの起動とログを見る（`docker logs --tail 200 <コンテナ名>`）。ログの中身は確認の出力には出さないので、ここで自分で見る
+- web だけ失敗: 状態が 502 / 404 なら Traefik の動的設定、`fetch failed` なら Cloudflare Tunnel を見る
+- WebSocket・ルーム・ping だけ失敗: `rondo-ws` のログと、`ws-rondo` の振り分けを見る
+- 素材の glb の 2回目が `MISS`: Cloudflare の Cache Rules（素材の配信の手順 5）が効いていない。`(なし)` は Cloudflare を通っていない
+- ルームの確認が途中で失敗したとき（ルームを作れたが、退出の前に接続が切れたなど）は、そのルームは再接続の猶予の後にサーバーが片づける
+
+### 失敗したときの戻し方
+
+問題がコードの変更にあるときは、prod を一つ前の状態に戻して、デプロイし直す。prod の「早送りのみ」の前提を崩さないため、A1 の作業コピーでは戻さない。
+
+```bash
+# 手元で（prod を最新にしてから、問題のコミットを打ち消すコミットを作る）
+git switch prod && git pull --ff-only
+git revert <問題のコミット>
+git push origin prod
+```
+
+```bash
+# A1 で（同じ対象を、もう一度デプロイして確かめる）
+deploy/a1-deploy.sh --env-file ~/rondo.env --verify <web|ws|assets|all>
+```
+
+- 素材の配信だけを戻すときは、上の「素材の配信の手順」の戻し方を使う
+- 戻した後に確認が通れば、利用者への影響は止まっている。原因は、戻した状態のまま手元で調べる
 
 ## うまく動かないときの切り分け
 

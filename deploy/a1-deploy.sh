@@ -2,7 +2,7 @@
 # rondo を A1 で docker compose を使って更新する（issue-35 / issue-43。docs/deploy.md）。
 #
 # 使い方（A1 の、リポジトリの作業コピーで）:
-#   deploy/a1-deploy.sh --env-file <リポジトリの外のファイル> <web|ws|assets|all>
+#   deploy/a1-deploy.sh --env-file <リポジトリの外のファイル> [--verify] <web|ws|assets|all>
 #
 #   対象は、引数か環境変数 RONDO_DEPLOY_TARGET で選ぶ（引数が優先）。
 #   env ファイルは、引数 --env-file か環境変数 RONDO_ENV_FILE で渡す（引数が優先）。
@@ -11,6 +11,7 @@
 #   NEXT_PUBLIC_RONDO_WS_URL=wss://ws-rondo.chapy0706.com/ws
 #   NEXT_PUBLIC_ASSET_BASE_URL=https://assets-rondo.chapy0706.com
 #   ASSET_ALLOWED_ORIGIN=https://rondo.chapy0706.com
+#   RONDO_VERIFY_WEB_URL=https://rondo.chapy0706.com   （--verify のときに確かめる web の URL）
 #
 # - web（と all）では、NEXT_PUBLIC_RONDO_WS_URL と NEXT_PUBLIC_ASSET_BASE_URL の2つを、必ず
 #   env ファイルからそろえて渡す。どちらかの行が無い、または値が空なら、止まって警告する
@@ -19,13 +20,17 @@
 # - 実行すること: prod ブランチであることの確認、git pull（早送りのみ）、docker compose build、
 #   docker compose up -d、コンテナが動いていることの確認
 # - コンテナやボリュームを消す操作はしない
+# - --verify を付けると、最後にデプロイ後の確認（issue-50）を行う。A1 の中の確認
+#   （tools/verify-a1.sh）と、公開 URL に対する外からの確認（tools/verify.sh。URL は env ファイルから）。
+#   失敗したら、見方と戻し方（docs/deploy.md「デプロイ後の確認」）を表示し、0 以外で終わる
 
 set -euo pipefail
 
 usage() {
 	cat <<'EOF'
-使い方: deploy/a1-deploy.sh [--env-file <ファイル>] [--allow-empty] <web|ws|assets|all>
+使い方: deploy/a1-deploy.sh [--env-file <ファイル>] [--allow-empty] [--verify] <web|ws|assets|all>
   対象は引数か RONDO_DEPLOY_TARGET、env ファイルは --env-file か RONDO_ENV_FILE で渡す。
+  --verify: 最後にデプロイ後の確認を行う（env ファイルが要る）。
 EOF
 }
 
@@ -38,6 +43,7 @@ repo_root="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 target="${RONDO_DEPLOY_TARGET:-}"
 env_file="${RONDO_ENV_FILE:-}"
 allow_empty=0
+verify=0
 
 while [ "$#" -gt 0 ]; do
 	case "$1" in
@@ -48,6 +54,10 @@ while [ "$#" -gt 0 ]; do
 		;;
 	--allow-empty)
 		allow_empty=1
+		shift
+		;;
+	--verify)
+		verify=1
 		shift
 		;;
 	-h | --help)
@@ -115,6 +125,8 @@ if [ -n "$env_file" ]; then
 	compose_env_args=(--env-file "$env_abs")
 elif [ "$needs_web_vars" -eq 1 ]; then
 	die "web をビルドするときは --env-file（または RONDO_ENV_FILE）が要る"
+elif [ "$verify" -eq 1 ]; then
+	die "--verify には --env-file（または RONDO_ENV_FILE）が要る（確認の URL を読むため）"
 fi
 
 # env ファイルの、ある変数の値（無ければ終了コード 1）。前後の引用符は外す。
@@ -171,3 +183,32 @@ for t in "${targets[@]}"; do
 done
 
 echo "完了: ${targets[*]}"
+
+if [ "$verify" -eq 0 ]; then
+	exit 0
+fi
+
+# デプロイ後の確認（issue-50）。2つとも行ってから判定する（片方が失敗しても、もう片方を見る）。
+echo "== デプロイ後の確認"
+inside=0
+"$repo_root/tools/verify-a1.sh" || inside=$?
+outside=0
+"$repo_root/tools/verify.sh" --env-file "$env_abs" || outside=$?
+
+if [ "$inside" -eq 0 ] && [ "$outside" -eq 0 ]; then
+	echo "デプロイ後の確認: 成功"
+	exit 0
+fi
+
+if [ "$outside" -eq 2 ]; then
+	echo "外からの確認を実行できなかった（理由は上の行）。手元から tools/verify.sh --web <URL> --ws <URL> [--assets <URL>] で確かめる" >&2
+fi
+if [ "$inside" -ne 0 ] || [ "$outside" -eq 1 ]; then
+	cat >&2 <<'EOF'
+デプロイ後の確認: 失敗（上の [FAIL] の行が、失敗した項目）
+見方と戻し方: docs/deploy.md の「デプロイ後の確認」
+  - 起動直後の一時的な失敗か: 少し待ってから tools/verify-a1.sh と tools/verify.sh --env-file <env> を実行し直す
+  - 戻す: 手元で、問題のコミットを prod 上で git revert して push し、A1 で同じ deploy/a1-deploy.sh を実行し直す
+EOF
+fi
+exit 1

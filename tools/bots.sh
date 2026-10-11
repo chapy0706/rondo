@@ -16,6 +16,7 @@ port="${RONDO_BOTS_PORT:-3300}"
 divisor="${RONDO_BOTS_PHASE_DIVISOR:-20}"
 
 set -m
+# shellcheck disable=SC2329  # trap から間接的に呼ばれる
 stop_server() {
 	if [ -n "${server_pid:-}" ] && kill -0 "$server_pid" 2>/dev/null; then
 		kill -TERM -- "-$server_pid" 2>/dev/null || true
