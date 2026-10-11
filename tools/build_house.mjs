@@ -2,7 +2,14 @@
  * 平屋のゲーム用 glb を作る（Node と @gltf-transform、テクスチャの変換に sharp）。
  *
  * 使い方:
- *   node tools/build_house.mjs assets-src/house/hiraya-fbx.glb assets-src/converted/house-fbx
+ *   node tools/build_house.mjs assets-src/house/hiraya-fbx.glb assets-src/converted/house-fbx-meshopt
+ *   node tools/build_house.mjs --geometry quantize <入力.glb> <出力フォルダ>
+ *
+ *   --geometry: 形のデータ（頂点・インデックス）の圧縮（issue-55）。既定は meshopt
+ *     meshopt   量子化（KHR_mesh_quantization）と meshopt の圧縮（EXT_meshopt_compression）。
+ *               読み込む側に MeshoptDecoder が要る（apps/web の素材のローダーに設定済み）
+ *     quantize  量子化だけ（デコーダは要らない）
+ *     raw       圧縮しない（issue-55 より前と同じ）
  *
  * 出力（3つのグループ × テクスチャの長辺の上限 2種類 = 6本）:
  *   hiraya-indoor-{512,1024}.glb   屋内本体（建物、家具・設備、戸・障子・欄間、縁側、地面、玄関階段）
@@ -22,6 +29,9 @@
  * 5. 動かさない部品は、材質ごとに統合する（join。戸・障子・欄間とインスタンスは除く）
  * 6. 整理（prune）と、重複の統合（dedup）
  * 7. テクスチャを WebP にし、長辺を 512px / 1024px 以内に縮める（小さいものは拡大しない）
+ * 8. 形のデータを圧縮する（--geometry。既定は meshopt / issue-55）。量子化は、メッシュを持つ
+ *    ノードのローカルの変換（位置・拡大）に、元の大きさへ戻す補正を書き込む。メッシュを持たない
+ *    親（戸の「操作軸」など）の変換は変わらない。ゲームの側で戸を動かすときは、操作軸を動かす
  *
  * マテリアルの不透明・半透明（テクスチャを変換する前に、グループに分ける前の全マテリアルで決める）:
  * - 襖・障子・欄間・和紙のマテリアル（名前で見分ける）は、必ず OPAQUE にする（向こう側の隠れ側が
@@ -33,13 +43,14 @@
  * - alpha が 1 未満のもの（ガラス、水など）と、テクスチャに透明な画素があるもの（葉、網戸など）は、
  *   元のまま（BLEND）残す
  *
- * 取り除いたノードの名前と数、グループごとのトップレベルのノード、各ファイルの大きさ・メッシュ数・
- * 三角形数・テクスチャ数を出す。
+ * 取り除いたノードの名前と数、グループごとのトップレベルのノード、各ファイルの大きさ（そのままと
+ * gzip 後）・メッシュ数・三角形数・テクスチャ数を出す。
  * 入力は読むだけで、変更しない。
  */
 
-import { mkdirSync, statSync } from "node:fs";
+import { mkdirSync, readFileSync, statSync } from "node:fs";
 import { join as joinPath } from "node:path";
+import { gzipSync } from "node:zlib";
 import { NodeIO } from "@gltf-transform/core";
 import { ALL_EXTENSIONS } from "@gltf-transform/extensions";
 import {
@@ -47,14 +58,31 @@ import {
 	getBounds,
 	instance,
 	join,
+	meshopt,
 	prune,
+	quantize,
 	textureCompress,
 } from "@gltf-transform/functions";
+import { MeshoptDecoder, MeshoptEncoder } from "meshoptimizer";
 import sharp from "sharp";
 
-const [input, outputDir] = process.argv.slice(2);
-if (input === undefined || outputDir === undefined) {
-	console.error("使い方: node tools/build_house.mjs <入力.glb> <出力フォルダ>");
+const GEOMETRY_MODES = ["meshopt", "quantize", "raw"];
+const args = process.argv.slice(2);
+let geometry = "meshopt";
+const geometryAt = args.indexOf("--geometry");
+if (geometryAt !== -1) {
+	geometry = args[geometryAt + 1];
+	args.splice(geometryAt, 2);
+}
+const [input, outputDir] = args;
+if (
+	input === undefined ||
+	outputDir === undefined ||
+	!GEOMETRY_MODES.includes(geometry)
+) {
+	console.error(
+		"使い方: node tools/build_house.mjs [--geometry meshopt|quantize|raw] <入力.glb> <出力フォルダ>",
+	);
 	process.exit(2);
 }
 
@@ -90,9 +118,28 @@ function groupOf(name) {
 	return "indoor";
 }
 
+await MeshoptEncoder.ready;
+await MeshoptDecoder.ready;
+
 const io = new NodeIO()
 	.registerExtensions(ALL_EXTENSIONS)
-	.registerDependencies({ sharp: sharp });
+	.registerDependencies({
+		sharp: sharp,
+		"meshopt.encoder": MeshoptEncoder,
+		"meshopt.decoder": MeshoptDecoder,
+	});
+
+/** 形のデータの圧縮（--geometry）。meshopt は量子化を含む（gltf-transform の meshopt）。 */
+function geometryTransforms() {
+	switch (geometry) {
+		case "meshopt":
+			return [meshopt({ encoder: MeshoptEncoder, level: "high" })];
+		case "quantize":
+			return [quantize()];
+		default:
+			return [];
+	}
+}
 
 /** ノードと、その子孫すべて（子孫が先）。 */
 function subtree(node) {
@@ -332,6 +379,7 @@ async function build(group, size) {
 			resize: [size, size],
 		}),
 		prune(),
+		...geometryTransforms(),
 	);
 
 	const path = joinPath(outputDir, `hiraya-${group}-${size}.glb`);
@@ -369,6 +417,7 @@ export function stats(document, path) {
 		.filter((node) => node.getExtension("EXT_mesh_gpu_instancing")).length;
 	return {
 		megabytes: statSync(path).size / 1024 / 1024,
+		gzipMegabytes: gzipSync(readFileSync(path)).length / 1024 / 1024,
 		meshes: root.listMeshes().length,
 		triangles: Math.round(triangles),
 		uniqueTriangles: Math.round(uniqueTriangles),
@@ -407,7 +456,7 @@ for (const group of GROUP_NAMES) {
 			for (const name of removed.emptyLeaves) console.log(`  - ${name}`);
 		}
 		console.log(
-			`STATS\t${path}\t${s.megabytes.toFixed(2)}MB\tメッシュ ${s.meshes}\t三角形 ${s.triangles}（形として ${s.uniqueTriangles}）\tテクスチャ ${s.textures}\tノード ${s.nodes}\tインスタンス ${s.instancedBatches}`,
+			`STATS\t${path}\t${s.megabytes.toFixed(2)}MB\tgzip ${s.gzipMegabytes.toFixed(2)}MB\t形 ${geometry}\tメッシュ ${s.meshes}\t三角形 ${s.triangles}（形として ${s.uniqueTriangles}）\tテクスチャ ${s.textures}\tノード ${s.nodes}\tインスタンス ${s.instancedBatches}`,
 		);
 	}
 }

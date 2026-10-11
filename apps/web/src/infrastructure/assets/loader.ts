@@ -4,8 +4,8 @@
  * - 基準 URL が無ければ、何も取りに行かず「仮の表示」を返す
  * - manifest.json を1回だけ取得し、key と品質（既定 512）から素材のパスを引く
  * - glb を取得し、先頭（magic "glTF"・版 2・長さ）を確かめてから、parse（three の GLTFLoader）に渡す
- * - どこで失敗しても（manifest が無い、404、接続できない、壊れた glb、タイムアウト）、例外を投げず
- *   { ok: false, reason } を返す。利用者には警告を出さず、原因は log（console）に記録する
+ * - どこで失敗しても（manifest が無い、404、接続できない、壊れた glb、タイムアウト、meshopt の
+ *   デコーダが読めない / issue-55）、例外を投げず { ok: false, reason } を返す。利用者には警告を出さず、原因は log（console）に記録する
  *
  * fetch・parse・log・時間は注入できるので、テストでは素材なしで確かめられる。
  */
@@ -23,7 +23,8 @@ export type FailureReason =
 	| "not-in-manifest"
 	| "http-error"
 	| "invalid-glb"
-	| "timeout";
+	| "timeout"
+	| "decoder-unavailable";
 
 export type LoadResult<T> =
 	| { readonly ok: true; readonly value: T }
@@ -51,6 +52,12 @@ const DEFAULT_TIMEOUT_MS = 15_000;
 const GLB_MAGIC = 0x46546c67;
 
 class Timeout extends Error {}
+
+/**
+ * parse が投げてよい、デコーダ（meshopt / issue-55）を読み込めなかったことの知らせ。glb が壊れて
+ * いるのではないので、invalid-glb と分けて記録する。
+ */
+export class DecoderUnavailable extends Error {}
 
 /** glb の先頭（12 バイトのヘッダ）が正しいか。 */
 export function looksLikeGlb(data: ArrayBuffer): boolean {
@@ -157,6 +164,12 @@ export function createAssetLoader<T>(
 			try {
 				return { ok: true, value: await options.parse(data) };
 			} catch (error) {
+				if (error instanceof DecoderUnavailable) {
+					return fail(
+						"decoder-unavailable",
+						`${url} の meshopt のデコーダを読み込めない（${error.message}）`,
+					);
+				}
 				return fail("invalid-glb", `${url} を読み込めない（${String(error)}）`);
 			}
 		},

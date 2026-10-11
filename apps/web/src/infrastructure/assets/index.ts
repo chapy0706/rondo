@@ -5,9 +5,13 @@
  * NEXT_PUBLIC_RONDO_WS_URL と同じ扱い。値の直書きはしない）。未設定なら、素材は読み込まず、
  * 各ゲームは仮の表示（箱とカプセル）で動く。素材を使う機能（平屋 issue-46、キャラクター issue-25）
  * は、ここの preloadAsset で読み込みを始め、createSwapSlot で差し替えのタイミングを決める。
+ *
+ * 平屋の glb は meshopt で圧縮している（issue-55）。MeshoptDecoder は、meshopt を使う glb のときだけ
+ * 読み込む（glb.ts）。
  */
 
 import type { Group } from "three";
+import { createGlbParse } from "./glb";
 import { type AssetLoader, createAssetLoader } from "./loader";
 
 export type { FailureReason, LoadResult } from "./loader";
@@ -26,14 +30,21 @@ function loader(): AssetLoader<LoadedGlb> {
 	shared ??= createAssetLoader<LoadedGlb>({
 		baseUrl: process.env.NEXT_PUBLIC_ASSET_BASE_URL || undefined,
 		fetch: (input, init) => fetch(input, init),
-		parse: async (data) => {
-			// three の GLTFLoader は、素材を使うときだけ読み込む（仮の表示だけなら要らない）。
-			const { GLTFLoader } = await import(
-				"three/examples/jsm/loaders/GLTFLoader.js"
-			);
-			const gltf = await new GLTFLoader().parseAsync(data, "");
-			return { scene: gltf.scene };
-		},
+		// three の GLTFLoader と MeshoptDecoder は、素材を使うときだけ読み込む（仮の表示だけなら要らない）。
+		parse: createGlbParse({
+			loadDecoder: async () =>
+				(await import("three/examples/jsm/libs/meshopt_decoder.module.js"))
+					.MeshoptDecoder,
+			parseGltf: async (data, decoder) => {
+				const { GLTFLoader } = await import(
+					"three/examples/jsm/loaders/GLTFLoader.js"
+				);
+				const loader = new GLTFLoader();
+				if (decoder !== null) loader.setMeshoptDecoder(decoder);
+				const gltf = await loader.parseAsync(data, "");
+				return { scene: gltf.scene };
+			},
+		}),
 		// 利用者への警告は出さない。原因は開発者向けに記録する。
 		log: (message) => console.info(message),
 	});

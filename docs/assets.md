@@ -29,7 +29,9 @@ GitHub のリポジトリは公開なので、ステージとキャラクター�
 | キャラクターの FBX | `assets-src/characters/*.fbx` | しない |
 | 平屋の glb（FBX から変換。いまの元） | `assets-src/house/hiraya-fbx.glb` | しない |
 | 平屋の glb（.blend から書き出したもの。前回の元。いまは使わない） | `assets-src/house/hiraya.glb` | しない |
-| 平屋のゲーム用 glb（FBX から。6 本） | `assets-src/converted/house-fbx/` | しない |
+| 平屋のゲーム用 glb（FBX から。6 本。形のデータを圧縮していないもの） | `assets-src/converted/house-fbx/` | しない |
+| 平屋のゲーム用 glb（FBX から。6 本。meshopt で圧縮したもの。いまの配信用 / issue-55） | `assets-src/converted/house-fbx-meshopt/` | しない |
+| 配信するフォルダ（A1 の素材ディレクトリと同じ形。manifest.json と v<版>/ の glb） | `assets-src/delivery/` | しない |
 | 平屋の戸の一覧・断面図（FBX から） | `assets-src/house/doors-fbx.tsv`、`plan-fbx.svg` | しない |
 | 平屋の調査結果 | `assets-src/house/hiraya-scene.json` | しない |
 | 平屋の確認用 glb（屋根・天井なし） | `assets-src/house/hiraya-preview.glb` | しない |
@@ -46,7 +48,7 @@ GitHub のリポジトリは公開なので、ステージとキャラクター�
 | 平屋の元データの調査結果 | `assets-src/converted/house/source-fbx.json`、`source-blend.json` | しない |
 | ゲームが読み込む glb（各自の手元） | `apps/web/public/models/` | しない |
 | 素材の配信の確認用（立方体と manifest.json） | `assets-src/test/` | しない |
-| 変換・調査のスクリプト | `tools/make_test_glb.mjs`、`tools/fbx_to_glb.py`、`tools/inspect_rig.py`、`tools/inspect_glb.mjs`、`tools/prepare_house.mjs`、`tools/build_house.mjs`、`tools/list_doors.mjs`、`tools/house_plan.mjs`、`tools/inspect_house_source.py` | する |
+| 変換・調査のスクリプト | `tools/make_test_glb.mjs`、`tools/fbx_to_glb.py`、`tools/inspect_rig.py`、`tools/inspect_glb.mjs`、`tools/prepare_house.mjs`、`tools/build_house.mjs`、`tools/list_doors.mjs`、`tools/house_plan.mjs`、`tools/inspect_house_source.py`、`tools/make_manifest.mjs` | する |
 
 ## 必要なもの
 
@@ -54,6 +56,7 @@ GitHub のリポジトリは公開なので、ステージとキャラクター�
 - Node（確認した版: 24）。`tools/inspect_glb.mjs` は Node の標準機能だけで動く
 - テクスチャの WebP 変換には `sharp` を使う（リポジトリ直下の devDependencies）。sharp は機種ごとのビルド済みのバイナリで動くため、`pnpm approve-builds` は要らなかった（pnpm は install script を止めたと表示するが、読み込めることを確かめた）
 - `tools/prepare_house.mjs` は `@gltf-transform/core`・`functions`・`extensions` を使う。リポジトリ直下の devDependencies に入っている（`tools/` はどのワークスペースにも属さないため。アプリの依存には入れない）。`pnpm install` で入る
+- `tools/build_house.mjs` の形のデータの圧縮には `meshoptimizer`（エンコーダ）を使う。リポジトリ直下の devDependencies に入っている（版は `@gltf-transform/functions` が使うものと同じ 1.1.1）。アプリの側のデコーダは three に同梱のもの（`three/examples/jsm/libs/meshopt_decoder.module.js`）を使うので、アプリの依存は増えない
 
 ## キャラクター: FBX を glb にする
 
@@ -120,15 +123,16 @@ GitHub のリポジトリは公開なので、ステージとキャラクター�
 # 2. 中身を調べる（戸の一覧と断面図の入力にもなる）
 node tools/inspect_glb.mjs assets-src/house/hiraya-fbx.glb assets-src/house/hiraya-fbx-scene.json
 
-# 3. ゲーム用 glb（屋内本体・屋外の飾り・屋根と天井 × 512 / 1024 の 6 本）
-node tools/build_house.mjs assets-src/house/hiraya-fbx.glb assets-src/converted/house-fbx
+# 3. ゲーム用 glb（屋内本体・屋外の飾り・屋根と天井 × 512 / 1024 の 6 本。形のデータは meshopt で圧縮）
+node tools/build_house.mjs assets-src/house/hiraya-fbx.glb assets-src/converted/house-fbx-meshopt
+#    圧縮しない版・量子化だけの版（比べるとき）: --geometry raw / --geometry quantize
 
 # 4. 戸の一覧と、間取りの断面図
 node tools/list_doors.mjs assets-src/house/hiraya-fbx-scene.json assets-src/house/doors-fbx.tsv
 node tools/house_plan.mjs assets-src/house/hiraya-fbx.glb assets-src/house/plan-fbx.svg
 
 # 大きさと数の表（--count で戸・障子・欄間のノードの数も）
-node tools/glb_stats.mjs --count "ドア|障子|欄間" assets-src/converted/house-fbx/*.glb
+node tools/glb_stats.mjs --count "ドア|障子|欄間" assets-src/converted/house-fbx-meshopt/*.glb
 ```
 
 結果（2026-10-04）:
@@ -155,11 +159,27 @@ node tools/glb_stats.mjs --count "ドア|障子|欄間" assets-src/converted/hou
 
 結果（2026-10-04）: 46 個のうち、`OPAQUE` に直したもの 36、もとから `OPAQUE` 5、`BLEND` のまま 10（ガラス 4、水 1、葉 4、網戸 1）。6 本の中では、屋内本体の `BLEND` は 5（水、ガラス 3、網戸）、屋外は 5（ガラス 1、葉 4）、屋根と天井は 0
 
-形のデータの圧縮（未実装。見込み）:
+形のデータの圧縮（issue-55）:
 
-- 屋内本体は、形のデータが約 27.5 MB で、ファイルの大半を占める
-- 量子化（`quantize`）だけで、512 版は 29.45 MB → 21.66 MB（gzip で送ると 9.6 MB）になった（試しに作って測った）
-- meshopt（`EXT_meshopt_compression`）を足すと、さらに小さくなる見込み（ファイルで 7〜10 MB 程度）。`meshoptimizer` の追加と、ゲームの側の GLTFLoader に MeshoptDecoder の設定が要る
+屋内本体は、形のデータが約 27.5 MB で、ファイルの大半を占めていた。`build_house.mjs` の最後に、量子化（`KHR_mesh_quantization`）と meshopt の圧縮（`EXT_meshopt_compression`。gltf-transform の `meshopt`、level `high`）を足した。`--geometry` で、圧縮しない（`raw`）・量子化だけ（`quantize`）も選べる。
+
+結果（2026-10-11。gzip は Node の zlib の既定の強さで測った値）:
+
+| ファイル | 圧縮しない（raw） | 量子化だけ | meshopt（既定） | メッシュ | 三角形 |
+| --- | --- | --- | --- | --- | --- |
+| hiraya-indoor-512 | 29.45 MB（gzip 14.48） | 21.66 MB（gzip 9.62） | **6.99 MB（gzip 4.12）** | 291 | 908,878 |
+| hiraya-indoor-1024 | 30.25 MB（gzip 15.28） | 22.47 MB（gzip 10.42） | **7.80 MB（gzip 4.92）** | 291 | 908,878 |
+| hiraya-outdoor-512 | 1.30 MB（gzip 1.01） | 1.13 MB（gzip 0.90） | **0.91 MB（gzip 0.83）** | 16 | 19,812 |
+| hiraya-outdoor-1024 | 1.30 MB（gzip 1.01） | 1.13 MB（gzip 0.90） | **0.91 MB（gzip 0.83）** | 16 | 19,812 |
+| hiraya-roof-512 | 1.68 MB（gzip 0.88） | 1.42 MB（gzip 0.80） | **0.69 MB（gzip 0.52）** | 6 | 37,160 |
+| hiraya-roof-1024 | 2.00 MB（gzip 1.20） | 1.74 MB（gzip 1.12） | **1.02 MB（gzip 0.85）** | 6 | 37,160 |
+
+- 屋内本体の 512 版は、そのままで 7 MB。送るときに圧縮されなくても、目標（gzip 後で 10 MB 以下）を満たす
+- 三角形の数（インスタンスの数を掛けたもの）・メッシュ数・テクスチャ数・マテリアル数は、圧縮の前後で変わらない。テクスチャ（WebP）は変えていない
+- 読み戻して、全頂点のワールド座標（インスタンスの変換を含む）で比べた。3 グループとも、頂点数・三角形数・平均位置が一致し、外接箱の差は 1 mm 以内（位置の量子化は 14 bit）
+- ノードの数は 510 → 619 に増える（屋内本体）。量子化は、メッシュを持つノードのローカルの変換（位置・拡大）に、元の大きさへ戻す補正を書き込む。子を持つノードがメッシュも持つときは、メッシュを新しい子ノードに移してから補正する。メッシュを持たない親（戸の「操作軸」など）の変換は変わらないので、ゲームの側で戸を動かすとき（issue-46）は、操作軸を動かす（メッシュを持つノードの位置を直接書き換えない）
+- 読み込む側に MeshoptDecoder が要る。apps/web の素材のローダーに設定済み（下の「読み込みとフォールバック」）
+- 三角形の数（約 91 万）は、いまは減らしていない。大きさの目標は圧縮だけで満たした。スマホでの描画が重いときは、家具や小物の削除・簡略化を、issue-46 の表示で測ってから決める
 
 ## 平屋: glb の中身を調べる
 
@@ -209,6 +229,7 @@ node tools/build_house.mjs assets-src/house/hiraya.glb assets-src/converted/hous
 - 戸・障子・欄間（名前に「ドア」「障子」「欄間」を含むノードとその子孫）は、インスタンスにも統合にも入れず、1枚ずつ別のノードのまま残す
 - 整理（prune）と重複の統合（dedup）をしてから、テクスチャを WebP にして長辺を上限まで縮める（小さいものは拡大しない。品質は sharp の既定）
 - マテリアルの拡張（透過・発光の強さ・光沢）は残す。three.js（0.186.1）の GLTFLoader は `EXT_texture_webp`・`EXT_mesh_gpu_instancing`・これらの拡張に対応している
+- 最後に、形のデータを圧縮する（`--geometry`。既定は meshopt / issue-55。上の「形のデータの圧縮」）
 - 各ファイルの大きさ・メッシュ数・三角形数（インスタンスの数を掛けたもの）・テクスチャ数を、`STATS` の行で出す
 
 ## 平屋: 戸・障子・欄間の一覧
@@ -292,12 +313,38 @@ node tools/house_plan.mjs assets-src/house/hiraya-preview.glb assets-src/house/p
 
 - 素材をアップロードするときは、先に glb を送り、最後に manifest.json を送る（`docs/deploy.md` の手順 6）
 
+### manifest.json を作る（issue-55）
+
+配信するフォルダ（`assets-src/delivery/`）を、A1 の素材ディレクトリ（`/srv/rondo-assets`）と同じ形に並べてから、`tools/make_manifest.mjs` で manifest.json を作る。
+
+```sh
+# 1. 配信するフォルダに、版付きのパスで glb を並べる（版は、置いてあるものより上げる。上書きしない）
+mkdir -p assets-src/delivery/v1/test assets-src/delivery/v2/house
+cp assets-src/test/v1/test/*.glb assets-src/delivery/v1/test/
+cp assets-src/converted/house-fbx-meshopt/*.glb assets-src/delivery/v2/house/
+
+# 2. manifest.json を作る（assets-src/delivery/manifest.json。上書きする）
+node tools/make_manifest.mjs assets-src/delivery
+
+# 3. アップロード: 先に glb（版付きのパス）、最後に manifest.json
+#    manifest が、まだ届いていないファイルを指す時間を作らないため
+rsync -av --chmod=D755,F644 --exclude manifest.json assets-src/delivery/ <user>@<A1>:/srv/rondo-assets/
+rsync -av --chmod=F644 assets-src/delivery/manifest.json <user>@<A1>:/srv/rondo-assets/manifest.json
+```
+
+- 各項目は、ファイルから計算する。key と quality はファイル名（`<key>-<512|1024>.glb`）、version はパスの先頭の版（`v2/...` なら 2）、path はフォルダからの相対パス、bytes はファイルの大きさ
+- 同じ key と quality が複数の版にあるときは、いちばん新しい版だけを載せる。古い版のファイルは、A1 に残しておいてよい（manifest を入れ替える前から読み込んでいる利用者が、読み終えられるように）
+- manifest.json は全体を置き換えるので、配信を続けたい素材（疎通の確認用の立方体など）も、配信するフォルダに並べておく
+- 形の違うファイル（名前が `<key>-<quality>.glb` でない、版のフォルダの外にある、glb の先頭が正しくない）や、同じ key・quality・版の重なりがあれば、manifest.json を書かずに止まる
+- リポジトリの中では、`assets-src/` の下だけに書く（素材をコミットしないため）
+
 ### 読み込みとフォールバック（クライアント）
 
 - 置き場所: `apps/web/src/infrastructure/assets/`。`preloadAsset(key)` で読み込みを始め、`createSwapSlot` で差し替えのタイミングを決める
 - 読み込みは、ゲームの開始を待たせない。仮の表示で先に始め、見た目が急に変わらない時点（待機ルームの間など）で、読み込めていれば本素材に差し替える。その時点に間に合わなければ、その回は仮の表示のまま（差し替えの時点は、素材を使う機能 issue-46・issue-25 が決める）
 - 失敗（基準 URL が未設定、manifest が無い・形が違う、manifest に無い素材、404・接続できない、壊れた glb、タイムアウト）は、利用者に警告を出さず、仮の表示に切り替える。原因は `console.info` に `[assets]` で記録する
-- 素材は別オリジンから、資格情報（Cookie）を付けずに取得する。品質は既定で 512。meshopt は組み込んでいない
+- 素材は別オリジンから、資格情報（Cookie）を付けずに取得する。品質は既定で 512
+- meshopt（issue-55）: glb の `extensionsUsed` に `EXT_meshopt_compression` があるときだけ、three に同梱の MeshoptDecoder（WebAssembly）を読み込み、GLTFLoader に設定する（`glb.ts`。1回読み込んだら使い回す）。圧縮していない素材（立方体など）は、デコーダを読まずに読む。デコーダを読み込めない（モジュールを取得できない、WebAssembly が使えない）ときは、`decoder-unavailable` として記録し、仮の表示に切り替える
 
 ### 疎通の確認用の glb
 

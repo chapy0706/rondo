@@ -2,6 +2,48 @@
 	"version": 1,
 	"assets": [
 		{
+			"key": "hiraya-indoor",
+			"quality": 512,
+			"version": 2,
+			"path": "v2/house/hiraya-indoor-512.glb",
+			"bytes": 7331676
+		},
+		{
+			"key": "hiraya-indoor",
+			"quality": 1024,
+			"version": 2,
+			"path": "v2/house/hiraya-indoor-1024.glb",
+			"bytes": 8177964
+		},
+		{
+			"key": "hiraya-outdoor",
+			"quality": 512,
+			"version": 2,
+			"path": "v2/house/hiraya-outdoor-512.glb",
+			"bytes": 955348
+		},
+		{
+			"key": "hiraya-outdoor",
+			"quality": 1024,
+			"version": 2,
+			"path": "v2/house/hiraya-outdoor-1024.glb",
+			"bytes": 955348
+		},
+		{
+			"key": "hiraya-roof",
+			"quality": 512,
+			"version": 2,
+			"path": "v2/house/hiraya-roof-512.glb",
+			"bytes": 725160
+		},
+		{
+			"key": "hiraya-roof",
+			"quality": 1024,
+			"version": 2,
+			"path": "v2/house/hiraya-roof-1024.glb",
+			"bytes": 1066268
+		},
+		{
 			"key": "test-cube",
 			"quality": 512,
 			"version": 1,
@@ -14,13 +56,6 @@
 			"version": 1,
 			"path": "v1/test/test-cube-1024.glb",
 			"bytes": 1536
-		},
-		{
-			"key": "hiraya-indoor",
-			"quality": 512,
-			"version": 1,
-			"path": "v1/house/hiraya-indoor-512.glb",
-			"bytes": 30880000
 		}
 	]
 }
