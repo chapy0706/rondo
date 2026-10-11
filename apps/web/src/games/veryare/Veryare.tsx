@@ -16,6 +16,9 @@
  * 被りで失格）は観戦者になり、探索中は鬼を中央に固定した周回カメラ（鬼 TPS 視点）で見る。
  * 移動はできず、視点パッドでカメラを回すだけ。探索中の隠れ側は、自分の視点と鬼 TPS 視点を
  * 切り替えられる。鬼の状態はサーバーが全員へ送る（鬼は動くたびに、向きを添えて報告する）。
+ *
+ * 平屋（issue-46）: ステージの通知が平屋なら、平屋の glb の読み込みを始め（assetSlots.ts）、
+ * 待機ルームの間に読めていればシーンが差し替える。屋根と天井は「屋根」のボタンで切り替える（既定は隠す）。
  */
 
 import type {
@@ -27,13 +30,23 @@ import { VirtualPad, useRealtimeGame, useVirtualPad } from "@rondo/game-sdk";
 import {
 	type PointerEvent as ReactPointerEvent,
 	useEffect,
+	useMemo,
 	useRef,
 	useState,
 } from "react";
 import { type BrushName, type Hsl, PaintPanel } from "./PaintPanel";
+import { gameAssets } from "./assetSlots";
+import { devTrace } from "./assetTrace";
 import { CAMERA_PITCH } from "./camera";
-import { veryareManifest } from "./manifest";
+import { isHirayaStage } from "./hiraya";
+import { HIRAYA_DEV, roofToggleAllowed, veryareManifest } from "./manifest";
 import { WALK_SPEED, blinkLevel, blinkTargets, shouldReport } from "./motion";
+import {
+	type OniSample,
+	pushOniSample,
+	sampleOni,
+	trackDelay,
+} from "./oniTrack";
 import {
 	BRUSH_SIZES,
 	PAINT_LOCK_MS,
@@ -79,7 +92,7 @@ import {
 	viewOf,
 	walkTarget,
 } from "./rules";
-import type { SceneHider, SceneOni, VeryareScene } from "./scene";
+import type { SceneHider, VeryareScene } from "./scene";
 import {
 	type StageGrid,
 	doorToOpen,
@@ -159,6 +172,21 @@ export default function Veryare() {
 	const [openDoors, setOpenDoors] = useState<ReadonlySet<string>>(
 		() => new Set(),
 	);
+	/** 素材の入口（issue-46）。画面全体で1つ（ロビーの先読みと同じもの）。 */
+	const [assets] = useState(gameAssets);
+	/** 平屋の glb の差し替え口。ステージの通知が平屋のときだけ、読み込みを始める。 */
+	const stageSlot = useMemo(
+		() => (grid !== null && isHirayaStage(grid) ? assets.hirayaSlot() : null),
+		[grid, assets],
+	);
+	/** 平屋の glb を表示しているか（シーンが決める）と、屋根と天井を表示するか（既定は隠す）。 */
+	const [modelShown, setModelShown] = useState(false);
+	const [roofVisible, setRoofVisible] = useState(false);
+	/** 屋根の切り替えボタンは開発用だけ（来場者の画面には出さない）。URL はマウントの後に読む。 */
+	const [roofToggle, setRoofToggle] = useState(false);
+	useEffect(() => {
+		setRoofToggle(roofToggleAllowed(HIRAYA_DEV, window.location.search));
+	}, []);
 	/** 描いているペイント（issue-25）。 */
 	const [draft, setDraft] = useState<PaintDraft>(emptyDraft);
 	/** 選んでいる色。null の間は「ここの色」。 */
@@ -191,6 +219,8 @@ export default function Veryare() {
 	 * 再現して進め（mirrorMove）、手元の位置と 1 cm 以上ずれたら手元を合わせる（reconcile）。
 	 */
 	const serverRef = useRef<Point>(WAITING_ROOM_SPAWN);
+	/** 届いた鬼の通知（受け取った時刻つき。ほかの人の画面で補間する / issue-46）。 */
+	const oniTrackRef = useRef<readonly OniSample[]>([]);
 
 	// サーバーの通知を購読する（全員宛てのフェーズ通知と、入室後の案内）。
 	useEffect(() => {
@@ -218,7 +248,15 @@ export default function Veryare() {
 		});
 		const offOni = on("oni", (payload) => {
 			const next = parseOniNotice(payload);
-			if (next !== null) setOniState(next);
+			if (next === null) return;
+			setOniState(next);
+			// ほかの人の画面で、通知の間を補間するため、受け取った時刻つきで持つ（issue-46）。
+			oniTrackRef.current = pushOniSample(oniTrackRef.current, {
+				at: performance.now(),
+				x: next.x,
+				z: next.z,
+				facing: next.facing,
+			});
 		});
 		const offHiding = on("hiding", (payload) => {
 			const next = parseHidingNotice(payload);
@@ -266,10 +304,17 @@ export default function Veryare() {
 	});
 	// 観戦者は移動できない（サーバー側でも、準備移動の後の隠れ側の移動は無視される）。
 	const movable = notice !== null && canMove(phase, role) && !spectator;
-	const sceneOni: SceneOni | null =
-		oniVisible && oniState !== null
-			? { x: oniState.x, z: oniState.z, facing: oniState.facing }
-			: null;
+	// ほかの人の画面の鬼は、描画のたびに補間する（oniTrack.ts）。鬼本人の画面では、通知の位置の
+	// 鬼は描かず、自分の体を鬼の体にして、手元の位置と向きで動かす（issue-46）。
+	const othersOni = oniVisible && role !== "oni";
+	// 鬼が見えなくなったら（探索の前・終わった後）、持っている通知を捨てる（次の対戦に持ち越さない）。
+	useEffect(() => {
+		if (!oniVisible) oniTrackRef.current = [];
+	}, [oniVisible]);
+	const selfOni =
+		role === "oni" &&
+		space === "stage" &&
+		(phase === "exploration" || phase === "reveal");
 	const sceneHiders: readonly SceneHider[] =
 		(phase === "exploration" || phase === "reveal") && hiders !== null
 			? hiders
@@ -439,8 +484,14 @@ export default function Veryare() {
 		area,
 		send,
 		view,
-		sceneOni,
+		othersOni,
+		selfOni,
 		sceneHiders,
+		stageSlot,
+		roofVisible,
+		modelShown,
+		setModelShown,
+		showPaintPanel,
 	});
 	latest.current = {
 		selfPaint,
@@ -458,8 +509,14 @@ export default function Veryare() {
 		area,
 		send,
 		view,
-		sceneOni,
+		othersOni,
+		selfOni,
 		sceneHiders,
+		stageSlot,
+		roofVisible,
+		modelShown,
+		setModelShown,
+		showPaintPanel,
 	};
 
 	const canvasRef = useRef<HTMLCanvasElement | null>(null);
@@ -476,7 +533,7 @@ export default function Veryare() {
 
 		void import("./scene").then(({ createScene }) => {
 			if (disposed) return;
-			const scene = createScene(canvas);
+			const scene = createScene(canvas, { trace: devTrace });
 			sceneRef.current = scene;
 
 			const fit = () => scene.resize(canvas.clientWidth, canvas.clientHeight);
@@ -493,6 +550,8 @@ export default function Veryare() {
 			let lastSent = 0;
 			let sentPosition: Point | null = null;
 			let sentFacing: number | null = null;
+			/** 鬼本人の体の向き（動ける間の視点の向き。移動の報告と同じ値 / issue-46）。 */
+			let selfFacing = 0;
 
 			const loop = (time: number) => {
 				const dt = Math.min((time - last) / 1000, 0.1);
@@ -524,6 +583,7 @@ export default function Veryare() {
 					// 間引いて送る）。向きは観戦者へ送る鬼の向きに使う（issue-28）。
 					const position = positionRef.current;
 					const facing = facingOfYaw(yaw);
+					selfFacing = facing;
 					if (
 						shouldReport({
 							time,
@@ -550,14 +610,30 @@ export default function Veryare() {
 				}
 
 				scene.setStage(current.grid, current.openDoors);
+				scene.setStageModel(current.stageSlot);
+				scene.setRoofVisible(current.roofVisible);
+				// ステージのカメラは領域の外に出さない（ADR 0043）。ペイント画面と待機ルームは対象外。
+				scene.setCameraClamp(
+					current.space === "stage" && !current.showPaintPanel,
+				);
 				scene.setSpace(current.space);
+				const shown = scene.stageModelShown();
+				if (shown !== current.modelShown) current.setModelShown(shown);
 				scene.setArea(current.area);
 				scene.setAvatar(
 					positionRef.current,
 					current.avatarColor,
 					current.selfPaint,
 				);
-				scene.setOni(current.sceneOni);
+				scene.setOni(
+					current.othersOni
+						? sampleOni(
+								oniTrackRef.current,
+								time - trackDelay(oniTrackRef.current),
+							)
+						: null,
+				);
+				scene.setSelfOni(current.selfOni ? selfFacing : null);
 				scene.setHiders(current.sceneHiders);
 				scene.setView(current.view);
 				scene.setBlink(
@@ -667,6 +743,16 @@ export default function Veryare() {
 						? "（鬼の視点・視点パッドで回せます）"
 						: "（探索が始まると鬼の視点になります）"}
 				</p>
+			) : null}
+			{roofToggle && modelShown && space === "stage" ? (
+				<button
+					type="button"
+					aria-pressed={roofVisible}
+					onClick={() => setRoofVisible((current) => !current)}
+					className="min-h-11 rounded-xl bg-surface px-3 font-semibold text-fg text-sm ring-1 ring-line ring-inset"
+				>
+					{roofVisible ? "屋根を隠す" : "屋根を表示する"}
+				</button>
 			) : null}
 			{phase === "exploration" && role === "hider" && !spectator ? (
 				<button

@@ -2,7 +2,10 @@
  * 素材（glb）の読み込みとフォールバック（issue-43 / ADR 0040）。
  *
  * - 基準 URL が無ければ、何も取りに行かず「仮の表示」を返す
- * - manifest.json を1回だけ取得し、key と品質（既定 512）から素材のパスを引く
+ * - manifest.json は、取得に成功したら覚えて使い回す。失敗は覚えず、一定の間隔（既定 5 秒）が
+ *   過ぎたあとの次の読み込みで取り直す（間隔の前は、要求を連打しないよう取り直さない）。
+ *   同時の読み込みは、取得中の1回を共有する。1回の読み込みの中では再試行しない（その回は仮の表示で
+ *   続け、次の読み込みで取り直す）。key と品質（既定 512）から素材のパスを引く
  * - glb を取得し、先頭（magic "glTF"・版 2・長さ）を確かめてから、parse（three の GLTFLoader）に渡す
  * - どこで失敗しても（manifest が無い、404、接続できない、壊れた glb、タイムアウト、meshopt の
  *   デコーダが読めない / issue-55）、例外を投げず { ok: false, reason } を返す。利用者には警告を出さず、原因は log（console）に記録する
@@ -42,6 +45,10 @@ export interface AssetLoaderOptions<T = unknown> {
 	readonly timeoutMs?: number;
 	/** 品質。既定 512。 */
 	readonly quality?: Quality;
+	/** manifest.json の取得に失敗したあと、取り直すまでの間隔（ミリ秒）。既定 5000。 */
+	readonly manifestRetryMs?: number;
+	/** 時計（ミリ秒）。既定は Date.now（テストで差し替える）。 */
+	readonly now?: () => number;
 }
 
 export interface AssetLoader<T> {
@@ -49,6 +56,7 @@ export interface AssetLoader<T> {
 }
 
 const DEFAULT_TIMEOUT_MS = 15_000;
+const DEFAULT_MANIFEST_RETRY_MS = 5_000;
 const GLB_MAGIC = 0x46546c67;
 
 class Timeout extends Error {}
@@ -76,7 +84,14 @@ export function createAssetLoader<T>(
 	const timeoutMs = options.timeoutMs ?? DEFAULT_TIMEOUT_MS;
 	const quality = options.quality ?? 512;
 	const base = options.baseUrl?.replace(/\/+$/, "");
-	let manifest: Promise<AssetManifest | null> | null = null;
+	const retryMs = options.manifestRetryMs ?? DEFAULT_MANIFEST_RETRY_MS;
+	const now = options.now ?? Date.now;
+	/** 取得に成功した manifest（成功だけを覚える）。 */
+	let manifest: AssetManifest | null = null;
+	/** 取得中の要求（同時の読み込みで共有する）。 */
+	let inflight: Promise<AssetManifest | null> | null = null;
+	/** 最後に取得に失敗した時刻。成功したら消す。 */
+	let failedAt: number | null = null;
 	let toldDisabled = false;
 
 	const fail = (reason: FailureReason, detail: string): LoadResult<T> => {
@@ -103,29 +118,50 @@ export function createAssetLoader<T>(
 		}
 	};
 
-	const getManifest = (): Promise<AssetManifest | null> => {
-		manifest ??= (async () => {
-			const url = `${base}/manifest.json`;
-			try {
-				const res = await fetchWithTimeout(url);
-				if (!res.ok) {
-					fail("manifest-unavailable", `${url} が ${res.status}`);
-					return null;
-				}
-				const parsed = parseManifest(await res.json());
-				if (parsed === null) {
-					fail("manifest-unavailable", `${url} の形が違う`);
-				}
-				return parsed;
-			} catch (error) {
-				fail(
-					"manifest-unavailable",
-					`${url} を取得できない（${error instanceof Timeout ? "timeout" : String(error)}）`,
-				);
+	/** manifest.json を1回取得する。失敗は null（原因は記録する）。 */
+	const fetchManifest = async (): Promise<AssetManifest | null> => {
+		const url = `${base}/manifest.json`;
+		try {
+			const res = await fetchWithTimeout(url);
+			if (!res.ok) {
+				fail("manifest-unavailable", `${url} が ${res.status}`);
 				return null;
 			}
-		})();
-		return manifest;
+			const parsed = parseManifest(await res.json());
+			if (parsed === null) {
+				fail("manifest-unavailable", `${url} の形が違う`);
+			}
+			return parsed;
+		} catch (error) {
+			fail(
+				"manifest-unavailable",
+				`${url} を取得できない（${error instanceof Timeout ? "timeout" : String(error)}）`,
+			);
+			return null;
+		}
+	};
+
+	const getManifest = (): Promise<AssetManifest | null> => {
+		if (manifest !== null) return Promise.resolve(manifest);
+		if (inflight !== null) return inflight;
+		if (failedAt !== null && now() - failedAt < retryMs) {
+			fail(
+				"manifest-unavailable",
+				`前回の取得の失敗から ${retryMs}ms たっていないので、取り直さない`,
+			);
+			return Promise.resolve(null);
+		}
+		inflight = fetchManifest().then((result) => {
+			inflight = null;
+			if (result === null) {
+				failedAt = now();
+			} else {
+				manifest = result;
+				failedAt = null;
+			}
+			return result;
+		});
+		return inflight;
 	};
 
 	return {

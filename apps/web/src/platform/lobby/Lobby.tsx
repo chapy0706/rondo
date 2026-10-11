@@ -6,12 +6,14 @@
  * 通信の詳細は useRealtimeLobby（と WebSocketAdapter / Mock）に閉じ込め、ここは
  * 表示と操作だけを受け持つ。既定ではモックが動くため、サーバーなしでも一覧・参加・
  * 作成を確かめられる。参加できたら、そのゲームの画面へ移る（issue-40）。
+ * 開いた時点で、そのゲームの素材の先読みを始める（何を読むかはゲームの側 / issue-46）。
  */
 
 import type { GameType, RoomOption } from "@rondo/contracts";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { useState } from "react";
+import { useEffect, useState } from "react";
+import { prefetchForLobby } from "../../games/registry";
 import { ConnectionFailed } from "../session/ConnectionFailed";
 import { choiceLabel, chooseOption, initialSettings } from "./roomOptions";
 import { useRealtimeLobby } from "./useRealtimeLobby";
@@ -37,6 +39,10 @@ export function Lobby({
 		refresh,
 	} = useRealtimeLobby(gameType);
 	const [settings, setSettings] = useState(() => initialSettings(roomOptions));
+	// ロビーを開いた時点で、そのゲームの素材の先読みを始める（issue-46）。ロビーを離れても止めない。
+	useEffect(() => {
+		prefetchForLobby(gameType);
+	}, [gameType]);
 
 	return (
 		<main className="mx-auto flex min-h-dvh max-w-md flex-col gap-6 px-6 py-16">

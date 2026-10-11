@@ -44,6 +44,27 @@ const gameComponents: Record<string, GameLoader> = {
 };
 
 /**
+ * ロビーを開いた時点の先読み（issue-46）。何を先読みするか（しないか）は、ゲームの側が決める。
+ * 登録の無いゲームは、何もしない。
+ */
+const lobbyPrefetchers: Record<string, () => Promise<void>> = {
+	[veryareManifest.id]: () =>
+		import("./veryare/prefetch").then((m) => m.prefetchForLobby()),
+};
+
+/**
+ * ロビーを開いたときに呼ぶ。失敗しても、ロビーには何も出さない（先読みは無くても動く）。
+ * 開発中だけ、失敗を Console に出す（本番では出さない）。
+ */
+export function prefetchForLobby(id: string): void {
+	void lobbyPrefetchers[id]?.().catch((error: unknown) => {
+		if (process.env.NODE_ENV !== "production") {
+			console.info(`[lobby] ${id} の先読みを始められない`, error);
+		}
+	});
+}
+
+/**
  * id からマニフェストを引く。ゲームホスト（play ルート）が、選ばれたゲームを
  * 起動する際に使う。未登録の id には undefined を返す。
  */

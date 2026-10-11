@@ -83,6 +83,81 @@ make e2e/result   # シナリオ5（鬼選出から結果画面まで。約2分�
 
 失敗したときは、どの段で止まったか、そのときのブラウザの開発者ツールのコンソールの赤いエラーの行（`Uncaught` から、スタックの最初の5行まで）を控える。
 
+### 平屋のステージ（issue-46）
+
+平屋は、見通しの一般化（issue-45）が通るまで、ロビーの選択肢に出さない（`apps/web/src/games/veryare/manifest.ts` の `HIRAYA_READY`）。手で確かめるときだけ、開発用の環境変数 `NEXT_PUBLIC_VERYARE_HIRAYA=1` で選択肢を出す（本番のビルドには渡さない）。
+
+配るフォルダ `assets-src/delivery/`（manifest.json と、版付きのパスの glb）が無ければ、先に作る（素材はコミットしない。`docs/assets.md` の「manifest.json を作る」と同じ）。
+
+```bash
+# 平屋のゲーム用 glb（meshopt で圧縮した 6 本。issue-55）が無ければ作る
+node tools/build_house.mjs assets-src/house/hiraya-fbx.glb assets-src/converted/house-fbx-meshopt
+# 版付きのパスに並べる（疎通の確認用の立方体も残すときは v1/test も）
+mkdir -p assets-src/delivery/v2/house assets-src/delivery/v1/test
+cp assets-src/converted/house-fbx-meshopt/*.glb assets-src/delivery/v2/house/
+cp assets-src/test/v1/test/*.glb assets-src/delivery/v1/test/
+# manifest.json を作る（key・quality・version・path・bytes は、ファイルから計算する）
+node tools/make_manifest.mjs assets-src/delivery
+```
+
+起動の順番（この順で行う。`tools/serve-assets.mjs` は Docker なしで手元から素材を配る道具で、Node の標準モジュールだけで動き、127.0.0.1 だけで待ち受ける）:
+
+1. 素材の配信を先に起動する
+
+   ```bash
+   node tools/serve-assets.mjs                      # assets-src/delivery を http://127.0.0.1:8081 で配る
+   ```
+
+2. 別のターミナルで、変数を付けて web とサーバーを起動する。`NEXT_PUBLIC_*` は起動したときに埋め込まれるので、変数を変えたら `make dev-all` を止めて起動し直す
+
+   ```bash
+   NEXT_PUBLIC_VERYARE_HIRAYA=1 NEXT_PUBLIC_ASSET_BASE_URL=http://localhost:8081 make dev-all
+   ```
+
+3. ブラウザの開発者ツールを、ページを開く前に開く（Console と Network。Network の「Preserve log」に印を付ける）。先読みはロビーを開いた瞬間に始まり、Network は開いている間の要求しか記録しないため
+4. アドレス欄に `http://localhost:3100/lobby/veryare` を入れて開く（`127.0.0.1` ではなく `localhost`）。serve-assets が許可するオリジンは既定で `http://localhost:3100` だけで、`http://127.0.0.1:3100` からの読み込みは CORS で止まる（curl は CORS を見ないので、curl では返ってくる）。`127.0.0.1` で開くなら、1 を `node tools/serve-assets.mjs --origin http://127.0.0.1:3100` で起動する
+
+- `serve-assets.mjs` の引数: `--dir`（配るフォルダ。既定 `assets-src/delivery`）、`--origin`（CORS で許可するオリジン。既定 `http://localhost:3100`。本番の `ASSET_ALLOWED_ORIGIN` と同じく、この1つを返す）、`--port`（既定 8081）
+- 本番の rondo-assets と同じく、配るのは `/manifest.json`（キャッシュ 60 秒）と `/v<数字>/…/*.glb`（1年・immutable）だけ。GET と HEAD だけで、ディレクトリの一覧は出さない。要求ごとに「方法 パス 状態」の1行を出す
+- 本番と同じ nginx で確かめたいときは、これまでどおり Docker でも起こせる（`docker build -t rondo-assets deploy/assets` の後、`docker run --rm -p 8081:3000 -e ASSET_ALLOWED_ORIGIN=http://localhost:3100 -v "$PWD/assets-src/delivery:/srv/assets:ro" rondo-assets`）
+- `NEXT_PUBLIC_VERYARE_HIRAYA=1` のときは、ロビーを開いた時点で平屋の glb の先読みが始まる（ロビーを離れても止めない）。Network に、ロビーの画面で `hiraya-indoor-512.glb` などが出る
+- 屋根の切り替えボタンは開発用だけ。`NEXT_PUBLIC_VERYARE_HIRAYA=1` のときか、ゲームの画面の URL に `?roof=1` を付けたときだけ出る（来場者の画面には出さない。屋根は隠したまま）
+- manifest.json の取得に失敗したときは、5 秒たったあとの次の読み込みで取り直す（失敗を覚え続けない）。serve-assets を後から起動したときは、5 秒以上待ってからロビーを開き直す（またはページを読み直す）
+
+ログの見方（Console）:
+
+| 印 | 出るとき | 読み方 |
+| --- | --- | --- |
+| `[veryare-assets]` | 開発中だけ（`NEXT_PUBLIC_VERYARE_HIRAYA=1` か、URL に `?roof=1`） | 素材の流れ。上から順に「ロビー: 平屋の glb の先読みを始めた」→「manifest.json: 取得できた」→「hiraya-indoor・hiraya-outdoor・hiraya-roof: 読めた」→「対戦: 先読みの結果を、差し替え口に使う」→「待機ルーム: 平屋の glb に差し替えた」→「ステージ: 平屋の glb で表示している」と出れば、正しく流れている。途中で止まった行と、その理由を見る |
+| `[assets]` | 素材の読み込みに失敗したとき（本番でも出る） | 失敗の理由と URL（例: `manifest-unavailable: http://localhost:8081/manifest.json を取得できない（TypeError: Failed to fetch）`）。CORS で止まったときは、ブラウザ自身の CORS のエラーの行も並んで出る |
+| `[lobby]` | 開発中だけ、ロビーの先読みを始められなかったとき | 先読みの部品の読み込みの失敗。通常は出ない |
+
+`[veryare-assets]` の行が1つも出ないとき、または途中で止まるときに、まず疑う点:
+
+- 変数: 「ロビー: 先読みしない（HIRAYA_ENABLED が false…）」なら、`NEXT_PUBLIC_VERYARE_HIRAYA=1` が web に届いていない。行が1つも出ないときも同じ。変数を付けて `make dev-all` を起動し直す（ロビーにステージの選択肢が出ていれば、変数は届いている）
+- 素材の URL: 「manifest.json: 取りに行かない（NEXT_PUBLIC_ASSET_BASE_URL が未設定）」なら、`NEXT_PUBLIC_ASSET_BASE_URL` が届いていない
+- オリジン: 「manifest.json: 取得できない」と、ブラウザの CORS のエラーが出たら、アドレスが `http://localhost:3100` か、serve-assets の `--origin` と合っているかを見る
+- serve-assets の起動順: serve-assets を後から起動したなら、5 秒以上待ってからロビーを開き直す。serve-assets のターミナルに `GET /manifest.json 200` が出ているかも見る
+- ルームが平屋か: 「ステージ: 箱のまま（平屋の通知ではない（ランダム間取り））」なら、ロビーでステージを「平屋」にせずに作った（または、選択画面の「新しく遊ぶ」から作った。こちらは、いつもランダム間取り）
+- 間に合わなかった: 「ステージ: 箱のまま（待機ルームの間に読み終わらなかった…）」なら、読み込みがステージに入るまでに終わらなかった。その回は箱のままで、次の対戦で使われる
+
+平屋のルームの作り方: ロビー（`http://localhost:3100/lobby/veryare`。選択画面の「ルームに参加する」からも行ける）で、ステージを「平屋」、CPU を「なし」にして作る。選択画面の「新しく遊ぶ」は設定を送らずに作るので、いつもランダム間取りになる。送る設定の形は `{ stage: 1, cpu: 0 }`（create-room の settings。`stage` は 0 = ランダム間取り、1 = 平屋）。平屋と CPU の組み合わせは、issue-45 までサーバーが拒む。ボットで通すときは `make bots ARGS="--only 平屋"`。
+
+素材の無い表示で確かめるときは、`NEXT_PUBLIC_ASSET_BASE_URL` を付けずに起動する（箱の表示になる）。
+
+2つのタブ（A を鬼、B を隠れ側）で見る。スマホの縦画面でも1回通す。
+
+- 見た目: 待機ルームの間に読めていれば、ステージに入ったときに平屋が見える（間に合わなければ、その回は箱のまま）。屋根と天井は隠れている。開発用の指定があるときだけ、「屋根を表示する」で出し、「屋根を隠す」で隠せる。指定が無いとき（本番の既定）は、ボタンが出ない
+- 足もと: 平屋の glb を表示しているとき、体（自分・鬼・隠れ側・CPU）が床にめり込まず、床の上に立つ（畳 0.6 m、土間 0.4 m、縁側 0.55 m、床の間 0.62〜0.72 m、トイレの段 0.8 m）。玄関から廊下へ上がるときなどの段差で、足もとが跳ねずに、短い時間（約 0.12 秒）で寄る。カメラも体の高さについて行く。箱の表示のときは、これまでどおり床が 0
+- 判定の壁と見た目の壁: 壁沿いに歩いて、見た目の壁と止まる位置のずれが小さい（判定は 0.3 m の格子で、壁の中心線から最大 0.125 m ずれる）。家具は通り抜けられる（当たりを持たない）
+- 襖: 探索の開始で全部閉じ、閉じた襖の前で止まる。「襖を開ける」で、その襖の板が全部消え（枠の鴨居と柱は残る）、全員のタブで同じ襖が開く。開いた襖は、見た目どおり全幅が通れる。準備移動の間と答え合わせでは、全部開いている
+- カメラ（ADR 0043）: 壁際や部屋の隅で視点を回しても、カメラが壁の向こう（隣の部屋）に出ず、近づいたぶん上から見下ろす。開いた襖や戸口を通るときも、カメラは体のいる部屋の中にとどまる。離れるときは、なめらかに戻る（跳ねない）。ペイント画面と待機ルームでは、これまでどおり
+- 鬼の体: 鬼本人の画面では、赤い体が手元で動き、後ろから赤い円柱がついてこない。隠れ側・観戦者の画面では、鬼の赤い体がなめらかに動く（人間の鬼は約 0.1 秒、鬼 CPU は約 0.5 秒遅れて見える）
+- 片開き戸（風呂-洗面所、洗面所-東の廊下、トイレ-東の廊下）: 開いた姿で置かれ、通れる。開く向き（どちらの部屋の側へ開くか）がおかしければ、`hiraya.ts` の `HINGED_SWING` を直す
+- 縁側から庭へは出られない。玄関の戸と勝手口からは外へ出られない
+- 射撃は、issue-45 までは平屋では当たらない
+- 読み込み時間: 開発者ツールの Network で、`hiraya-indoor-512.glb` の取得の時間を控える。スマホでは、待機ルームの間（鬼選出の 10 秒と準備移動まで）に読み終わるか
+
 ### veryare のペイント（issue-25）
 
 隠れ側のタブ（B）と鬼のタブ（A）で見る。スマホの縦画面でも1回通す。

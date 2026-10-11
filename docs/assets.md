@@ -48,7 +48,7 @@ GitHub のリポジトリは公開なので、ステージとキャラクター�
 | 平屋の元データの調査結果 | `assets-src/converted/house/source-fbx.json`、`source-blend.json` | しない |
 | ゲームが読み込む glb（各自の手元） | `apps/web/public/models/` | しない |
 | 素材の配信の確認用（立方体と manifest.json） | `assets-src/test/` | しない |
-| 変換・調査のスクリプト | `tools/make_test_glb.mjs`、`tools/fbx_to_glb.py`、`tools/inspect_rig.py`、`tools/inspect_glb.mjs`、`tools/prepare_house.mjs`、`tools/build_house.mjs`、`tools/list_doors.mjs`、`tools/house_plan.mjs`、`tools/inspect_house_source.py`、`tools/make_manifest.mjs` | する |
+| 変換・調査のスクリプト | `tools/make_test_glb.mjs`、`tools/fbx_to_glb.py`、`tools/inspect_rig.py`、`tools/inspect_glb.mjs`、`tools/prepare_house.mjs`、`tools/build_house.mjs`、`tools/list_doors.mjs`、`tools/house_plan.mjs`、`tools/inspect_house_source.py`、`tools/make_manifest.mjs`、`tools/serve-assets.mjs`（手元から素材を配る。docs/e2e.md）、`tools/floor_heights.mjs`（平屋の床の高さを測る）、`tools/wall_heights.mjs`（平屋の壁・襖・欄間の高さを測る） | する |
 
 ## 必要なもの
 
@@ -180,6 +180,17 @@ node tools/glb_stats.mjs --count "ドア|障子|欄間" assets-src/converted/hou
 - ノードの数は 510 → 619 に増える（屋内本体）。量子化は、メッシュを持つノードのローカルの変換（位置・拡大）に、元の大きさへ戻す補正を書き込む。子を持つノードがメッシュも持つときは、メッシュを新しい子ノードに移してから補正する。メッシュを持たない親（戸の「操作軸」など）の変換は変わらないので、ゲームの側で戸を動かすとき（issue-46）は、操作軸を動かす（メッシュを持つノードの位置を直接書き換えない）
 - 読み込む側に MeshoptDecoder が要る。apps/web の素材のローダーに設定済み（下の「読み込みとフォールバック」）
 - 三角形の数（約 91 万）は、いまは減らしていない。大きさの目標は圧縮だけで満たした。スマホでの描画が重いときは、家具や小物の削除・簡略化を、issue-46 の表示で測ってから決める
+
+## 平屋: 床の高さを測る（issue-46）
+
+```sh
+node tools/floor_heights.mjs assets-src/house/hiraya-fbx.glb            # 領域ごとの表と、例外のマス
+node tools/floor_heights.mjs assets-src/house/hiraya-fbx.glb --cells    # マスごとの値も出す
+```
+
+- 平屋の床は地面より高い。体の足もとを床に合わせるため、床の高さを glb から測る（手では決めない）
+- 地図は平屋の共有の見本（`packages/contracts/src/fixtures/veryare-hiraya-stage.json`）から読む。歩けるマスの中心から真下へ線を下ろし、床のノード（畳・部屋床・玄関床・お風呂の床・縁側・床の間の床板と前板。家具は含めない）の三角形に当たる高さを測る
+- `TABLE` の行（領域ごとの最頻値）と `EXCEPTION` の行（領域の値から 5 mm より離れたマス）を、`apps/web/src/games/veryare/hiraya.ts` の `FLOOR_HEIGHTS` と `FLOOR_EXCEPTIONS` に書き写す。glb を作り直したら、測り直す
 
 ## 平屋: glb の中身を調べる
 
