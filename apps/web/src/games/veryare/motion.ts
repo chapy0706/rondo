@@ -17,6 +17,11 @@ import { cellAt, passable } from "./stage";
 
 /** 歩く速さ（m/秒）。 */
 export const WALK_SPEED = 4.5;
+/**
+ * 移動パッドと視点パッドのデッドゾーン（0〜1）。これより小さな傾きは、動かさない・回さない
+ * （指のわずかなずれで、動き続けないように）。
+ */
+export const PAD_DEAD_ZONE = 0.15;
 /** 位置の報告の最短間隔（ミリ秒）。 */
 export const SEND_INTERVAL_MS = 50;
 /** 向きだけが変わったときに報告し直す角度の差（ラジアン）。 */

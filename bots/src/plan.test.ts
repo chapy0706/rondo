@@ -1,8 +1,16 @@
 import { describe, expect, it } from "vitest";
+import hirayaFixture from "../../packages/contracts/src/fixtures/veryare-hiraya-stage.json";
 import skeletons from "../../packages/contracts/src/fixtures/veryare-skeleton-stages.json";
 import stageFixture from "../../packages/contracts/src/fixtures/veryare-stage.json";
-import { type Cell, cellOf, findPath, pickDoorShot, regionAt } from "./plan.ts";
-import { readStageNotice } from "./stage.ts";
+import {
+	type Cell,
+	HIDER_GAP,
+	cellOf,
+	findPath,
+	pickDoorShot,
+	regionAt,
+} from "./plan.ts";
+import { MIN_GAP, readStageNotice } from "./stage.ts";
 
 const tiny = readStageNotice(stageFixture.valid[0]);
 if (tiny === null) throw new Error("見本が読めない");
@@ -89,4 +97,53 @@ describe("pickDoorShot - 壁越し・襖越しに撃つためのマス（issue-2
 			expect(findPath(stage, spawn, w, "closed")).not.toBeNull();
 		},
 	);
+});
+
+describe("pickDoorShot - 平屋（issue-45。廊下という領域が無く、部屋どうしが戸でつながる）", () => {
+	const stage = readStageNotice(hirayaFixture.stage);
+	if (stage === null) throw new Error("平屋の見本が読めない");
+	const key = (a: Cell, b: Cell) => {
+		const [p, q] = a.x < b.x || (a.x === b.x && a.z <= b.z) ? [a, b] : [b, a];
+		return `${p.x},${p.z}|${q.x},${q.z}`;
+	};
+
+	it("和室C と東の廊下の襖、和室C の北東の隅の壁を選ぶ", () => {
+		const plan = pickDoorShot(stage);
+		if (plan === null) throw new Error("見つからない");
+		expect(plan.room).toBe("C");
+		expect(regionAt(stage, plan.c)).toBe(".");
+		expect(regionAt(stage, plan.w)).toBe(".");
+		expect(plan.r).toEqual({ x: 32, z: 21 });
+		expect(plan.w).toEqual({ x: 33, z: 21 });
+	});
+
+	it("条件: c・w は部屋の外、s・r は部屋の中。c-s は襖、w-r は壁。玄関から着ける", () => {
+		const plan = pickDoorShot(stage);
+		if (plan === null) throw new Error("見つからない");
+		const { c, s, r, w, room } = plan;
+		expect(regionAt(stage, c)).not.toBe(room);
+		expect(regionAt(stage, w)).not.toBe(room);
+		expect(regionAt(stage, s)).toBe(room);
+		expect(regionAt(stage, r)).toBe(room);
+		expect(isStep(c, s) && isStep(w, r)).toBe(true);
+		expect(stage.doors.get(key(c, s))).toBe("fusuma");
+		expect(stage.doors.has(key(w, r))).toBe(false);
+		const spawn = cellOf(stage, stage.spawn);
+		expect(findPath(stage, spawn, s, "open")).not.toBeNull();
+		expect(findPath(stage, spawn, r, "open")).not.toBeNull();
+		expect(findPath(stage, spawn, c, "closed")).not.toBeNull();
+		expect(findPath(stage, spawn, w, "closed")).not.toBeNull();
+	});
+
+	it("隠れ側の2人（r と s）は、被りの判定にかからない距離だけ離れている（0.3 m のマス）", () => {
+		const plan = pickDoorShot(stage);
+		if (plan === null) throw new Error("見つからない");
+		const d =
+			Math.hypot(plan.r.x - plan.s.x, plan.r.z - plan.s.z) * stage.cellSize;
+		expect(d).toBeGreaterThanOrEqual(MIN_GAP);
+	});
+
+	it("離す距離は、散らばり方（stage.ts）の MIN_GAP と同じ", () => {
+		expect(HIDER_GAP).toBe(MIN_GAP);
+	});
 });

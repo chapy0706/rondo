@@ -4,8 +4,9 @@
 	"private": true,
 	"type": "module",
 	"scripts": {
-		"e2e": "playwright test --grep-invert @result",
+		"e2e": "playwright test --grep-invert \"@result|@hiraya\"",
 		"e2e:result": "playwright test --grep @result",
+		"e2e:hiraya": "playwright test --config playwright.hiraya.config.ts",
 		"type-check": "tsc --noEmit"
 	},
 	"dependencies": {

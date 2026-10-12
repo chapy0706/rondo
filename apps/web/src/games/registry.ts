@@ -15,11 +15,13 @@ import { veryareManifest } from "./veryare/manifest";
  * 基盤の選択画面・ルーティング・ホストは registry を読むだけで、個々のゲームの中身を
  * 知らない。選択肢を増やしても基盤側のコードは変わらない。
  */
+// 並び順は、選択画面の並び順（仕様）。veryare と czz を先頭に置き、ほかはこれまでの順のまま
+// （registryOrder.test.ts で確かめる）。
 export const registry: readonly GameManifest[] = [
+	veryareManifest,
+	czzManifest,
 	tetrisManifest,
 	tiltMazeManifest,
-	czzManifest,
-	veryareManifest,
 	nikakuKeshiManifest,
 	minichessManifest,
 ];

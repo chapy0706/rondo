@@ -97,6 +97,104 @@ pub fn passable(grid: Grid, open: Set(Edge), a: Cell, b: Cell) -> Bool {
   }
 }
 
+/// 2点（メートル）の間に、遮るものが無いか（見通し / issue-45）。移動の規則と同じ判定で、
+/// 通れない境（壁・閉じた襖・いつも閉じている戸）が遮り、通れる境（同じ領域・開いた襖・
+/// いつも開いている戸）は通す。2点とも歩けるマスにあること。マスの角をちょうど通るときは、
+/// 両脇の道筋がどちらも通せるときだけ通す（sight.gleam と同じ、安全側の扱い）。
+pub fn line_clear(
+  grid: Grid,
+  open: Set(Edge),
+  from: #(Float, Float),
+  to: #(Float, Float),
+) -> Bool {
+  let start = cell_at(grid, from)
+  let goal = cell_at(grid, to)
+  let #(u0, v0) = to_units(grid, from)
+  let #(u1, v1) = to_units(grid, to)
+  let du = u1 -. u0
+  let dv = v1 -. v0
+  case walkable(grid, start) && walkable(grid, goal) {
+    False -> False
+    True ->
+      sight_walk(
+        grid,
+        open,
+        start,
+        goal,
+        #(sign(du), sign(dv)),
+        #(first_boundary(u0, du, start.x), first_boundary(v0, dv, start.z)),
+        #(delta(du), delta(dv)),
+        // 走査の上限（マスの数に対して十分大きい）。
+        { grid.width + grid.depth } * 2 + 4,
+      )
+  }
+}
+
+fn sight_walk(
+  grid: Grid,
+  open: Set(Edge),
+  cell: Cell,
+  goal: Cell,
+  steps: #(Int, Int),
+  t_max: #(Float, Float),
+  t_delta: #(Float, Float),
+  budget: Int,
+) -> Bool {
+  case cell == goal, budget <= 0 {
+    True, _ -> True
+    _, True -> False
+    False, False -> {
+      let epsilon = 0.000000001
+      let next_x = Cell(cell.x + steps.0, cell.z)
+      let next_z = Cell(cell.x, cell.z + steps.1)
+      case t_max.0 <. t_max.1 -. epsilon, t_max.1 <. t_max.0 -. epsilon {
+        True, _ ->
+          passable(grid, open, cell, next_x)
+          && sight_walk(
+            grid,
+            open,
+            next_x,
+            goal,
+            steps,
+            #(t_max.0 +. t_delta.0, t_max.1),
+            t_delta,
+            budget - 1,
+          )
+        _, True ->
+          passable(grid, open, cell, next_z)
+          && sight_walk(
+            grid,
+            open,
+            next_z,
+            goal,
+            steps,
+            #(t_max.0, t_max.1 +. t_delta.1),
+            t_delta,
+            budget - 1,
+          )
+        // 角をちょうど通る。両脇の道筋がどちらも通せるときだけ斜めに進む。
+        False, False -> {
+          let diagonal = Cell(cell.x + steps.0, cell.z + steps.1)
+          passable(grid, open, cell, next_x)
+          && passable(grid, open, next_x, diagonal)
+          && passable(grid, open, cell, next_z)
+          && passable(grid, open, next_z, diagonal)
+          && sight_walk(
+            grid,
+            open,
+            diagonal,
+            goal,
+            steps,
+            #(t_max.0 +. t_delta.0, t_max.1 +. t_delta.1),
+            t_delta,
+            budget - 1,
+          )
+        }
+      }
+    }
+  }
+}
+
 /// 点が入っているマス。
 pub fn cell_at(grid: Grid, point: #(Float, Float)) -> Cell {
   let #(u, v) = to_units(grid, point)

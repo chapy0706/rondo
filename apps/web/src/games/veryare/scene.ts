@@ -6,9 +6,10 @@
  * 同心円の鬼希望エリアを置く。エリアの色は赤（待機）/ 緑（開始）/ 青（鬼希望）。ステージは、ステージの通知から組む床・壁・襖の箱（stageBoxes.ts / issue-29c）。
  *
  * 平屋（issue-46）: 平屋の glb（屋内本体・屋外の飾り・屋根と天井）が待機ルームの間に読めていれば、
- * 箱の代わりに glb を、glb の座標のまま置く。箱は見えなくするだけで残し、ペイントのスポイト
- * （サーバーの判定と同じ代表色）の当たりに使う。屋根と天井は既定で隠す（TPS のカメラを遮るため）。
- * 襖は、開いていれば内側の板を外側の板に重ね、閉じていれば元の位置に戻す（hiraya.ts）。
+ * 箱の代わりに glb を、glb の座標のまま置く。箱は見えなくするだけで残し、鬼の狙いの壁と床の当たりに
+ * 使う。ペイントのスポイトと「ここの色」は、glb の見えている一番手前の面の見た目の色を拾う
+ * （surfaceColor.ts）。屋根と天井は既定で隠す（TPS のカメラを遮るため）。
+ * 襖は、開いていれば板を全部隠し、閉じていれば見せる（fusumaView.ts）。
  * いつも開いている片開き戸は、丁番で 90 度回して置く。読めなければ、箱の表示のまま（移動の規則は同じ）。
  * 平屋の床は地面より高い（畳 0.6 m など）。glb を表示している間は、体（自分・鬼・隠れ側・CPU）の
  * 足もとを、立っているマスの床の高さ（hiraya.ts の floorHeight）に合わせる。自分と鬼は、段差で
@@ -27,6 +28,7 @@
 import type { VeryarePaint } from "@rondo/contracts";
 import * as THREE from "three";
 import type { SwapSlot } from "../../infrastructure/assets";
+import { type BodyAt, type Vec3, hiderAt, rayHitsBody } from "./aim";
 import type { HirayaModel } from "./assetSlots";
 import { type AssetEvent, stageDisplayEvent } from "./assetTrace";
 import {
@@ -36,15 +38,29 @@ import {
 	paintedMaterial,
 	placeholderBodyKit,
 } from "./body";
-import { CAMERA_PITCH, CAMERA_WALL_MARGIN, cameraPose } from "./camera";
 import {
-	CAMERA_FULL_REACH,
-	cameraReach,
-	followCameraReach,
-	reachedPose,
-} from "./cameraRig";
+	CAMERA_PITCH,
+	type CameraSettings,
+	DEFAULT_CAMERA,
+	cameraPose,
+	selfBodyOpacity,
+} from "./camera";
+import {
+	CAMERA_FOV,
+	CAMERA_NEAR,
+	type FurnitureBox,
+	allowedCameraReach,
+	placeGuardedCamera,
+} from "./cameraGuard";
+import { cameraLogMessage, followCameraReach, fullReach } from "./cameraRig";
 import { followFloor } from "./feet";
-import { createFusumaView, panelsOf, worldCenter } from "./fusumaView";
+import { parseFurniture } from "./furniture";
+import {
+	createFusumaView,
+	originalName,
+	panelsOf,
+	worldCenter,
+} from "./fusumaView";
 import {
 	HINGED_SWING,
 	floorHeight,
@@ -62,8 +78,15 @@ import {
 	WAITING_ROOM_RADIUS,
 	areaLook,
 } from "./rules";
-import type { StageGrid } from "./stage";
+import { type StageGrid, cellAt } from "./stage";
 import { type StageBox, stageBoxes } from "./stageBoxes";
+import {
+	createTextureReader,
+	drawOnCanvas,
+	firstVisibleHit,
+	surfaceColor,
+} from "./surfaceColor";
+import type { TestableScene } from "./testHooks";
 
 /** テーマの色（globals.css のトークンと揃える）。 */
 const COLORS = {
@@ -83,7 +106,7 @@ const AREA_COLORS = {
 
 const WALL_HEIGHT = 1.2;
 
-export interface VeryareScene {
+export interface VeryareScene extends TestableScene {
 	/** 表示する空間を切り替える。もう一方のグループは描かない。 */
 	setSpace(space: Space): void;
 	/** ステージの地図と、開いている襖（edgeKey）。地図が null なら何も描かない（issue-29c）。 */
@@ -137,8 +160,23 @@ export interface VeryareScene {
 	 * 何にも当たらなければ null。
 	 */
 	pickPaint(x: number, y: number): PaintPick | null;
+	/**
+	 * ここの色（いまいる場所の色）。平屋の glb を表示しているときだけ、体の真下へ線を引き、見えている
+	 * 一番手前の面（足もとの床）の見た目の色を返す（マスごとに覚える）。表示していなければ null
+	 * （呼び出し側が、サーバーの代表色の表を使う）。
+	 */
+	floorColorAt(x: number, z: number): string | null;
 	/** 画面の中央（照準）に重なっている隠れ側の ID。重なっていなければ null（issue-27）。 */
 	pickHider(): string | null;
+	/**
+	 * 鬼の狙い（タップ）。画面の点（-1〜1）からカメラを通る線を引き、最初に当たったもの（隠れ側の体、
+	 * 壁、床）の位置と、それが体なら隠れ側の ID。何にも当たらなければ null。
+	 */
+	pickAim(x: number, y: number): { point: Vec3; hiderId: string | null } | null;
+	/** 狙う点（目印を出し、そこにいる隠れ側を光らせる）。null なら消す。 */
+	setAim(point: Vec3 | null): void;
+	/** 隠れ側の体の位置と足もと（狙う点から相手を決めるのに使う）。 */
+	hiderBodies(): (BodyAt & { readonly id: string })[];
 	resize(width: number, height: number): void;
 	render(): void;
 	dispose(): void;
@@ -172,9 +210,20 @@ export interface SceneOptions {
 	readonly bodies?: SwapSlot<BodyKit>;
 	/** 素材の流れの記録（差し替えた・ステージに入ったときの表示と理由 / 開発中だけ Console へ）。 */
 	readonly trace?: (event: AssetEvent) => void;
+	/** カメラの定数（開発中だけ URL で変えられる / camera.ts の cameraSettings）。無ければ既定。 */
+	readonly camera?: CameraSettings;
+	/** 開発中だけ渡す。カメラの高さの1行（cameraLogMessage）を、CAMERA_LOG_SECONDS ごとに受け取る。 */
+	readonly cameraLog?: (message: string) => void;
 }
 
 const ONI_COLOR = 0xef4444;
+/** 狙う点にいる隠れ側の光り方（黄色の発光）と、目印の色。 */
+const AIM_COLOR = 0xf5b841;
+const AIM_GLOW = 0.6;
+/** ここの色を求めるとき、線を引き始める高さ（足もとから。メートル）。 */
+const FLOOR_PROBE_HEIGHT = 0.5;
+/** 開発中に、カメラの高さを Console に出す間隔（秒）。 */
+const CAMERA_LOG_SECONDS = 1;
 /** 答え合わせの点滅の色（赤い発光）。 */
 const BLINK_COLOR = 0xff1a1a;
 
@@ -282,14 +331,14 @@ function openHingedDoors(root: THREE.Object3D, pivots: THREE.Object3D): void {
 	root.updateMatrixWorld(true);
 	const axes: THREE.Object3D[] = [];
 	root.traverse((node) => {
-		if (isHingedAxis(node.name)) axes.push(node);
+		if (isHingedAxis(originalName(node))) axes.push(node);
 	});
 	for (const axis of axes) {
 		const [panel] = panelsOf(axis);
 		if (panel === undefined) continue;
 		const hinges: THREE.Object3D[] = [];
 		panel.traverse((node) => {
-			if (node.name.includes("本体丁番")) hinges.push(node);
+			if (originalName(node).includes("本体丁番")) hinges.push(node);
 		});
 		const [hinge] = hinges;
 		if (hinge === undefined) continue;
@@ -303,7 +352,7 @@ function openHingedDoors(root: THREE.Object3D, pivots: THREE.Object3D): void {
 		pivot.rotation.y = swingAngle(
 			{ x: hingeAt.x, z: hingeAt.z },
 			{ x: center.x, z: center.z },
-			HINGED_SWING[axis.name] ?? 1,
+			HINGED_SWING[originalName(axis)] ?? 1,
 		);
 	}
 }
@@ -376,12 +425,45 @@ export function createScene(
 	// ほかの人の画面の鬼（通知の間を補間した位置）と、鬼本人の画面の自分の体。
 	const oni = oniFigure();
 	const selfOni = oniFigure();
+	/** 自分の体（ふつうの体と、鬼本人の体）の材質。半透明にするときに使う。 */
+	const selfMaterials = (): THREE.Material[] => {
+		const list: THREE.Material[] = [avatarMaterial];
+		selfOni.traverse((node) => {
+			if (node instanceof THREE.Mesh)
+				list.push(node.material as THREE.Material);
+		});
+		return list;
+	};
 
 	const hiderGroup = new THREE.Group();
 	scene.add(hiderGroup);
+	// 狙う点の目印（小さな球）と、狙う点。
+	const aimMarker = new THREE.Mesh(
+		new THREE.SphereGeometry(0.06, 12, 8),
+		new THREE.MeshBasicMaterial({ color: AIM_COLOR }),
+	);
+	aimMarker.visible = false;
+	scene.add(aimMarker);
+	let aimPoint: Vec3 | null = null;
+	/** 隠れ側の体（メッシュの中心は足もとから 0.5 m 上）。 */
+	const bodiesOf = (): (BodyAt & { readonly id: string })[] =>
+		hiderGroup.children.flatMap((child) => {
+			const id: unknown = child.userData.playerId;
+			return typeof id === "string"
+				? [
+						{
+							id,
+							x: child.position.x,
+							z: child.position.z,
+							feet: child.position.y - 0.5,
+						},
+					]
+				: [];
+		});
 	let hiderKey = "";
 
-	const camera = new THREE.PerspectiveCamera(60, 1, 0.05, 100);
+	// ニアクリップは小さくし、壁の余白をそれより大きくする（壁際で壁の中が映らない / cameraGuard.ts）。
+	const camera = new THREE.PerspectiveCamera(CAMERA_FOV, 1, CAMERA_NEAR, 100);
 	let yaw = 0;
 	let pitch = CAMERA_PITCH;
 	let view: View = "self";
@@ -395,7 +477,10 @@ export function createScene(
 
 	/** カメラを領域の中に収めるか（ADR 0043）と、いまの水平の距離（なめらかに寄せる）。 */
 	let cameraClamp = false;
-	let cameraReachNow = CAMERA_FULL_REACH;
+	const cameraSet = options.camera ?? DEFAULT_CAMERA;
+	/** 開けた所での、カメラの水平の距離（設定の距離と角度から）。 */
+	const cameraFull = fullReach(cameraSet);
+	let cameraReachNow = cameraFull;
 	/** 前の描画のカメラの中心（替わったら、寄せずに合わせる）。 */
 	let cameraCenterKind: "self" | "oni" | null = null;
 
@@ -414,10 +499,46 @@ export function createScene(
 		const center = cameraCenter();
 		const pose =
 			cameraClamp && stageGrid !== null
-				? reachedPose(center, yaw, cameraReachNow)
-				: cameraPose(center, yaw, pitch);
+				? placeGuardedCamera(
+						stageGrid,
+						center,
+						yaw,
+						cameraReachNow,
+						furnitureNow(),
+						cameraSet,
+					)
+				: cameraPose(center, yaw, pitch, cameraSet.distance);
 		camera.position.set(pose.position.x, pose.position.y, pose.position.z);
 		camera.lookAt(pose.target.x, pose.target.y, pose.target.z);
+		return { center, pose };
+	};
+
+	/** 開発中だけ、カメラの高さを Console に出す（描画のたびではなく、CAMERA_LOG_SECONDS ごと）。 */
+	let cameraLogAt = Number.NEGATIVE_INFINITY;
+	const logCamera = (
+		now: number,
+		placed: ReturnType<typeof placeCamera>,
+	): void => {
+		const log = options.cameraLog;
+		if (log === undefined || now - cameraLogAt < CAMERA_LOG_SECONDS * 1000)
+			return;
+		cameraLogAt = now;
+		const { center, pose } = placed;
+		const horizontal = Math.hypot(
+			pose.target.x - pose.position.x,
+			pose.target.z - pose.position.z,
+		);
+		log(
+			cameraLogMessage({
+				feet: center.feet,
+				cameraY: pose.position.y,
+				reach: Math.hypot(
+					pose.position.x - center.x,
+					pose.position.z - center.z,
+				),
+				lookDown: Math.atan2(pose.position.y - pose.target.y, horizontal),
+			}),
+		);
 	};
 
 	/** カメラの水平の距離を、体の領域に収まる距離へ寄せる（縮むときは即座）。描画のたびに呼ぶ。 */
@@ -426,25 +547,26 @@ export function createScene(
 		const switched = center.kind !== cameraCenterKind;
 		cameraCenterKind = center.kind;
 		if (!cameraClamp || stageGrid === null) {
-			cameraReachNow = CAMERA_FULL_REACH;
+			cameraReachNow = cameraFull;
 			return;
 		}
-		const want = {
-			x: center.x + Math.sin(yaw) * CAMERA_FULL_REACH,
-			z: center.z + Math.cos(yaw) * CAMERA_FULL_REACH,
-		};
-		const allowed = Math.max(
-			0,
-			Math.min(
-				CAMERA_FULL_REACH,
-				cameraReach(stageGrid, center, want) * CAMERA_FULL_REACH -
-					CAMERA_WALL_MARGIN,
-			),
+		// 地図の守り（領域の境）と、家具の守り（平屋の glb を表示しているときだけ）の、小さいほう。
+		const allowed = allowedCameraReach(
+			stageGrid,
+			center,
+			yaw,
+			furnitureNow(),
+			cameraSet,
 		);
 		cameraReachNow =
 			snap || switched
 				? allowed
-				: followCameraReach(cameraReachNow, allowed, dt);
+				: followCameraReach(
+						cameraReachNow,
+						allowed,
+						dt,
+						cameraSet.settleSeconds,
+					);
 	};
 
 	let stageGrid: StageGrid | null = null;
@@ -460,6 +582,16 @@ export function createScene(
 	const fusumaView = createFusumaView();
 	let roofVisible = false;
 
+	/** 家具の箱（家具の glb から読む / furniture.ts）。読めなければ空（地図の守りだけ）。 */
+	let furniture: readonly FurnitureBox[] = [];
+	/** カメラの守りに使う家具の箱。平屋の glb を表示しているときだけ（箱の表示に家具は無い）。 */
+	const furnitureNow = (): readonly FurnitureBox[] =>
+		modelShown() ? furniture : [];
+	/** テクスチャの画素（スポイトで読む。テクスチャごとに1回だけ描く / surfaceColor.ts）。 */
+	const readTexture = createTextureReader(drawOnCanvas);
+	/** ここの色（マスの鍵 → 足もとの床の見た目の色）。glb を差し替えたら捨てる。 */
+	const floorColors = new Map<string, string | null>();
+
 	/** glb を表示するか（差し替え済みで、地図が平屋のとき）。 */
 	const modelShown = () =>
 		model !== null && stageGrid !== null && isHirayaStage(stageGrid);
@@ -472,7 +604,7 @@ export function createScene(
 	const showStage = () => {
 		const shown = modelShown();
 		modelGroup.visible = shown;
-		// 箱は、glb を表示している間も見えなくするだけで残す（スポイトの当たりに使う）。
+		// 箱は、glb を表示している間も見えなくするだけで残す（鬼の狙いの壁と床の当たりに使う）。
 		boxGroup.visible = !shown;
 		if (model?.roof != null) model.roof.visible = roofVisible;
 	};
@@ -480,6 +612,11 @@ export function createScene(
 	/** 平屋の glb を、glb の座標のまま置く（差し替えは1回だけ）。 */
 	const attachModel = (next: HirayaModel) => {
 		model = next;
+		floorColors.clear();
+		const boxes =
+			next.furniture === null ? null : parseFurniture(next.furniture.userData);
+		furniture = boxes ?? [];
+		options.trace?.({ kind: "furniture", boxes: boxes?.length ?? null });
 		modelGroup.add(next.indoor);
 		if (next.outdoor !== null) modelGroup.add(next.outdoor);
 		if (next.roof !== null) modelGroup.add(next.roof);
@@ -640,13 +777,20 @@ export function createScene(
 			};
 			glow(avatarMaterial, self);
 			const targets = new Set(ids);
+			// 狙う点にいる隠れ側は、黄色く光らせる（答え合わせの点滅が優先）。
+			const aimed = aimPoint === null ? null : hiderAt(aimPoint, bodiesOf());
 			for (const child of hiderGroup.children) {
 				if (!(child instanceof THREE.Mesh)) continue;
 				const id: unknown = child.userData.playerId;
-				glow(
-					child.material as THREE.MeshStandardMaterial,
-					typeof id === "string" && targets.has(id),
-				);
+				const material = child.material as THREE.MeshStandardMaterial;
+				if (typeof id === "string" && targets.has(id)) {
+					glow(material, true);
+				} else if (id === aimed) {
+					material.emissive.setHex(AIM_COLOR);
+					material.emissiveIntensity = AIM_GLOW;
+				} else {
+					glow(material, false);
+				}
 			}
 		},
 		pickPaint(x, y) {
@@ -664,13 +808,70 @@ export function createScene(
 			// 体に当たれば、体を先にする（カメラが壁の裏に回っても、自分の体には描ける。
 			// カメラの壁へのめり込みは許容している / ADR 0034）。
 			if (body !== null) return { kind: "body", u: body.u, v: body.v };
-			// ステージの箱（スポイト）。箱の色は、描画の色ではなく、表の色（userData.color）。
-			// 平屋の glb を表示している間も、見えない箱に当てて代表色を拾う（issue-46）。
+			// 平屋の glb を表示している間は、見えている一番手前の面の見た目の色（素材の色とテクスチャ）。
+			// 屋根・天井（隠れているとき）・見えない箱・ガラス・体の描画は拾わない（surfaceColor.ts）。
+			if (modelShown() && spaces.stage.visible) {
+				modelGroup.updateMatrixWorld(true);
+				const hit = firstVisibleHit(
+					raycaster.intersectObjects(modelGroup.children, true),
+				);
+				const color = hit === null ? null : surfaceColor(hit, readTexture);
+				return color === null ? null : { kind: "stage", color };
+			}
+			// 箱の表示（素材が読めない）のときは、これまでどおり箱の色。箱の色は、描画の色ではなく、
+			// 表の色（userData.color）。
 			const [stageHit] = spaces.stage.visible
 				? raycaster.intersectObjects(boxGroup.children, false)
 				: [];
 			const color: unknown = stageHit?.object.userData.color;
 			return typeof color === "string" ? { kind: "stage", color } : null;
+		},
+		modelShown: () => modelShown(),
+		cameraPosition: () => ({
+			x: camera.position.x,
+			y: camera.position.y,
+			z: camera.position.z,
+		}),
+		guardedCameraAt(x, z, yaw) {
+			if (stageGrid === null) return null;
+			const center = { x, z, feet: floorAt(x, z) };
+			const reach = allowedCameraReach(
+				stageGrid,
+				center,
+				yaw,
+				furnitureNow(),
+				cameraSet,
+			);
+			const pose = placeGuardedCamera(
+				stageGrid,
+				center,
+				yaw,
+				reach,
+				furnitureNow(),
+				cameraSet,
+			);
+			return { position: pose.position, feet: center.feet };
+		},
+		modelRoot: () => (modelShown() ? modelGroup : null),
+		furnitureBoxes: () => furnitureNow(),
+		floorColorAt(x, z) {
+			if (!modelShown() || stageGrid === null) return null;
+			const cell = cellAt(stageGrid, { x, z });
+			const key = `${cell.x},${cell.z}`;
+			const cached = floorColors.get(key);
+			if (cached !== undefined) return cached;
+			// 体の真下へ（足もとの少し上から）線を引く。体は modelGroup に無いので当たらない。
+			modelGroup.updateMatrixWorld(true);
+			const raycaster = new THREE.Raycaster(
+				new THREE.Vector3(x, floorAt(x, z) + FLOOR_PROBE_HEIGHT, z),
+				new THREE.Vector3(0, -1, 0),
+			);
+			const hit = firstVisibleHit(
+				raycaster.intersectObjects(modelGroup.children, true),
+			);
+			const color = hit === null ? null : surfaceColor(hit, readTexture);
+			floorColors.set(key, color);
+			return color;
 		},
 		pickHider() {
 			// 照準は画面の中央。鬼自身の体は当てる対象に入れず、隠れ側だけを見る。
@@ -681,6 +882,41 @@ export function createScene(
 			const [hit] = raycaster.intersectObjects(hiderGroup.children, false);
 			const id: unknown = hit?.object.userData.playerId;
 			return typeof id === "string" ? id : null;
+		},
+		pickAim(x, y) {
+			placeCamera();
+			camera.updateMatrixWorld();
+			const raycaster = new THREE.Raycaster();
+			raycaster.setFromCamera(new THREE.Vector2(x, y), camera);
+			const { origin, direction } = raycaster.ray;
+			let best: { t: number; id: string | null } | null = null;
+			for (const body of bodiesOf()) {
+				const t = rayHitsBody(origin, direction, body);
+				if (t !== null && (best === null || t < best.t)) {
+					best = { t, id: body.id };
+				}
+			}
+			// 壁と床は、見えない箱も含めて当てる（平屋の glb を表示している間も、判定の壁と同じ）。
+			const [wall] = spaces.stage.visible
+				? raycaster.intersectObjects(boxGroup.children, false)
+				: [];
+			if (wall !== undefined && (best === null || wall.distance < best.t)) {
+				best = { t: wall.distance, id: null };
+			}
+			if (best === null) return null;
+			const point = origin.clone().addScaledVector(direction, best.t);
+			return {
+				point: { x: point.x, y: point.y, z: point.z },
+				hiderId: best.id,
+			};
+		},
+		setAim(point) {
+			aimPoint = point;
+			aimMarker.visible = point !== null;
+			if (point !== null) aimMarker.position.set(point.x, point.y, point.z);
+		},
+		hiderBodies() {
+			return bodiesOf();
 		},
 		resize(width, height) {
 			renderer.setSize(width, height, false);
@@ -713,7 +949,18 @@ export function createScene(
 				child.position.y = 0.5 + floorAt(child.position.x, child.position.z);
 			}
 			updateCameraReach(dt, jumped);
-			placeCamera();
+			// カメラが自分の体に近いほど、自分の体を半透明にする（体の中を映さないように / issue-46）。
+			const opacity =
+				cameraCenter().kind === "self" ? selfBodyOpacity(cameraReachNow) : 1;
+			for (const material of selfMaterials()) {
+				const transparent = opacity < 1;
+				if (material.transparent !== transparent) {
+					material.transparent = transparent;
+					material.needsUpdate = true;
+				}
+				material.opacity = opacity;
+			}
+			logCamera(performance.now(), placeCamera());
 			renderer.render(scene, camera);
 		},
 		dispose() {

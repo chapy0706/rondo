@@ -44,6 +44,11 @@ export class VirtualPadSource implements InputPort {
 		});
 	}
 
+	/** 向きをそのまま設定する（パッドの状態の計算 pad-state.ts の結果を流し込む）。 */
+	set(direction: Direction): void {
+		this.#update({ x: clampUnit(direction.x), y: clampUnit(direction.y) });
+	}
+
 	/** 入力を中立に戻す（指を離したとき）。 */
 	release(): void {
 		this.#update(NEUTRAL);

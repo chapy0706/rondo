@@ -5,7 +5,8 @@
  * カメラは体のいる領域の外に出ない（cameraRig.ts）が、高ければ、壁の上端や、襖の上の欄間（透かし）
  * 越しに、向こうの部屋が見える。カメラの最高点（その領域の床の最大 ＋ 足もとからのカメラの最大の
  * 高さ）が、遮るもの（壁の上端、閉じた襖の板の上端、欄間の下端）より低ければ、そこからの視線は
- * 上向きにしか越えられず、向こうの床の上にいる隠れ側は見えない。
+ * 上向きにしか越えられず、向こうの床の上にいる隠れ側は見えない。カメラは、天井（天井の無い縁側は、
+ * 屋根の軒）の下面よりも低くなければならない。
  */
 
 import { CAMERA_FULL_REACH, reachedPose } from "./cameraRig";
@@ -21,26 +22,107 @@ export interface Obstacles {
 	readonly fusumaTop: number | null;
 	/** 接する欄間（透かし）の下端の最小。 */
 	readonly ranmaBottom: number | null;
+	/** 天井の下面の最小（天井の無い縁側は、屋根の軒の下面）。測っていなければ null。 */
+	readonly ceiling: number | null;
 }
 
 /**
  * 平屋の領域ごとの遮るもの。tools/wall_heights.mjs の REGION の行を書き写したもの（手では決めない）。
- * 壁は内壁・床の間の壁が 3.3 m、外壁が 3.5 m で、途中が低くなっている所は無かった。
+ * 壁は内壁・床の間の壁が 3.3 m、外壁が 3.5 m で、途中が低くなっている所は無かった。天井の下面は
+ * どの部屋も 3.3 m。縁側には天井が無く、屋根の軒の下面（3.162 m）を使う。
  */
 export const HIRAYA_OBSTACLES: Readonly<Record<string, Obstacles>> = {
-	".": { floorMax: 0.6, wallTop: 3.3, fusumaTop: 2.685, ranmaBottom: 2.801 }, // 東の廊下
-	":": { floorMax: 0.6, wallTop: 3.3, fusumaTop: 2.685, ranmaBottom: 2.801 }, // 広縁
-	"=": { floorMax: 0.55, wallTop: 3.5, fusumaTop: null, ranmaBottom: null }, // 縁側
-	"@": { floorMax: 0.6, wallTop: 3.3, fusumaTop: null, ranmaBottom: null }, // 玄関
-	A: { floorMax: 0.6, wallTop: 3.3, fusumaTop: 2.685, ranmaBottom: 2.801 }, // 和室A
-	B: { floorMax: 0.72, wallTop: 3.3, fusumaTop: 2.685, ranmaBottom: 2.801 }, // 和室B（床の間）
-	C: { floorMax: 0.6, wallTop: 3.3, fusumaTop: 2.685, ranmaBottom: 2.801 }, // 和室C
-	D: { floorMax: 0.6, wallTop: 3.3, fusumaTop: 2.685, ranmaBottom: 2.801 }, // ダイニング
-	F: { floorMax: 0.6, wallTop: 3.3, fusumaTop: null, ranmaBottom: null }, // 風呂
-	K: { floorMax: 0.6, wallTop: 3.3, fusumaTop: null, ranmaBottom: null }, // キッチン
-	T: { floorMax: 0.8, wallTop: 3.3, fusumaTop: null, ranmaBottom: null }, // トイレ（段）
-	W: { floorMax: 0.6, wallTop: 3.3, fusumaTop: null, ranmaBottom: null }, // 洗面所
-	o: { floorMax: 0.6, wallTop: 3.3, fusumaTop: 3.085, ranmaBottom: null }, // 押入れ
+	".": {
+		floorMax: 0.6,
+		wallTop: 3.3,
+		fusumaTop: 2.685,
+		ranmaBottom: 2.801,
+		ceiling: 3.3,
+	}, // 東の廊下
+	":": {
+		floorMax: 0.6,
+		wallTop: 3.3,
+		fusumaTop: 2.685,
+		ranmaBottom: 2.801,
+		ceiling: 3.3,
+	}, // 広縁
+	"=": {
+		floorMax: 0.55,
+		wallTop: 3.5,
+		fusumaTop: null,
+		ranmaBottom: null,
+		ceiling: 3.162,
+	}, // 縁側
+	"@": {
+		floorMax: 0.6,
+		wallTop: 3.3,
+		fusumaTop: null,
+		ranmaBottom: null,
+		ceiling: 3.3,
+	}, // 玄関
+	A: {
+		floorMax: 0.6,
+		wallTop: 3.3,
+		fusumaTop: 2.685,
+		ranmaBottom: 2.801,
+		ceiling: 3.3,
+	}, // 和室A
+	B: {
+		floorMax: 0.72,
+		wallTop: 3.3,
+		fusumaTop: 2.685,
+		ranmaBottom: 2.801,
+		ceiling: 3.3,
+	}, // 和室B（床の間）
+	C: {
+		floorMax: 0.6,
+		wallTop: 3.3,
+		fusumaTop: 2.685,
+		ranmaBottom: 2.801,
+		ceiling: 3.3,
+	}, // 和室C
+	D: {
+		floorMax: 0.6,
+		wallTop: 3.3,
+		fusumaTop: 2.685,
+		ranmaBottom: 2.801,
+		ceiling: 3.3,
+	}, // ダイニング
+	F: {
+		floorMax: 0.6,
+		wallTop: 3.3,
+		fusumaTop: null,
+		ranmaBottom: null,
+		ceiling: 3.3,
+	}, // 風呂
+	K: {
+		floorMax: 0.6,
+		wallTop: 3.3,
+		fusumaTop: null,
+		ranmaBottom: null,
+		ceiling: 3.3,
+	}, // キッチン
+	T: {
+		floorMax: 0.8,
+		wallTop: 3.3,
+		fusumaTop: null,
+		ranmaBottom: null,
+		ceiling: 3.3,
+	}, // トイレ（段）
+	W: {
+		floorMax: 0.6,
+		wallTop: 3.3,
+		fusumaTop: null,
+		ranmaBottom: null,
+		ceiling: 3.3,
+	}, // 洗面所
+	o: {
+		floorMax: 0.6,
+		wallTop: 3.3,
+		fusumaTop: 3.085,
+		ranmaBottom: null,
+		ceiling: 3.3,
+	}, // 押入れ
 };
 
 /**
@@ -52,6 +134,8 @@ export const BOX_OBSTACLES: Obstacles = {
 	wallTop: WALL_HEIGHT,
 	fusumaTop: null,
 	ranmaBottom: null,
+	// 箱の表示には天井が無い（壁の上は空いているが、カメラは壁より低いので、壁の上端で足りる）。
+	ceiling: null,
 };
 
 /** 領域の中に収めたカメラの、足もとからの最大の高さ（reachedPose を細かく区切って求める）。 */
@@ -69,18 +153,19 @@ export function cameraTopAboveFeet(steps = 2000): number {
 }
 
 export interface PeekRisk {
-	readonly kind: "wall" | "fusuma" | "ranma";
+	readonly kind: "wall" | "fusuma" | "ranma" | "ceiling";
 	/** カメラの最高点が、遮るものを越える量（メートル）。 */
 	readonly over: number;
 }
 
-/** カメラの最高点（床の最大 ＋ cameraTop）が、遮るものに届く・越えるもの（壁・襖・欄間の順）。 */
+/** カメラの最高点（床の最大 ＋ cameraTop）が、遮るものに届く・越えるもの（壁・襖・欄間・天井の順）。 */
 export function peekRisks(obstacles: Obstacles, cameraTop: number): PeekRisk[] {
 	const camera = obstacles.floorMax + cameraTop;
 	const limits: [PeekRisk["kind"], number | null][] = [
 		["wall", obstacles.wallTop],
 		["fusuma", obstacles.fusumaTop],
 		["ranma", obstacles.ranmaBottom],
+		["ceiling", obstacles.ceiling],
 	];
 	return limits
 		.filter((entry): entry is [PeekRisk["kind"], number] => entry[1] !== null)
@@ -94,6 +179,7 @@ export function clearance(obstacles: Obstacles, cameraTop: number): number {
 		obstacles.wallTop,
 		obstacles.fusumaTop ?? Number.POSITIVE_INFINITY,
 		obstacles.ranmaBottom ?? Number.POSITIVE_INFINITY,
+		obstacles.ceiling ?? Number.POSITIVE_INFINITY,
 	);
 	return lowest - (obstacles.floorMax + cameraTop);
 }

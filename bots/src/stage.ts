@@ -29,7 +29,7 @@ export interface StageMap {
 }
 
 /** 互いの距離の下限（メートル）。被り判定の直径 0.6 m に余裕を足す。 */
-const MIN_GAP = 0.8;
+export const MIN_GAP = 0.8;
 
 const KINDS = new Set(["fusuma", "always-open", "always-closed"]);
 

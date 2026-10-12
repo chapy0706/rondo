@@ -9,7 +9,8 @@
 /// 座標は glb の座標（x, z、メートル）をそのまま使う。列 c のマスは x = −6.225 + 0.3c 〜 +0.3、
 /// 行 r のマスは z = −0.275 + 0.3r 〜 +0.3。
 ///
-/// 見通しと CPU は、issue-45 まで平屋では使わない（ルームの設定で CPU を拒み、射撃は当てない）。
+/// 射撃の見通しは、移動の規則と同じ辺で判定する（grid.line_clear / issue-45）。CPU は、issue-45 の
+/// 残り（CPU の一般化）まで平屋では使わない（ルームの設定で CPU を拒む）。
 import gleam/dict
 import gleam/dynamic.{type Dynamic}
 import gleam/int

@@ -8,11 +8,21 @@
  *   - c: 部屋の襖の、廊下側のマス / s: 同じ襖の、部屋側のマス
  *   - r: 同じ部屋の、s とは別のマスで、廊下と壁で接しているマス / w: その壁の向こうの廊下のマス
  *   w から r へ撃つと、壁の境だけを越える。c から s へ撃つと、襖の境だけを越える
- *   （どちらも 1 m 先で、射程の内側）。隠れ側は襖が開いている準備移動の間に s・r へ、鬼は
+ *   （どちらも 1マス先で、射程の内側）。隠れ側は襖が開いている準備移動の間に s・r へ、鬼は
  *   襖が閉じた探索の間に c・w へ、玄関から着けること
+ * - 「廊下側」は、部屋と別の領域のマス（骨格では "open"、平屋では東の廊下など / issue-45）。
+ *   襖が閉じていても玄関から着けることを条件にするので、骨格では廊下だけが残る
+ * - r と s は、準備移動の終わりの被りの判定にかからないよう HIDER_GAP 以上離す（平屋は 0.3 m の
+ *   マスなので、隣り合うマスでは近すぎる。骨格は 1 m のマスなので、いつも満たす）
  */
 
 import type { Point, StageMap } from "./stage.ts";
+
+/**
+ * 隠れ側の2人（r と s）を離す距離（メートル）。stage.ts の MIN_GAP と同じ値（plan.test.ts で
+ * 確かめる）。e2e から型だけで読まれるので、stage.ts から値を読まずに持つ。
+ */
+export const HIDER_GAP = 0.8;
 
 export interface Cell {
 	readonly x: number;
@@ -142,15 +152,18 @@ export function pickDoorShot(stage: StageMap): DoorShotPlan | null {
 			}) as [Cell, Cell];
 			const s = regionAt(stage, a) === room ? a : b;
 			const c = s === a ? b : a;
-			if (regionAt(stage, s) !== room || regionAt(stage, c) !== "open")
+			const outside = regionAt(stage, c);
+			if (regionAt(stage, s) !== room || outside === null || outside === room)
 				continue;
 			if (findPath(stage, spawn, c, "closed") === null) continue;
 			if (findPath(stage, spawn, s, "open") === null) continue;
 			for (const r of roomCells) {
-				if (r.x === s.x && r.z === s.z) continue;
+				if (Math.hypot(r.x - s.x, r.z - s.z) * stage.cellSize < HIDER_GAP)
+					continue;
 				for (const d of NEIGHBORS) {
 					const w = { x: r.x + d.x, z: r.z + d.z };
-					if (regionAt(stage, w) !== "open") continue;
+					const beyond = regionAt(stage, w);
+					if (beyond === null || beyond === room) continue;
 					if (stage.doors.has(edgeKey(w, r))) continue;
 					if (findPath(stage, spawn, w, "closed") === null) continue;
 					if (findPath(stage, spawn, r, "open") === null) continue;

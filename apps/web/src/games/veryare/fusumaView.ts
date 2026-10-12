@@ -27,9 +27,18 @@ interface FusumaNode {
 export const worldCenter = (object: THREE.Object3D): THREE.Vector3 =>
 	new THREE.Box3().setFromObject(object).getCenter(new THREE.Vector3());
 
+/**
+ * glb のノードの元の名前。three の GLTFLoader は、name の空白を _ にし、[ ] . : / を取り除く
+ * （PropertyBinding.sanitizeNodeName）。元の名前は userData.name に残るので、そちらを使う。
+ */
+export const originalName = (node: THREE.Object3D): string => {
+	const name: unknown = node.userData.name;
+	return typeof name === "string" ? name : node.name;
+};
+
 /** 操作軸の直下の板（名前に「本体」を含む子。枠は含めない）。 */
 export const panelsOf = (axis: THREE.Object3D): THREE.Object3D[] =>
-	axis.children.filter((child) => child.name.includes("本体"));
+	axis.children.filter((child) => originalName(child).includes("本体"));
 
 /**
  * 平屋の glb の襖を集める。開口（中心・幅・向き）は操作軸の外接箱、隠す板は操作軸の直下の「本体」。
@@ -38,7 +47,7 @@ function collectFusuma(root: THREE.Object3D): FusumaNode[] {
 	root.updateMatrixWorld(true);
 	const axes: THREE.Object3D[] = [];
 	root.traverse((node) => {
-		if (isFusumaAxis(node.name)) axes.push(node);
+		if (isFusumaAxis(originalName(node))) axes.push(node);
 	});
 	return axes.map((axis) => {
 		const size = new THREE.Box3()
@@ -47,7 +56,7 @@ function collectFusuma(root: THREE.Object3D): FusumaNode[] {
 		const center = worldCenter(axis);
 		const along: "x" | "z" = size.x >= size.z ? "x" : "z";
 		const opening: Opening = {
-			name: axis.name,
+			name: originalName(axis),
 			axis: along,
 			x: center.x,
 			z: center.z,

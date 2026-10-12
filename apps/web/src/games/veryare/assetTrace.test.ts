@@ -78,6 +78,12 @@ describe("traceMessage - 出す文言", () => {
 		expect(traceMessage({ kind: "fusuma", nodes: 10, edges: 108 })).toContain(
 			"10 組を見つけ、襖の辺 108 本",
 		);
+		expect(traceMessage({ kind: "furniture", boxes: 120 })).toBe(
+			"家具の箱: 120 個（カメラの守りに使う）",
+		);
+		expect(traceMessage({ kind: "furniture", boxes: null })).toBe(
+			"家具の箱: 読めない（地図の守りだけ）",
+		);
 		expect(
 			traceMessage({ kind: "stage", display: "boxes", reason: "not-hiraya" }),
 		).toContain("平屋の通知ではない");

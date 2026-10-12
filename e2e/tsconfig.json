@@ -10,5 +10,9 @@
 		"types": ["node"],
 		"noEmit": true
 	},
-	"include": ["playwright.config.ts", "tests/**/*.ts"]
+	"include": [
+		"playwright.config.ts",
+		"playwright.hiraya.config.ts",
+		"tests/**/*.ts"
+	]
 }

@@ -2,7 +2,7 @@
  * 素材の流れを Console に出す（開発中だけ / issue-46 の調べ）。
  *
  * 平屋の glb が使われないとき、どこで止まったかを見えるようにする。先読みを始めたか（始めなかった
- * 理由）、manifest の取得の結果、3本の読み込みの結果、差し替え口の作り方、差し替えたか、ステージに
+ * 理由）、manifest の取得の結果、4本の読み込みの結果、差し替え口の作り方、差し替えたか、ステージに
  * 入ったときに箱のままだった理由を、1行ずつ出す。
  *
  * 出すのは、開発用の変数（NEXT_PUBLIC_VERYARE_HIRAYA=1）があるときか、URL に ?roof=1 があるときだけ。
@@ -33,6 +33,7 @@ export type AssetEvent =
 			readonly nodes: number;
 			readonly edges: number;
 	  }
+	| { readonly kind: "furniture"; readonly boxes: number | null }
 	| { readonly kind: "stage"; readonly display: "model" }
 	| {
 			readonly kind: "stage";
@@ -82,6 +83,10 @@ export function traceMessage(event: AssetEvent): string {
 			return "待機ルーム: 平屋の glb に差し替えた";
 		case "fusuma":
 			return `襖: 操作軸 ${event.nodes} 組を見つけ、襖の辺 ${event.edges} 本に対応づけた（平屋は 10 組・108 本）`;
+		case "furniture":
+			return event.boxes === null
+				? "家具の箱: 読めない（地図の守りだけ）"
+				: `家具の箱: ${event.boxes} 個（カメラの守りに使う）`;
 		case "stage":
 			return event.display === "model"
 				? "ステージ: 平屋の glb で表示している"
@@ -100,7 +105,7 @@ export function createTracer(
 }
 
 /**
- * 3本の読み込みの結果から、manifest の取得の結果を出す。どれかが読めたか、manifest より後の理由
+ * 平屋の読み込みの結果（4本）から、manifest の取得の結果を出す。どれかが読めたか、manifest より後の理由
  * （manifest に無い・404・壊れた glb など）で失敗していれば、manifest は取得できている。
  */
 export function manifestStatus(

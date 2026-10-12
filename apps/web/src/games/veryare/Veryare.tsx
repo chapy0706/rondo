@@ -35,12 +35,25 @@ import {
 	useState,
 } from "react";
 import { type BrushName, type Hsl, PaintPanel } from "./PaintPanel";
+import {
+	type Vec3,
+	createTapTracker,
+	shotMessage,
+	shotTarget,
+	toNdc,
+} from "./aim";
 import { gameAssets } from "./assetSlots";
-import { devTrace } from "./assetTrace";
-import { CAMERA_PITCH } from "./camera";
+import { devTrace, traceEnabled } from "./assetTrace";
+import { cameraSettings } from "./camera";
 import { isHirayaStage } from "./hiraya";
 import { HIRAYA_DEV, roofToggleAllowed, veryareManifest } from "./manifest";
-import { WALK_SPEED, blinkLevel, blinkTargets, shouldReport } from "./motion";
+import {
+	PAD_DEAD_ZONE,
+	WALK_SPEED,
+	blinkLevel,
+	blinkTargets,
+	shouldReport,
+} from "./motion";
 import {
 	type OniSample,
 	pushOniSample,
@@ -94,6 +107,12 @@ import {
 } from "./rules";
 import type { SceneHider, VeryareScene } from "./scene";
 import {
+	type MissReason,
+	missHint,
+	missText,
+	shotLogMessage,
+} from "./shotHint";
+import {
 	type StageGrid,
 	doorToOpen,
 	mirrorMove,
@@ -105,6 +124,10 @@ import {
 
 /** 「見つけた！」を出しておく時間（ミリ秒 / issue-27）。 */
 const FOUND_NOTICE_MS = 1500;
+/** 外れの理由（推定）を出しておく時間（ミリ秒 / issue-45 の続き）。 */
+const MISS_NOTICE_MS = 1500;
+/** 撃ってから、結果（隠れている一覧の変化）を開発中の Console に出すまでの時間（ミリ秒）。 */
+const SHOT_LOG_DELAY_MS = 500;
 
 /** 視点パッドを倒しきったときの回転の速さ（ラジアン/秒）。 */
 const TURN_SPEED = 2.2;
@@ -209,10 +232,16 @@ export default function Veryare() {
 	const [lastShotAt, setLastShotAt] = useState<number | null>(null);
 	/** 「見つけた！」を出した時刻。 */
 	const [foundAt, setFoundAt] = useState<number | null>(null);
+	/** 外れの理由（推定。表示だけ）と、出した時刻。 */
+	const [miss, setMiss] = useState<{
+		readonly reason: MissReason;
+		readonly at: number;
+	} | null>(null);
 	/** 最後に撃った相手と、直前の隠れている一覧（命中を一覧の更新で知るため）。 */
 	const shotTargetRef = useRef<string | null>(null);
 	const hidingRef = useRef<readonly string[] | null>(null);
 
+	const sceneRef = useRef<VeryareScene | null>(null);
 	const positionRef = useRef<Point>(WAITING_ROOM_SPAWN);
 	/**
 	 * サーバーが持っているはずの自分の位置（issue-29c）。報告のたびに、サーバーの game.move を
@@ -266,6 +295,8 @@ export default function Veryare() {
 			) {
 				shotTargetRef.current = null;
 				setFoundAt(performance.now());
+				// 推定が外れでも、サーバーが当てたなら「見つけた！」だけを出す（判定はサーバー）。
+				setMiss(null);
 			}
 			hidingRef.current = next.playerIds;
 			setHiding(next.playerIds);
@@ -339,14 +370,79 @@ export default function Veryare() {
 	const shootable = canShoot(phase, role, spectator);
 	const reloadMs = reloadRemainingMs(lastShotAt, now);
 	const showFound = foundAt !== null && now - foundAt < FOUND_NOTICE_MS;
+	const showMiss = miss !== null && now - miss.at < MISS_NOTICE_MS;
+	// 狙う点（タップで決める / issue-46 の続き）。撃てる間だけ持ち、撃てなくなったら消す。
+	const [aim, setAim] = useState<Vec3 | null>(null);
+	const tapsRef = useRef(createTapTracker());
+	useEffect(() => {
+		if (!shootable) setAim(null);
+	}, [shootable]);
 	const shoot = () => {
 		const at = performance.now();
 		if (reloadRemainingMs(lastShotAt, at) > 0) return;
-		const target = sceneRef.current?.pickHider() ?? null;
+		const scene = sceneRef.current;
+		// 狙う点があれば、そこにいる隠れ側（いなければ外れ）。無ければ、これまでどおり画面の中央。
+		const target =
+			scene === null
+				? null
+				: shotTarget(aim, scene.hiderBodies(), () => scene.pickHider());
 		shotTargetRef.current = target;
 		setLastShotAt(at);
 		setNow(at);
 		send(shootEvent(target));
+		// 外れの理由を、サーバーと同じ規則で推定して出す（表示だけ。判定はサーバー）。
+		const body =
+			target === null
+				? undefined
+				: scene?.hiderBodies().find((hider) => hider.id === target);
+		const hint = missHint({
+			grid,
+			open: openDoors,
+			oni: positionRef.current,
+			target: body === undefined ? null : { x: body.x, z: body.z },
+			reloadMs: 0,
+		});
+		setMiss(hint === null ? null : { reason: hint, at });
+		if (traceEnabled(HIRAYA_DEV, window.location.search)) {
+			console.info(shotMessage({ target, aim }));
+			const before = hidingRef.current ?? [];
+			window.setTimeout(() => {
+				console.info(
+					shotLogMessage({
+						target,
+						hint,
+						before,
+						after: hidingRef.current ?? [],
+					}),
+				);
+			}, SHOT_LOG_DELAY_MS);
+		}
+	};
+	// 狙いのタップ。キャンバスの上で始まったタッチだけを、指ごとに見る（操作部品はキャンバスの外）。
+	const onAimDown = (event: ReactPointerEvent<HTMLCanvasElement>) => {
+		if (!shootable) return;
+		tapsRef.current.down(
+			event.pointerId,
+			{ x: event.clientX, y: event.clientY },
+			event.timeStamp,
+		);
+	};
+	const onAimMove = (event: ReactPointerEvent<HTMLCanvasElement>) => {
+		if (!shootable) return;
+		tapsRef.current.move(event.pointerId, {
+			x: event.clientX,
+			y: event.clientY,
+		});
+	};
+	const onAimUp = (event: ReactPointerEvent<HTMLCanvasElement>) => {
+		if (!shootable) return;
+		const at = { x: event.clientX, y: event.clientY };
+		if (!tapsRef.current.up(event.pointerId, at, event.timeStamp)) return;
+		const ndc = toNdc(at, event.currentTarget.getBoundingClientRect());
+		setAim(sceneRef.current?.pickAim(ndc.x, ndc.y)?.point ?? null);
+	};
+	const onAimCancel = (event: ReactPointerEvent<HTMLCanvasElement>) => {
+		tapsRef.current.cancel(event.pointerId);
 	};
 	// 襖を開けるボタン（issue-29c）。閉じた襖の境から 1.5 m 以内のとき、いちばん近い襖を
 	// 開ける報告を送る。表示は襖の通知を待って変える（クライアントは襖の状態を変えない）。
@@ -417,7 +513,16 @@ export default function Veryare() {
 				(draft.strokes.length > 0
 					? { kind: "strokes", strokes: draft.strokes }
 					: null));
-	const here = grid === null ? null : hereColor(grid, positionRef.current);
+	// ここの色。平屋の glb を表示しているときは、足もとの床の見た目の色（ペイント画面の間だけ求める）。
+	// 表示していなければ、サーバーの代表色の表（palette.ts）。
+	const sceneHere = showPaintPanel
+		? (sceneRef.current?.floorColorAt(
+				positionRef.current.x,
+				positionRef.current.z,
+			) ?? null)
+		: null;
+	const here =
+		sceneHere ?? (grid === null ? null : hereColor(grid, positionRef.current));
 	const brushColor = paintColor ?? here ?? FLOOR_COLOR;
 	const pointOnCanvas = (event: ReactPointerEvent<HTMLCanvasElement>) => {
 		const rect = event.currentTarget.getBoundingClientRect();
@@ -492,6 +597,7 @@ export default function Veryare() {
 		modelShown,
 		setModelShown,
 		showPaintPanel,
+		aim,
 	});
 	latest.current = {
 		selfPaint,
@@ -517,24 +623,47 @@ export default function Veryare() {
 		modelShown,
 		setModelShown,
 		showPaintPanel,
+		aim,
 	};
 
 	const canvasRef = useRef<HTMLCanvasElement | null>(null);
 	const fadeRef = useRef<HTMLDivElement | null>(null);
-	const sceneRef = useRef<VeryareScene | null>(null);
 
 	// three.js のシーンを作り、描画ループを回す。three.js は遅延読み込みする。
 	useEffect(() => {
 		const canvas = canvasRef.current;
 		if (canvas === null) return;
 		let disposed = false;
+		/** テスト用の口の片付け（口を作らなければ何もしない）。 */
+		let removeTestHook: () => void = () => undefined;
 		let frame = 0;
 		let observer: ResizeObserver | null = null;
 
 		void import("./scene").then(({ createScene }) => {
 			if (disposed) return;
-			const scene = createScene(canvas, { trace: devTrace });
+			// カメラの定数。開発中だけ、URL の指定（?camPitchMax=0.45 など）で変えられる。
+			const camera = cameraSettings(HIRAYA_DEV, window.location.search);
+			// 開発中だけ、カメラの高さを Console に出す（?roof=1 と同じ合図）。
+			const scene = createScene(canvas, {
+				trace: devTrace,
+				camera,
+				...(traceEnabled(HIRAYA_DEV, window.location.search)
+					? { cameraLog: (message: string) => console.info(message) }
+					: {}),
+			});
 			sceneRef.current = scene;
+			// テスト用の口（テスト用の環境変数があるときだけ / testHooks.ts）。条件は、この場で環境変数を
+			// 比べる（ビルド時に false に置き換わり、口の読み込みごと本番の配るファイルから消える）。
+			if (process.env.NEXT_PUBLIC_RONDO_TEST_HOOKS === "1") {
+				void import("./testHooks").then(({ installVeryareTestHook }) => {
+					if (disposed) return;
+					removeTestHook = installVeryareTestHook(
+						true,
+						window as unknown as Record<string, unknown>,
+						() => sceneRef.current,
+					);
+				});
+			}
 
 			const fit = () => scene.resize(canvas.clientWidth, canvas.clientHeight);
 			fit();
@@ -542,7 +671,7 @@ export default function Veryare() {
 			observer.observe(canvas);
 
 			let yaw = 0;
-			const pitch = CAMERA_PITCH;
+			const pitch = camera.pitch;
 			const reduceMotion = window.matchMedia(
 				"(prefers-reduced-motion: reduce)",
 			);
@@ -634,6 +763,7 @@ export default function Veryare() {
 						: null,
 				);
 				scene.setSelfOni(current.selfOni ? selfFacing : null);
+				scene.setAim(current.aim);
 				scene.setHiders(current.sceneHiders);
 				scene.setView(current.view);
 				scene.setBlink(
@@ -652,6 +782,7 @@ export default function Veryare() {
 			disposed = true;
 			cancelAnimationFrame(frame);
 			observer?.disconnect();
+			removeTestHook();
 			sceneRef.current?.dispose();
 			sceneRef.current = null;
 		};
@@ -771,10 +902,22 @@ export default function Veryare() {
 					ref={canvasRef}
 					className="block size-full"
 					style={paintEditable ? { touchAction: "none" } : undefined}
-					onPointerDown={onPaintDown}
-					onPointerMove={onPaintMove}
-					onPointerUp={onPaintUp}
-					onPointerCancel={onPaintUp}
+					onPointerDown={(event) => {
+						onPaintDown(event);
+						onAimDown(event);
+					}}
+					onPointerMove={(event) => {
+						onPaintMove(event);
+						onAimMove(event);
+					}}
+					onPointerUp={(event) => {
+						onPaintUp();
+						onAimUp(event);
+					}}
+					onPointerCancel={(event) => {
+						onPaintUp();
+						onAimCancel(event);
+					}}
 				/>
 				<div
 					ref={fadeRef}
@@ -805,6 +948,13 @@ export default function Veryare() {
 							data-testid="veryare-found"
 						>
 							見つけた！
+						</p>
+					</div>
+				) : null}
+				{showMiss && !showFound ? (
+					<div className="pointer-events-none absolute inset-x-0 top-1/3 text-center">
+						<p className="font-bold text-fg text-lg" data-testid="veryare-miss">
+							{missText(miss.reason)}
 						</p>
 					</div>
 				) : null}
@@ -861,7 +1011,7 @@ export default function Veryare() {
 				{movable ? (
 					<div className="flex flex-col items-center gap-1">
 						<div className="rounded-full bg-surface ring-1 ring-line ring-inset">
-							<VirtualPad name="move" size={120} />
+							<VirtualPad name="move" size={120} deadZone={PAD_DEAD_ZONE} />
 						</div>
 						<span className="text-fg-muted text-xs">移動</span>
 					</div>
@@ -892,7 +1042,7 @@ export default function Veryare() {
 				) : null}
 				<div className="flex flex-col items-center gap-1">
 					<div className="rounded-full bg-surface ring-1 ring-line ring-inset">
-						<VirtualPad name="look" size={120} />
+						<VirtualPad name="look" size={120} deadZone={PAD_DEAD_ZONE} />
 					</div>
 					<span className="text-fg-muted text-xs">視点</span>
 				</div>

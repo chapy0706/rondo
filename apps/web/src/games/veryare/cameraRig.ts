@@ -7,14 +7,7 @@
  * なめらかに戻す（camera.ts の定数）。
  */
 
-import {
-	CAMERA_DISTANCE,
-	CAMERA_MIN_HEIGHT,
-	CAMERA_PITCH,
-	CAMERA_PITCH_MAX,
-	CAMERA_SETTLE_SECONDS,
-	EYE_HEIGHT,
-} from "./camera";
+import { type CameraSettings, DEFAULT_CAMERA, EYE_HEIGHT } from "./camera";
 import type { Point } from "./rules";
 import type { StageGrid } from "./stage";
 
@@ -73,7 +66,12 @@ export function cameraReach(grid: StageGrid, from: Point, to: Point): number {
 }
 
 /** 開けた所での、カメラの水平の距離（メートル）。 */
-export const CAMERA_FULL_REACH = CAMERA_DISTANCE * Math.cos(CAMERA_PITCH);
+export function fullReach(settings: CameraSettings = DEFAULT_CAMERA): number {
+	return settings.distance * Math.cos(settings.pitch);
+}
+
+/** 既定の定数での、開けた所の水平の距離。 */
+export const CAMERA_FULL_REACH = fullReach(DEFAULT_CAMERA);
 
 /** カメラの置き方と、その見下ろす角度。 */
 export interface ReachedPose {
@@ -91,33 +89,53 @@ export interface ReachedPose {
 }
 
 /**
- * 水平の距離 reach（0〜CAMERA_FULL_REACH）でのカメラ。見る点は足もとから EYE_HEIGHT。近いほど
- * 見下ろす角度を CAMERA_PITCH から CAMERA_PITCH_MAX へ上げ、高さは reach × tan(角度)（下限
- * CAMERA_MIN_HEIGHT）。reach がいっぱいなら、camera.ts の cameraPose と同じ位置になる。
+ * 水平の距離 reach（0〜fullReach）でのカメラ。見る点は足もとから EYE_HEIGHT。近いほど見下ろす角度を
+ * settings.pitch から settings.pitchMax へ上げ、高さは reach × tan(角度)（下限 settings.minHeight）。
+ * reach がいっぱいなら、camera.ts の cameraPose と同じ位置になる。
  */
 export function reachedPose(
 	center: { readonly x: number; readonly z: number; readonly feet: number },
 	yaw: number,
 	reach: number,
+	settings: CameraSettings = DEFAULT_CAMERA,
 ): ReachedPose {
-	const h = Math.min(Math.max(reach, 0), CAMERA_FULL_REACH);
-	const closeness = 1 - h / CAMERA_FULL_REACH;
-	const pitch = CAMERA_PITCH + (CAMERA_PITCH_MAX - CAMERA_PITCH) * closeness;
-	const target = { x: center.x, y: center.feet + EYE_HEIGHT, z: center.z };
-	const up = Math.max(h * Math.tan(pitch), CAMERA_MIN_HEIGHT);
+	const full = fullReach(settings);
+	const h = Math.min(Math.max(reach, 0), full);
+	const closeness = full > 0 ? 1 - h / full : 1;
+	const pitch =
+		settings.pitch + (settings.pitchMax - settings.pitch) * closeness;
+	const eye = { x: center.x, y: center.feet + EYE_HEIGHT, z: center.z };
+	const up = Math.max(h * Math.tan(pitch), settings.minHeight);
+	// 見る点は、近づいたぶん、カメラの向きの前方（体から見てカメラと反対の側）へずらす。
+	const ahead = settings.lookAhead * closeness;
 	return {
-		target,
+		target: {
+			x: eye.x - Math.sin(yaw) * ahead,
+			y: eye.y,
+			z: eye.z - Math.cos(yaw) * ahead,
+		},
 		pitch,
 		position: {
-			x: target.x + Math.sin(yaw) * h,
-			y: target.y + up,
-			z: target.z + Math.cos(yaw) * h,
+			x: eye.x + Math.sin(yaw) * h,
+			y: eye.y + up,
+			z: eye.z + Math.cos(yaw) * h,
 		},
 	};
 }
 
-/** 95% を追う時間から決めた、指数の追従の時定数（e^-3 ≒ 5%）。 */
-const TIME_CONSTANT = CAMERA_SETTLE_SECONDS / 3;
+/**
+ * 開発中だけ Console に出す、カメラの高さの1行（issue-46）。feet は体の足もと（床）の高さ、cameraY は
+ * カメラの世界の y、reach は水平の距離、lookDown は実際に見下ろしている角度（ラジアン）。
+ */
+export function cameraLogMessage(info: {
+	readonly feet: number;
+	readonly cameraY: number;
+	readonly reach: number;
+	readonly lookDown: number;
+}): string {
+	const degrees = Math.round((info.lookDown * 180) / Math.PI);
+	return `[veryare-camera] 床 ${info.feet.toFixed(2)} m・カメラは床から ${(info.cameraY - info.feet).toFixed(2)} m（世界の y ${info.cameraY.toFixed(2)}）・水平の距離 ${info.reach.toFixed(2)} m・見下ろす角度 ${degrees}°`;
+}
 
 /**
  * カメラの水平の距離を、許される距離 allowed へ寄せる。縮むときは即座（領域の外に出さない）、
@@ -127,10 +145,14 @@ export function followCameraReach(
 	current: number,
 	allowed: number,
 	dtSeconds: number,
+	settleSeconds: number = DEFAULT_CAMERA.settleSeconds,
 ): number {
 	if (allowed <= current) return allowed;
-	if (dtSeconds <= 0) return current;
+	if (dtSeconds <= 0 || settleSeconds <= 0) {
+		return settleSeconds <= 0 ? allowed : current;
+	}
+	// 95% を追う時間から決めた、指数の追従の時定数（e^-3 ≒ 5%）。
 	const next =
-		allowed + (current - allowed) * Math.exp(-dtSeconds / TIME_CONSTANT);
+		allowed + (current - allowed) * Math.exp(-dtSeconds / (settleSeconds / 3));
 	return Math.abs(next - allowed) < 1e-4 ? allowed : next;
 }

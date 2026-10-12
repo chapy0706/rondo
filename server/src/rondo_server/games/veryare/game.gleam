@@ -541,25 +541,23 @@ fn hits(game: Game(id), oni: id, target: id) -> Bool {
     dict.get(game.positions, oni),
     dict.get(game.positions, target)
   {
-    True, Ok(Position(Stage, ox, oz)), Ok(Position(Stage, tx, tz)) ->
-      case game.ground {
-        Skeleton(sight_map:, ..) -> {
-          let dx = tx -. ox
-          let dz = tz -. oz
-          let in_range = dx *. dx +. dz *. dz <=. shot_range *. shot_range
-          in_range
-          && {
-            !game.shot_sight
-            || shot_line_clear(sight_map, sight_doors(game), #(ox, oz), #(
-              tx,
-              tz,
-            ))
-          }
+    True, Ok(Position(Stage, ox, oz)), Ok(Position(Stage, tx, tz)) -> {
+      let dx = tx -. ox
+      let dz = tz -. oz
+      let in_range = dx *. dx +. dz *. dz <=. shot_range *. shot_range
+      in_range
+      && {
+        !game.shot_sight
+        || case game.ground {
+          Skeleton(sight_map:, ..) ->
+            shot_line_clear(sight_map, sight_doors(game), #(ox, oz), #(tx, tz))
+          // 平屋は、戸の一覧（3種類の戸、0.3 m のマス）に対する見通し（issue-45）。移動の規則と
+          // 同じ辺の通れる・通れないで判定する。
+          Hiraya ->
+            grid.line_clear(game.grid, game.open_doors, #(ox, oz), #(tx, tz))
         }
-        // 見通しを戸の一覧へ一般化する（issue-45）までは、壁越しに当たる食い違いを出さないよう、
-        // 当てない。
-        Hiraya -> False
       }
+    }
     _, _, _ -> False
   }
 }

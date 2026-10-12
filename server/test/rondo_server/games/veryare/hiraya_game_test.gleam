@@ -107,21 +107,13 @@ pub fn opening_a_fusuma_opens_the_whole_group_test() {
   |> should.equal(set.new())
 }
 
-/// 見通しの一般化（issue-45）までは、平屋では射撃が当たらない。勝敗の判定は変わらない。
-pub fn shots_never_hit_on_hiraya_until_issue_45_test() {
+/// 平屋の射撃（issue-45 の見通し）は hiraya_shoot_test.gleam。ここでは、見つけた（found）が
+/// ほかの経路と同じに働く（勝敗の判定は共通）ことと、狙う相手が無い射撃は外れることを確かめる。
+pub fn found_and_shots_without_a_target_on_hiraya_test() {
   let e = exploration()
-  // 鬼を b のすぐ隣（東の廊下）へ。見通しの判定を外しても当たらない。
-  let near =
-    game.Game(
-      ..e,
-      positions: dict.insert(e.positions, "a", Position(Stage, 4.7, 8.5)),
-      shot_sight: False,
-    )
-  let shot = game.shoot(near, "a", Some("b"), 0)
-  shot.still_hiding |> should.equal(near.still_hiding)
-  shot.last_shot |> should.equal(Some(0))
-  // 発見（found）は、ほかの経路と同じに働く（勝敗の判定は共通）。
   let all_found = e |> game.found("b") |> game.found("c")
   all_found.phase |> should.equal(Reveal(OniWins))
-  game.shoot(near, "a", None, 0).still_hiding |> should.equal(near.still_hiding)
+  let shot = game.shoot(e, "a", None, 0)
+  shot.still_hiding |> should.equal(e.still_hiding)
+  shot.last_shot |> should.equal(Some(0))
 }

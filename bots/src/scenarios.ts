@@ -29,6 +29,100 @@ const oni = (bot: string, won: boolean) => ({
 	details: won ? details.oniWon : details.oniLost,
 });
 
+/**
+ * 壁越し・閉じた襖越しの射撃は外れ、開けた襖越しの射撃は当たる、を確かめる手順（issue-29b）。
+ * マスは plan.ts の pickDoorShot が選ぶ（骨格でも平屋でも同じ手順 / issue-45）。
+ */
+const doorShotSteps: Step[] = [
+	{ on: "joined", bot: "bot-a", action: { type: "touch-area" } },
+	{
+		on: { phase: "preparation" },
+		bot: "bot-b",
+		action: { type: "go", to: "r", doors: "open" },
+	},
+	{
+		on: { phase: "preparation" },
+		bot: "bot-c",
+		action: { type: "go", to: "s", doors: "open" },
+	},
+	{
+		on: { phase: "exploration" },
+		bot: "bot-a",
+		action: { type: "go", to: "w", doors: "closed" },
+		delayMs: 50,
+	},
+	{
+		on: { phase: "exploration" },
+		bot: "bot-a",
+		action: { type: "shoot", target: "bot-b" },
+		delayMs: 150,
+	},
+	{
+		on: { phase: "exploration" },
+		bot: "bot-a",
+		action: {
+			type: "expect-hiding",
+			check: "壁越しの射撃は外れる",
+			target: "bot-b",
+			hiding: true,
+		},
+		delayMs: 270,
+	},
+	{
+		on: { phase: "exploration" },
+		bot: "bot-a",
+		action: { type: "go", to: "c", doors: "closed" },
+		delayMs: 350,
+	},
+	{
+		on: { phase: "exploration" },
+		bot: "bot-a",
+		action: { type: "shoot", target: "bot-c" },
+		delayMs: 450,
+	},
+	{
+		on: { phase: "exploration" },
+		bot: "bot-a",
+		action: {
+			type: "expect-hiding",
+			check: "閉じた襖越しの射撃は外れる",
+			target: "bot-c",
+			hiding: true,
+		},
+		delayMs: 570,
+	},
+	{
+		on: { phase: "exploration" },
+		bot: "bot-a",
+		action: { type: "open-door" },
+		delayMs: 650,
+	},
+	{
+		on: { phase: "exploration" },
+		bot: "bot-a",
+		action: { type: "shoot", target: "bot-c" },
+		delayMs: 800,
+	},
+	{
+		on: { phase: "exploration" },
+		bot: "bot-a",
+		action: {
+			type: "expect-hiding",
+			check: "開けた襖越しの射撃は当たる",
+			target: "bot-c",
+			hiding: false,
+		},
+		delayMs: 920,
+	},
+];
+
+/** 壁越し・襖越しの射撃の結果。B は最後まで隠れ、C は開けた襖越しに見つかる。 */
+const doorShotRankings = [
+	hider("bot-b", true),
+	{ bot: "bot-c", rank: 1, score: 1, details: details.hiderWonFound },
+	oni("bot-a", false),
+];
+
 export const scenarios: readonly Scenario[] = [
 	{
 		// 5人。A が鬼に立候補し、誰も見つからないまま探索が時間切れになる。
@@ -133,94 +227,9 @@ export const scenarios: readonly Scenario[] = [
 		// 一覧が変わらないこと。B は最後まで隠れているので、時間切れで隠れ側の勝ち（C は発見）。
 		name: "壁越し・襖越しの射撃",
 		bots: ["bot-a", "bot-b", "bot-c"],
-		steps: [
-			{ on: "joined", bot: "bot-a", action: { type: "touch-area" } },
-			{
-				on: { phase: "preparation" },
-				bot: "bot-b",
-				action: { type: "go", to: "r", doors: "open" },
-			},
-			{
-				on: { phase: "preparation" },
-				bot: "bot-c",
-				action: { type: "go", to: "s", doors: "open" },
-			},
-			{
-				on: { phase: "exploration" },
-				bot: "bot-a",
-				action: { type: "go", to: "w", doors: "closed" },
-				delayMs: 50,
-			},
-			{
-				on: { phase: "exploration" },
-				bot: "bot-a",
-				action: { type: "shoot", target: "bot-b" },
-				delayMs: 150,
-			},
-			{
-				on: { phase: "exploration" },
-				bot: "bot-a",
-				action: {
-					type: "expect-hiding",
-					check: "壁越しの射撃は外れる",
-					target: "bot-b",
-					hiding: true,
-				},
-				delayMs: 270,
-			},
-			{
-				on: { phase: "exploration" },
-				bot: "bot-a",
-				action: { type: "go", to: "c", doors: "closed" },
-				delayMs: 350,
-			},
-			{
-				on: { phase: "exploration" },
-				bot: "bot-a",
-				action: { type: "shoot", target: "bot-c" },
-				delayMs: 450,
-			},
-			{
-				on: { phase: "exploration" },
-				bot: "bot-a",
-				action: {
-					type: "expect-hiding",
-					check: "閉じた襖越しの射撃は外れる",
-					target: "bot-c",
-					hiding: true,
-				},
-				delayMs: 570,
-			},
-			{
-				on: { phase: "exploration" },
-				bot: "bot-a",
-				action: { type: "open-door" },
-				delayMs: 650,
-			},
-			{
-				on: { phase: "exploration" },
-				bot: "bot-a",
-				action: { type: "shoot", target: "bot-c" },
-				delayMs: 800,
-			},
-			{
-				on: { phase: "exploration" },
-				bot: "bot-a",
-				action: {
-					type: "expect-hiding",
-					check: "開けた襖越しの射撃は当たる",
-					target: "bot-c",
-					hiding: false,
-				},
-				delayMs: 920,
-			},
-		],
+		steps: doorShotSteps,
 		receivers: ["bot-a", "bot-b", "bot-c"],
-		rankings: [
-			hider("bot-b", true),
-			{ bot: "bot-c", rank: 1, score: 1, details: details.hiderWonFound },
-			oni("bot-a", false),
-		],
+		rankings: doorShotRankings,
 	},
 	{
 		// ペイントの確定と一括配信（issue-25）。隠れ側 B がペイントフェーズに2回塗りを送り、
@@ -311,5 +320,16 @@ export const scenarios: readonly Scenario[] = [
 		],
 		receivers: ["bot-a", "bot-b", "bot-c"],
 		rankings: [hider("bot-b", true), hider("bot-c", true), oni("bot-a", false)],
+	},
+	{
+		// 平屋（issue-45）で、同じ手順を通す。平屋には「廊下」という領域が無く、マスは 0.3 m。
+		// pickDoorShot は、和室C と東の廊下の襖（s・c）と、和室C の北東の隅の壁（r・w）を選ぶ。
+		// 鬼は玄関から東の廊下を歩くだけで c・w に着く（襖を通らない）。
+		name: "平屋の壁越し・襖越しの射撃",
+		settings: { stage: 1 },
+		bots: ["bot-a", "bot-b", "bot-c"],
+		steps: doorShotSteps,
+		receivers: ["bot-a", "bot-b", "bot-c"],
+		rankings: doorShotRankings,
 	},
 ];

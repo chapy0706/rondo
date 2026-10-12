@@ -13,6 +13,8 @@
  *   （格子の線は、壁の中心線から最大 0.125 m ずれるため、幅を持たせて測る）
  * - 襖の板: 襖の操作軸の下の「本体」の頂点の高さの最大
  * - 欄間の板: 欄間の操作軸の下の「本体」の頂点の高さの最小と最大。中心の位置で、下の襖と対応づける
+ * - 天井: 歩けるマスの中心で、天井（天井 室内）のノードに当たる最も低い所（天井の下面）。天井の無い
+ *   所（縁側）は、屋根（寄棟屋根）のノードに当たる最も低い所（軒の下面）も出す
  * - どれも、ワールドの y と、床からの高さ（そこの床の高さを引いたもの）で出す
  *
  * 入力は読むだけで、変更しない。
@@ -26,6 +28,9 @@ import { MeshoptDecoder } from "meshoptimizer";
 const WALL = /^(内壁-|外壁-|床の間 壁-)/;
 const FUSUMA_AXIS = /^(ドア 引違い戸( 4枚戸)?|腰付障子 引違い戸 4枚戸) 操作軸/;
 const RANMA_AXIS = /^欄間 4枚戸 操作軸/;
+/** 天井（屋根と天井の glb に入るもの）と、天井の無い所（縁側）の上にある屋根。 */
+const CEILING = /^天井 室内/;
+const ROOF = /^寄棟屋根 /;
 
 const args = process.argv.slice(2);
 const showEdges = args.includes("--edges");
@@ -354,8 +359,43 @@ for (let z = 0; z < stage.depth; z++) {
 	}
 }
 const minOf = (values) => (values.length === 0 ? "-" : Math.min(...values));
+
+/** マスの中心で、真上から見た、三角形に当たる最も低い所（無ければ null）。 */
+const lowestHit = (triangles, x, z) => {
+	let low = null;
+	for (const t of triangles) {
+		const y = hitY(t, x, z);
+		if (y !== null && (low === null || y < low)) low = y;
+	}
+	return low;
+};
+const ceilingTriangles = nodes
+	.filter((n) => CEILING.test(n.getName()))
+	.flatMap((n) => geometryOf(n).triangles);
+const roofTriangles = nodes
+	.filter((n) => ROOF.test(n.getName()) && n.getMesh() !== null)
+	.flatMap((n) => geometryOf(n).triangles);
+const ceilings = new Map();
+const roofs = new Map();
+for (let z = 0; z < stage.depth; z++) {
+	for (let x = 0; x < stage.width; x++) {
+		if (regionAt(x, z) === null) continue;
+		const c = charAt(x, z);
+		const cx = ox + cs * (x + 0.5);
+		const cz = oz + cs * (z + 0.5);
+		const ceiling = lowestHit(ceilingTriangles, cx, cz);
+		if (ceiling !== null)
+			ceilings.set(
+				c,
+				Math.min(ceilings.get(c) ?? Number.POSITIVE_INFINITY, ceiling),
+			);
+		const roof = lowestHit(roofTriangles, cx, cz);
+		if (roof !== null)
+			roofs.set(c, Math.min(roofs.get(c) ?? Number.POSITIVE_INFINITY, roof));
+	}
+}
 console.log(
-	"REGION\t領域\t床の最大\t壁の上端の最小\t襖の板の上端の最小\t欄間の下端の最小",
+	"REGION\t領域\t床の最大\t壁の上端の最小\t襖の板の上端の最小\t欄間の下端の最小\t天井の下面の最小\t屋根の下面の最小",
 );
 for (const c of [...floors.keys()].sort()) {
 	const walls = measured
@@ -366,6 +406,6 @@ for (const c of [...floors.keys()].sort()) {
 		.filter((r) => r.sides.includes(c))
 		.map((r) => r.bottom);
 	console.log(
-		`REGION\t${c}\t${floors.get(c)}\t${minOf(walls)}\t${minOf(doors)}\t${minOf(transoms)}`,
+		`REGION\t${c}\t${floors.get(c)}\t${minOf(walls)}\t${minOf(doors)}\t${minOf(transoms)}\t${ceilings.has(c) ? round(ceilings.get(c)) : "-"}\t${roofs.has(c) ? round(roofs.get(c)) : "-"}`,
 	);
 }

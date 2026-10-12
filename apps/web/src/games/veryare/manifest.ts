@@ -1,9 +1,9 @@
 import type { GameManifest, RoomOption } from "@rondo/contracts";
 
 /**
- * 平屋（issue-44〜46）をロビーの選択肢に出してよいか。平屋では、見通しの一般化（issue-45）が
- * 通るまで射撃が当たらないので、それまでは false にしておく（通っていない機能は選択画面に出さない）。
- * issue-45 を閉じるときに true にする。
+ * 平屋（issue-44〜46）をロビーの選択肢に出してよいか。射撃の見通しは、平屋でも入った（issue-45 の
+ * 段階 1・2）が、CPU の一般化（段階 3〜5）が残るので、issue-45 を閉じるまでは false にしておく
+ * （通っていない機能は選択画面に出さない）。issue-45 を閉じるときに true にする。
  *
  * 手で確かめるときだけ、開発用の環境変数 NEXT_PUBLIC_VERYARE_HIRAYA=1 で出せる（docs/e2e.md）。
  * 本番のビルド（apps/web/Dockerfile）は、この変数を渡さない。

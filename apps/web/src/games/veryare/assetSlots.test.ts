@@ -16,30 +16,41 @@ const settle = () => new Promise((resolve) => setTimeout(resolve, 0));
 const keysOf = (preload: { mock: { calls: unknown[][] } }) =>
 	preload.mock.calls.map(([key]) => key);
 
-describe("combineHiraya - 平屋の3つの glb を1つにまとめる（issue-46）", () => {
-	it("屋内本体が読めれば使う。屋外の飾りと屋根は、読めたものだけ使う", () => {
-		expect(combineHiraya(ok("in"), ok("out"), ok("roof"))).toEqual(
-			ok({ indoor: "in", outdoor: "out", roof: "roof" }),
+describe("combineHiraya - 平屋の4つの glb を1つにまとめる（issue-46）", () => {
+	it("屋内本体が読めれば使う。屋外の飾り・屋根・家具の箱は、読めたものだけ使う", () => {
+		expect(
+			combineHiraya(ok("in"), ok("out"), ok("roof"), ok("furniture")),
+		).toEqual(
+			ok({
+				indoor: "in",
+				outdoor: "out",
+				roof: "roof",
+				furniture: "furniture",
+			}),
 		);
-		expect(combineHiraya(ok("in"), failed, failed)).toEqual(
-			ok({ indoor: "in", outdoor: null, roof: null }),
+		expect(combineHiraya(ok("in"), failed, failed, failed)).toEqual(
+			ok({ indoor: "in", outdoor: null, roof: null, furniture: null }),
 		);
 	});
 
-	it("屋内本体が読めなければ、全体を仮の表示にする（屋内本体の失敗の理由のまま）", () => {
-		expect(combineHiraya(failed, ok("out"), ok("roof"))).toEqual(failed);
+	it("屋内本体が読めなければ、全体を仮の表示にする（屋内本体の失敗の理由のまま。家具の箱も使わない）", () => {
+		expect(
+			combineHiraya(failed, ok("out"), ok("roof"), ok("furniture")),
+		).toEqual(failed);
 	});
 });
 
 describe("createVeryareAssets - veryare の素材の入口（issue-46）", () => {
-	it("差し替え口を作ると、平屋の3つの key の読み込みを始める", () => {
+	it("差し替え口を作ると、平屋の4つの key の読み込みを始める", () => {
 		const preload = vi.fn(async (key: string) => ok(key));
 		createVeryareAssets(preload).hirayaSlot();
 		expect(keysOf(preload)).toEqual([
 			HIRAYA_KEYS.indoor,
 			HIRAYA_KEYS.outdoor,
 			HIRAYA_KEYS.roof,
+			HIRAYA_KEYS.furniture,
 		]);
+		expect(HIRAYA_KEYS.furniture).toBe("hiraya-furniture");
 	});
 
 	it("先読み（ロビー）は1回だけ。最初の差し替え口は、先読みの結果を使い、取りに行き直さない", async () => {
@@ -47,14 +58,15 @@ describe("createVeryareAssets - veryare の素材の入口（issue-46）", () =>
 		const assets = createVeryareAssets(preload);
 		assets.prefetchHiraya();
 		assets.prefetchHiraya();
-		expect(preload).toHaveBeenCalledTimes(3);
+		expect(preload).toHaveBeenCalledTimes(4);
 		const slot = assets.hirayaSlot();
-		expect(preload).toHaveBeenCalledTimes(3);
+		expect(preload).toHaveBeenCalledTimes(4);
 		await settle();
 		expect(slot.take()).toEqual({
 			indoor: HIRAYA_KEYS.indoor,
 			outdoor: HIRAYA_KEYS.outdoor,
 			roof: HIRAYA_KEYS.roof,
+			furniture: HIRAYA_KEYS.furniture,
 		});
 	});
 
@@ -67,7 +79,7 @@ describe("createVeryareAssets - veryare の素材の入口（issue-46）", () =>
 		expect(first.take()).toBeNull();
 		const second = assets.hirayaSlot();
 		expect(second).not.toBe(first);
-		expect(preload).toHaveBeenCalledTimes(6);
+		expect(preload).toHaveBeenCalledTimes(8);
 		await settle();
 		expect(second.take()).not.toBeNull();
 	});
@@ -96,12 +108,12 @@ describe("prefetchLobbyAssets - ロビーを開いた時点の先読み（issue-
 		expect(preload).not.toHaveBeenCalled();
 		prefetchLobbyAssets(true, assets);
 		prefetchLobbyAssets(true, assets);
-		expect(preload).toHaveBeenCalledTimes(3);
+		expect(preload).toHaveBeenCalledTimes(4);
 	});
 });
 
 describe("素材の流れの記録（開発中だけ Console に出す / assetTrace.ts）", () => {
-	it("先読みの結果を使ったか、manifest と3本の結果を記録する", async () => {
+	it("先読みの結果を使ったか、manifest と4本の結果を記録する", async () => {
 		const trace = vi.fn();
 		const assets = createVeryareAssets(
 			async (key: string) => (key === HIRAYA_KEYS.roof ? failed : ok(key)),

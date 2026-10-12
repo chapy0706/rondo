@@ -9,6 +9,7 @@ import {
 	CAMERA_WALL_MARGIN,
 	cameraPose,
 } from "./camera";
+import { DEFAULT_CAMERA } from "./camera";
 import { cameraReach, followCameraReach, reachedPose } from "./cameraRig";
 import { parseStageNotice } from "./stage";
 
@@ -88,8 +89,9 @@ describe("reachedPose - 近づいたぶん、見下ろす角度を上げる", ()
 		let previous = CAMERA_PITCH;
 		for (const h of [full * 0.75, full * 0.5, full * 0.25, 0]) {
 			const pose = reachedPose(center, 0.4, h);
-			const dx = pose.position.x - pose.target.x;
-			const dz = pose.position.z - pose.target.z;
+			// 見る点は前へずれるので、体（目線の点）からの水平の距離を測る。
+			const dx = pose.position.x - center.x;
+			const dz = pose.position.z - center.z;
 			expect(Math.hypot(dx, dz)).toBeLessThanOrEqual(h + 1e-9);
 			expect(pose.pitch).toBeGreaterThan(previous);
 			expect(pose.pitch).toBeLessThanOrEqual(CAMERA_PITCH_MAX + 1e-9);
@@ -158,6 +160,93 @@ describe("戸口を通る間の動き（壁と戸の手前で止め、数が破�
 			}
 			const camera = { x: pose.position.x, z: pose.position.z };
 			expect(cameraReach(grid, body, camera)).toBe(1);
+		}
+	});
+});
+
+describe("見る点を前へずらす（カメラが近づいたぶん / 上から見下ろす視点にならないように）", () => {
+	const center = { x: 1, z: 2, feet: 0.6 };
+	const full = CAMERA_DISTANCE * Math.cos(CAMERA_PITCH);
+	const eye = { x: 1, y: 0.6 + 0.8, z: 2 };
+
+	it("開けた所（水平の距離がいっぱい）では、ずらさない", () => {
+		const pose = reachedPose(center, 0.4, full);
+		expect(pose.target.x).toBeCloseTo(eye.x, 9);
+		expect(pose.target.y).toBeCloseTo(eye.y, 9);
+		expect(pose.target.z).toBeCloseTo(eye.z, 9);
+	});
+
+	it("いちばん近づいたとき、カメラの向きの前方へ、ずらす量のぶんだけずらす。カメラの位置は変えない", () => {
+		const yaw = 0.4;
+		const settings = { ...DEFAULT_CAMERA, lookAhead: 1.0 };
+		const pose = reachedPose(center, yaw, 0, settings);
+		// カメラは体の +(sin yaw, cos yaw) 側にあるので、前方は -(sin yaw, cos yaw)。
+		expect(pose.target.x).toBeCloseTo(eye.x - Math.sin(yaw), 9);
+		expect(pose.target.z).toBeCloseTo(eye.z - Math.cos(yaw), 9);
+		expect(pose.target.y).toBeCloseTo(eye.y, 9);
+		const still = reachedPose(center, yaw, 0, { ...settings, lookAhead: 0 });
+		expect(pose.position).toEqual(still.position);
+	});
+
+	it("近づくほど、ずらす量が増える（間は比例）", () => {
+		const shift = (h: number) => eye.z - reachedPose(center, 0, h).target.z;
+		expect(shift(full / 2)).toBeCloseTo(DEFAULT_CAMERA.lookAhead / 2, 9);
+		expect(shift(full / 4)).toBeGreaterThan(shift(full / 2));
+	});
+
+	it("水平の距離 0 でも、見下ろす角度は 30° 未満（真上から床を見ない）", () => {
+		const pose = reachedPose(center, 0, 0);
+		const horizontal = Math.hypot(
+			pose.target.x - pose.position.x,
+			pose.target.z - pose.position.z,
+		);
+		const down = Math.atan2(pose.position.y - pose.target.y, horizontal);
+		expect(down).toBeLessThan((30 * Math.PI) / 180);
+	});
+});
+
+describe("壁際でも、カメラは体の領域（部屋）の外に出ない（ADR 0043）", () => {
+	it("壁に接した体のまわりを、どの向きに回しても、カメラは体の領域の中", () => {
+		const full = CAMERA_DISTANCE * Math.cos(CAMERA_PITCH);
+		// 和室Aのキッチンとの壁際・和室Cの隅・トイレ（狭い部屋）・広縁（細い通り道）・縁側の端。
+		const bodies = [
+			{ x: 0.07, z: at(18, 7).z },
+			{ x: at(32, 34).x, z: at(32, 34).z },
+			{ x: at(38, 16).x, z: at(38, 16).z },
+			{ x: at(5, 30).x, z: at(5, 30).z },
+			{ x: at(1, 43).x, z: at(1, 43).z },
+		];
+		for (const body of bodies) {
+			for (let k = 0; k < 24; k++) {
+				const yaw = (k / 24) * 2 * Math.PI;
+				const want = {
+					x: body.x + Math.sin(yaw) * full,
+					z: body.z + Math.cos(yaw) * full,
+				};
+				const allowed = Math.max(
+					0,
+					Math.min(
+						full,
+						cameraReach(grid, body, want) * full - CAMERA_WALL_MARGIN,
+					),
+				);
+				const pose = reachedPose({ ...body, feet: 0.6 }, yaw, allowed);
+				expect(
+					cameraReach(grid, body, { x: pose.position.x, z: pose.position.z }),
+				).toBe(1);
+			}
+		}
+	});
+});
+
+describe("床の高さは、カメラの高さに一度だけ足す（二重に足さない）", () => {
+	it("床 0.6 m のマスでも、足もとからのカメラの高さは、床なしのときと同じ（どの水平の距離でも）", () => {
+		const full = CAMERA_DISTANCE * Math.cos(CAMERA_PITCH);
+		for (const h of [full, full / 2, 0]) {
+			const flat = reachedPose({ x: 1, z: 2, feet: 0 }, 0.3, h);
+			const raised = reachedPose({ x: 1, z: 2, feet: 0.6 }, 0.3, h);
+			expect(raised.position.y - 0.6).toBeCloseTo(flat.position.y, 9);
+			expect(raised.target.y - 0.6).toBeCloseTo(flat.target.y, 9);
 		}
 	});
 });

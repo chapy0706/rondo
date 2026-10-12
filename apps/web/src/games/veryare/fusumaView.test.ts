@@ -17,6 +17,17 @@ const fusuma = new Set(
 );
 
 /**
+ * three の GLTFLoader と同じ名前の付け方: name は、空白を _ にし、[ ] . : / を取り除いた名前
+ * （PropertyBinding.sanitizeNodeName）。元の名前は userData.name に残る（issue-46 の続きで、ここが
+ * 原因で襖が1組も見つからなかった）。
+ */
+function named<T extends THREE.Object3D>(object: T, original: string): T {
+	object.name = original.replace(/\s/g, "_").replace(/[[\].:/]/g, "");
+	object.userData.name = original;
+	return object;
+}
+
+/**
  * 和室A-ダイニングの4枚戸（tsv の値: 操作軸の中心 (-0.05, 4.15)、z 方向、幅 3.56。板の中心の z は
  * 内側 3.705・4.595、外側 2.835・5.465）を、glb と同じ名前と親子で組む。
  */
@@ -25,12 +36,13 @@ function hiraya4(): {
 	panel: (name: string) => THREE.Object3D;
 } {
 	const root = new THREE.Group();
-	const axis = new THREE.Group();
-	axis.name = "ドア 引違い戸 4枚戸 操作軸-002";
+	const axis = named(new THREE.Group(), "ドア 引違い戸 4枚戸 操作軸-002");
 	axis.position.set(-0.05, 0.6, 4.15);
 	root.add(axis);
-	const frame = new THREE.Mesh(new THREE.BoxGeometry(0.1, 2.1, 3.56));
-	frame.name = "ドア 引違い戸 4枚戸 枠-002";
+	const frame = named(
+		new THREE.Mesh(new THREE.BoxGeometry(0.1, 2.1, 3.56)),
+		"ドア 引違い戸 4枚戸 枠-002",
+	);
 	axis.add(frame);
 	const panels: Record<string, number> = {
 		"ドア 引違い戸 4枚戸 本体 内側001-002": 3.705,
@@ -39,14 +51,18 @@ function hiraya4(): {
 		"ドア 引違い戸 4枚戸 本体 外側002-002": 5.465,
 	};
 	for (const [name, z] of Object.entries(panels)) {
-		const panel = new THREE.Mesh(new THREE.BoxGeometry(0.02, 2.08, 0.89));
-		panel.name = name;
+		// 実際の glb と同じく、本体はメッシュを持たず、板のメッシュは名前なしの子（量子化で切り出された）。
+		const panel = named(new THREE.Group(), name);
+		panel.add(new THREE.Mesh(new THREE.BoxGeometry(0.02, 2.08, 0.89)));
 		panel.position.set(0, 0, z - 4.15);
 		axis.add(panel);
 	}
 	root.updateMatrixWorld(true);
 	const panel = (name: string) => {
-		const found = root.getObjectByName(name);
+		let found: THREE.Object3D | undefined;
+		root.traverse((node) => {
+			if (node.userData.name === name) found = node;
+		});
 		if (found === undefined) throw new Error(name);
 		return found;
 	};

@@ -48,7 +48,7 @@ GitHub のリポジトリは公開なので、ステージとキャラクター�
 | 平屋の元データの調査結果 | `assets-src/converted/house/source-fbx.json`、`source-blend.json` | しない |
 | ゲームが読み込む glb（各自の手元） | `apps/web/public/models/` | しない |
 | 素材の配信の確認用（立方体と manifest.json） | `assets-src/test/` | しない |
-| 変換・調査のスクリプト | `tools/make_test_glb.mjs`、`tools/fbx_to_glb.py`、`tools/inspect_rig.py`、`tools/inspect_glb.mjs`、`tools/prepare_house.mjs`、`tools/build_house.mjs`、`tools/list_doors.mjs`、`tools/house_plan.mjs`、`tools/inspect_house_source.py`、`tools/make_manifest.mjs`、`tools/serve-assets.mjs`（手元から素材を配る。docs/e2e.md）、`tools/floor_heights.mjs`（平屋の床の高さを測る）、`tools/wall_heights.mjs`（平屋の壁・襖・欄間の高さを測る） | する |
+| 変換・調査のスクリプト | `tools/make_test_glb.mjs`、`tools/fbx_to_glb.py`、`tools/inspect_rig.py`、`tools/inspect_glb.mjs`、`tools/prepare_house.mjs`、`tools/build_house.mjs`、`tools/list_doors.mjs`、`tools/house_plan.mjs`、`tools/inspect_house_source.py`、`tools/make_manifest.mjs`、`tools/serve-assets.mjs`（手元から素材を配る。docs/e2e.md）、`tools/floor_heights.mjs`（平屋の床の高さを測る）、`tools/wall_heights.mjs`（平屋の壁・襖・欄間の高さを測る）、`tools/furniture_boxes.mjs`（平屋の家具の箱を取り出す）、`tools/check_camera_hiraya.mjs`（平屋のカメラのめり込みを全探索する） | する |
 
 ## 必要なもの
 
@@ -234,6 +234,7 @@ node tools/build_house.mjs assets-src/house/hiraya.glb assets-src/converted/hous
 | 屋内本体 | 建物、家具・設備、戸・障子・欄間、縁側、地面、玄関階段 | `hiraya-indoor-{512,1024}.glb` |
 | 屋外の飾り | 木、低木、塀1・塀2、門まわり（表札、郵便受け、インターホン子機、門灯）、縁側の踏み石 | `hiraya-outdoor-{512,1024}.glb` |
 | 屋根と天井 | 寄棟屋根、天井（ゲームの側で表示を切り替える） | `hiraya-roof-{512,1024}.glb` |
+| 家具の箱 | メッシュは持たず、scene の extras（`rondoFurniture`）に家具の箱（AABB）の一覧だけを入れたもの。カメラの守りに使う（`tools/furniture_boxes.mjs` で、元の `hiraya-fbx.glb` から作る。512 と 1024 は同じ中身） | `hiraya-furniture-{512,1024}.glb` |
 
 - 白背景のシーンを取り除き、LineArt と、浴室の外にあるシャワーの部品（お風呂 シャワー Curve。浴室の床の範囲の外にあるときだけ）と、中身の無い末端のノード（メッシュも子も無いもの。繰り返し）を取り除く。取り除いた名前と数、切り抜き用の箱の数、グループごとのトップレベルのノードは標準出力に出す
 - 同じ形のメッシュ（低木_A など）は、インスタンス（`EXT_mesh_gpu_instancing`）にまとめる。動かさない部品は材質ごとに統合する（join）
@@ -333,6 +334,12 @@ node tools/house_plan.mjs assets-src/house/hiraya-preview.glb assets-src/house/p
 mkdir -p assets-src/delivery/v1/test assets-src/delivery/v2/house
 cp assets-src/test/v1/test/*.glb assets-src/delivery/v1/test/
 cp assets-src/converted/house-fbx-meshopt/*.glb assets-src/delivery/v2/house/
+
+# 1b. 家具の箱の glb を作る（カメラの守り。元の glb から。--list で箱の一覧も出す）
+node tools/furniture_boxes.mjs assets-src/house/hiraya-fbx.glb assets-src/delivery/v2/house
+
+# 1c. 実データで、カメラのめり込みを全探索する（めり込みが 0 件なら終了コード 0）
+node tools/check_camera_hiraya.mjs
 
 # 2. manifest.json を作る（assets-src/delivery/manifest.json。上書きする）
 node tools/make_manifest.mjs assets-src/delivery

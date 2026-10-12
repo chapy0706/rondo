@@ -37,3 +37,14 @@ describe("VirtualPadSource", () => {
 		expect(seen).toEqual([1]);
 	});
 });
+
+describe("VirtualPadSource.set - 向きをそのまま設定する", () => {
+	it("設定した向きを読め、購読者に知らせる。-1〜1 に丸める", () => {
+		const source = new VirtualPadSource();
+		const seen: { x: number; y: number }[] = [];
+		source.subscribe((direction) => seen.push(direction));
+		source.set({ x: 0.5, y: -2 });
+		expect(source.read()).toEqual({ x: 0.5, y: -1 });
+		expect(seen).toEqual([{ x: 0.5, y: -1 }]);
+	});
+});
