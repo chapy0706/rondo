@@ -10,6 +10,7 @@
 
 import { VERYARE_MODEL_POSES, type VeryareModelPose } from "@rondo/contracts";
 import posesFixture from "../../../../../packages/contracts/src/fixtures/veryare-poses.json";
+import type { Phase, Role } from "./rules";
 
 /** ポーズが届かない人・未知の値のときの、既定の立ち姿。 */
 export const DEFAULT_POSE: VeryareModelPose = "idle";
@@ -68,4 +69,34 @@ export function pickNextPose(
 		Math.max(0, Math.floor(random() * choices.length)),
 	);
 	return choices[index] as VeryareModelPose;
+}
+
+/** ポーズを選んだとき、表示名を出しておく時間（ミリ秒 / issue-57）。 */
+export const POSE_NOTICE_MS = 1000;
+
+/**
+ * ポーズボタンを使えるか（issue-57）。準備移動とペイントフェーズの隠れ側（観戦でない）で、確定の
+ * 電文を送る前まで。待機ルーム（役割が決まる前）と、探索の開始以降は使えない。
+ */
+export function canChangePose(options: {
+	readonly phase: Phase;
+	readonly role: Role;
+	readonly spectator: boolean;
+	readonly submitted: boolean;
+}): boolean {
+	const { phase, role, spectator, submitted } = options;
+	return (
+		(phase === "preparation" || phase === "painting") &&
+		role === "hider" &&
+		!spectator &&
+		!submitted
+	);
+}
+
+/** 選んだポーズの表示名を出すか（押した時刻 pressedAt から POSE_NOTICE_MS の間）。 */
+export function poseNoticeVisible(
+	pressedAt: number | null,
+	now: number,
+): boolean {
+	return pressedAt !== null && now - pressedAt < POSE_NOTICE_MS;
 }

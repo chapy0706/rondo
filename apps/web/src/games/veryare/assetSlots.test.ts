@@ -145,22 +145,25 @@ describe("素材の流れの記録（開発中だけ Console に出す / assetTr
 	});
 });
 
-describe("characterSlot - キャラクターの素材（issue-56）", () => {
-	it("差し替え口を作ると、体とポーズの表の2つの key の読み込みを始める", async () => {
+describe("characterSlot - キャラクターの素材（issue-56 / issue-57）", () => {
+	it("差し替え口を作ると、体・ポーズの表・動きの3つの key の読み込みを始める", async () => {
 		const preload = vi.fn(async (key: string) => ok(key));
 		const slot = createVeryareAssets(preload).characterSlot();
 		expect(keysOf(preload)).toEqual([
 			CHARACTER_KEYS.body,
 			CHARACTER_KEYS.poses,
+			CHARACTER_KEYS.motions,
 		]);
 		expect(CHARACTER_KEYS).toEqual({
 			body: "character-body",
 			poses: "character-poses",
+			motions: "character-motions",
 		});
 		await settle();
 		expect(slot.take()).toEqual({
 			body: CHARACTER_KEYS.body,
 			poses: CHARACTER_KEYS.poses,
+			motions: CHARACTER_KEYS.motions,
 		});
 	});
 
@@ -174,11 +177,26 @@ describe("characterSlot - キャラクターの素材（issue-56）", () => {
 		}
 	});
 
-	it("combineCharacter: 両方読めたときだけ、まとめる（失敗は先の失敗の理由のまま）", () => {
-		expect(combineCharacter(ok("b"), ok("p"))).toEqual(
-			ok({ body: "b", poses: "p" }),
+	it("動きの素材だけが読めなければ、体とポーズの表は使い、動きは null（体は静止のまま / issue-57）", async () => {
+		const slot = createVeryareAssets(async (key: string) =>
+			key === CHARACTER_KEYS.motions ? failed : ok(key),
+		).characterSlot();
+		await settle();
+		expect(slot.take()).toEqual({
+			body: CHARACTER_KEYS.body,
+			poses: CHARACTER_KEYS.poses,
+			motions: null,
+		});
+	});
+
+	it("combineCharacter: 体とポーズの表が両方読めたときだけ、まとめる。動きは読めたときだけ使う", () => {
+		expect(combineCharacter(ok("b"), ok("p"), ok("m"))).toEqual(
+			ok({ body: "b", poses: "p", motions: "m" }),
 		);
-		expect(combineCharacter(failed, ok("p"))).toEqual(failed);
-		expect(combineCharacter(ok("b"), failed)).toEqual(failed);
+		expect(combineCharacter(ok("b"), ok("p"), failed)).toEqual(
+			ok({ body: "b", poses: "p", motions: null }),
+		);
+		expect(combineCharacter(failed, ok("p"), ok("m"))).toEqual(failed);
+		expect(combineCharacter(ok("b"), failed, ok("m"))).toEqual(failed);
 	});
 });

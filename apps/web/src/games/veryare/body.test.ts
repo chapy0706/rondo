@@ -3,6 +3,7 @@ import { describe, expect, it } from "vitest";
 import { createModelBodyKit, placeholderBodyKit } from "./body";
 import { POSE_EXTRAS_KEY, type PoseTable } from "./bodyPose";
 import { BODY_HEIGHT } from "./bodySize";
+import type { MotionSet } from "./motions";
 
 /**
  * 小さな素材の体: 骨2本（Hips が根、Spine が子）と、縦長の板のスキンつきメッシュ。板の下の四角は
@@ -221,6 +222,134 @@ describe("createModelBodyKit - 素材の体（スキンつき）", () => {
 		expect(box.max.y).toBeCloseTo(BODY_HEIGHT, 4);
 		const uv = body.pickUv(rayAt(body.object, new THREE.Vector3(0.1, 0.4, 0)));
 		expect(uv?.v).toBeCloseTo(0.25, 6);
+		body.dispose();
+	});
+});
+
+// --- 動き（issue-57） -------------------------------------------------------------------
+
+/** 偽の動き: 待機は Spine を少し傾けたまま、歩く・走るは Spine を回し、大きさと位置も変える。 */
+function fakeMotions(): MotionSet {
+	const turn = (deg: number) => {
+		const q = new THREE.Quaternion().setFromAxisAngle(
+			new THREE.Vector3(1, 0, 0),
+			(deg * Math.PI) / 180,
+		);
+		return [q.x, q.y, q.z, q.w];
+	};
+	const walk = new THREE.AnimationClip("walk", 1, [
+		new THREE.QuaternionKeyframeTrack(
+			"mixamorigSpine.quaternion",
+			[0, 0.5, 1],
+			[...turn(0), ...turn(60), ...turn(0)],
+		),
+		new THREE.VectorKeyframeTrack(
+			"mixamorigSpine.scale",
+			[0, 1],
+			[1.5, 1.5, 1.5, 1.5, 1.5, 1.5],
+		),
+		new THREE.VectorKeyframeTrack(
+			"mixamorigSpine.position",
+			[0, 1],
+			[0, 1.3, 0, 0, 1.3, 0],
+		),
+	]);
+	const idle = new THREE.AnimationClip("idle", 1, [
+		new THREE.QuaternionKeyframeTrack(
+			"mixamorigSpine.quaternion",
+			[0, 1],
+			[...turn(5), ...turn(5)],
+		),
+	]);
+	const run = walk.clone();
+	run.name = "run";
+	return { clips: { idle, walk, run }, speeds: { walk: 1.676, run: 4.672 } };
+}
+
+const spineOf = (body: { object: THREE.Object3D }) => {
+	let spine: THREE.Object3D | null = null;
+	body.object.traverse((node) => {
+		if (node.name === "mixamorigSpine") spine = node;
+	});
+	if (spine === null) throw new Error("Spine が無い");
+	return spine as THREE.Object3D;
+};
+
+const angleOf = (node: THREE.Object3D) =>
+	(2 * Math.acos(Math.min(1, Math.abs(node.quaternion.w))) * 180) / Math.PI;
+
+describe("体の動き（issue-57。AnimationMixer。偽の骨と偽の動き）", () => {
+	const kitWith = (motions: MotionSet | null) => {
+		const kit = createModelBodyKit(
+			tinyBody(),
+			posesGroup({ [POSE_EXTRAS_KEY]: table }),
+			motions,
+		);
+		if (kit === null) throw new Error("作れない");
+		return kit;
+	};
+
+	it("動きの素材があれば、歩く動きが骨に当たる。標準の速さは体の倍率を掛けた値", () => {
+		const kit = kitWith(fakeMotions());
+		expect(kit.motionSpeeds?.walk).toBeCloseTo(1.676 * (BODY_HEIGHT / 2), 9);
+		const body = kit.create(new THREE.Texture(), 0xffffff);
+		body.setAction({ kind: "walk" }, 1);
+		body.snap();
+		body.update(0.5);
+		expect(angleOf(spineOf(body))).toBeCloseTo(60, 3);
+		body.dispose();
+	});
+
+	it("再生の速さで、動きの進み方が変わる（2 倍なら、半分の時間で同じ姿勢）", () => {
+		const kit = kitWith(fakeMotions());
+		const body = kit.create(new THREE.Texture(), 0xffffff);
+		body.setAction({ kind: "walk" }, 2);
+		body.snap();
+		body.update(0.25);
+		expect(angleOf(spineOf(body))).toBeCloseTo(60, 3);
+		body.dispose();
+	});
+
+	it("歩くからポーズへ 0.2 秒で混ぜる。混ぜ終わると、前の動きの位置・回転・大きさが残らない", () => {
+		const kit = kitWith(fakeMotions());
+		const body = kit.create(new THREE.Texture(), 0xffffff);
+		body.setAction({ kind: "walk" }, 1);
+		body.snap();
+		body.update(0.5);
+		body.setAction({ kind: "pose", pose: "maleCrouch" }, 1);
+		body.update(0.1);
+		const mid = angleOf(spineOf(body));
+		// 混ぜている途中（歩くの 60° と、ポーズの 90° の間）。
+		expect(mid).toBeGreaterThan(60);
+		expect(mid).toBeLessThan(90);
+		body.update(0.3);
+		const spine = spineOf(body);
+		expect(angleOf(spine)).toBeCloseTo(90, 3);
+		expect(spine.scale.x).toBeCloseTo(1, 6);
+		expect(spine.position.y).toBeCloseTo(1, 6);
+		body.dispose();
+	});
+
+	it("動きの素材が無ければ、歩く・走るでも、静止した姿勢（idle）のまま。ポーズは静止した姿勢で当てる", () => {
+		const kit = kitWith(null);
+		expect(kit.motionSpeeds).toBeNull();
+		const body = kit.create(new THREE.Texture(), 0xffffff);
+		body.setAction({ kind: "run" }, 1);
+		body.update(0.5);
+		expect(angleOf(spineOf(body))).toBeCloseTo(0, 6);
+		body.setAction({ kind: "pose", pose: "maleCrouch" }, 1);
+		body.update(0.5);
+		expect(angleOf(spineOf(body))).toBeCloseTo(90, 3);
+		body.dispose();
+	});
+
+	it("仮のカプセルは、動きを付けない（何を設定しても、そのまま）", () => {
+		expect(placeholderBodyKit.motionSpeeds).toBeNull();
+		const body = placeholderBodyKit.create(null, 0xffffff);
+		const before = body.object.children.map((c) => c.position.clone());
+		body.setAction({ kind: "run" }, 1.2);
+		body.update(0.5);
+		expect(body.object.children.map((c) => c.position)).toEqual(before);
 		body.dispose();
 	});
 });

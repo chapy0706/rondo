@@ -42,6 +42,9 @@ function loader(): AssetLoader<LoadedGlb> {
 				const loader = new GLTFLoader();
 				if (decoder !== null) loader.setMeshoptDecoder(decoder);
 				const gltf = await loader.parseAsync(data, "");
+				// 動き（キャラクターの動きの素材 / issue-57）は、シーンの animations に写して渡す
+				// （three の Object3D が持つ欄。ゲームはシーンだけを受け取るため）。
+				gltf.scene.animations = gltf.animations;
 				return { scene: gltf.scene };
 			},
 		}),

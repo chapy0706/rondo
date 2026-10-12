@@ -626,6 +626,7 @@ export default function Veryare() {
 		showPaintPanel,
 		aim,
 		pose,
+		poseChosen,
 		bodyPosable,
 		setBodyPosable,
 	});
@@ -655,6 +656,7 @@ export default function Veryare() {
 		showPaintPanel,
 		aim,
 		pose,
+		poseChosen,
 		bodyPosable,
 		setBodyPosable,
 	};
@@ -800,7 +802,8 @@ export default function Veryare() {
 				scene.setSelfOni(current.selfOni ? selfFacing : null);
 				// 自分の体の向きとポーズ（issue-56）。ポーズを変えたときは、シーンがなめらかに寄せる。
 				scene.setAvatarFacing(selfFacing);
-				scene.setAvatarPose(current.pose);
+				// 選んだポーズ（押していなければ null）。静止の指定（ペイント以降・確定後）は、後半で入れる。
+				scene.setAvatarPose(current.poseChosen ? current.pose : null, false);
 				const posable = scene.bodyPosable();
 				if (posable !== current.bodyPosable) current.setBodyPosable(posable);
 				scene.setAim(current.aim);

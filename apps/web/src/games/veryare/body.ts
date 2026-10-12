@@ -21,6 +21,7 @@ import { clone as cloneSkinned } from "three/examples/jsm/utils/SkeletonUtils.js
 import {
 	type PoseTable,
 	bindPointOfFace,
+	bodyScale,
 	followOffset,
 	normalizeMatrix,
 	parsePoseTable,
@@ -28,6 +29,9 @@ import {
 	uvOfBindPoint,
 } from "./bodyPose";
 import { PLACEHOLDER_CAPSULE } from "./bodySize";
+import { poseClip } from "./motionClips";
+import { type BodyAction, MOTION_FADE_SECONDS } from "./motionState";
+import type { MotionSet } from "./motions";
 import {
 	BODY_CYLINDER,
 	PAINT_TEXTURE,
@@ -42,11 +46,17 @@ export interface BodyInstance {
 	readonly object: THREE.Object3D;
 	/** 体の材質（点滅・半透明に使う）。 */
 	readonly materials: readonly THREE.MeshStandardMaterial[];
-	/** ポーズを変える（仮のカプセルでは何もしない）。補正は update で寄せる。 */
+	/** ポーズを変える（setAction のポーズと同じ）。仮のカプセルでは何もしない。 */
 	setPose(pose: VeryareModelPose): void;
-	/** ポーズの補正（足もと・水平の中心）を、dt 秒ぶん寄せる。 */
+	/**
+	 * 動きの状態を設定する（issue-57）。待機・歩く・走る・ポーズ。rate は再生の速さ（歩く・走る）。
+	 * 動きの素材があれば、MOTION_FADE_SECONDS で混ぜて移る。無ければ、ポーズは静止した姿勢、待機・
+	 * 歩く・走るは idle の静止した姿勢。仮のカプセルでは何もしない。補正は update で寄せる。
+	 */
+	setAction(action: BodyAction, rate: number): void;
+	/** 動きを dt 秒ぶん進め、ポーズの補正（足もと・水平の中心）を寄せる。 */
 	update(dtSeconds: number): void;
-	/** ポーズの補正を、寄せずに合わせる（作った直後・見え始めたとき）。 */
+	/** 動きの混ぜとポーズの補正を、寄せずに合わせる（作った直後・見え始めたとき）。 */
 	snap(): void;
 	/** いまの補正（体の座標）。 */
 	offset(): Vec3;
@@ -59,6 +69,10 @@ export interface BodyInstance {
 export interface BodyKit {
 	/** ポーズを変えられるか（素材の体だけ。ポーズボタンを出すかに使う）。 */
 	readonly posable: boolean;
+	/**
+	 * 歩く・走るの標準の速さ（体の座標。m/秒）。動きの素材があるときだけ。無ければ null（動きなし）。
+	 */
+	readonly motionSpeeds: { readonly walk: number; readonly run: number } | null;
 	create(paint: THREE.Texture | null, tint: number): BodyInstance;
 }
 
@@ -67,6 +81,7 @@ const ZERO: Vec3 = { x: 0, y: 0, z: 0 };
 /** 仮の体（カプセル。足もとから BODY_HEIGHT まで）。 */
 export const placeholderBodyKit: BodyKit = {
 	posable: false,
+	motionSpeeds: null,
 	create(paint, tint) {
 		const { radius, length, centerY } = PLACEHOLDER_CAPSULE;
 		const frame = new THREE.Matrix4().makeTranslation(0, centerY, 0);
@@ -85,6 +100,7 @@ export const placeholderBodyKit: BodyKit = {
 			object,
 			materials: [material],
 			setPose: () => undefined,
+			setAction: () => undefined,
 			update: () => undefined,
 			snap: () => undefined,
 			offset: () => ZERO,
@@ -119,6 +135,7 @@ function originalName(node: THREE.Object3D): string {
 export function createModelBodyKit(
 	body: THREE.Object3D,
 	poses: THREE.Object3D,
+	motions: MotionSet | null = null,
 ): BodyKit | null {
 	const table = parsePoseTable(poses.userData);
 	if (table === null) return null;
@@ -132,9 +149,18 @@ export function createModelBodyKit(
 		return null;
 	}
 	const normalize = new THREE.Matrix4().fromArray(normalizeMatrix(table));
+	const scale = bodyScale(table);
 	return {
 		posable: true,
-		create: (paint, tint) => modelInstance(body, table, normalize, paint, tint),
+		motionSpeeds:
+			motions === null
+				? null
+				: {
+						walk: motions.speeds.walk * scale,
+						run: motions.speeds.run * scale,
+					},
+		create: (paint, tint) =>
+			modelInstance(body, table, normalize, motions, paint, tint),
 	};
 }
 
@@ -142,6 +168,7 @@ function modelInstance(
 	source: THREE.Object3D,
 	table: PoseTable,
 	normalize: THREE.Matrix4,
+	motions: MotionSet | null,
 	paint: THREE.Texture | null,
 	tint: number,
 ): BodyInstance {
@@ -213,26 +240,88 @@ function modelInstance(
 	applyPose();
 	place();
 
+	// 動き（issue-57）。体は骨ごと複製しているので、体ごとに1つの AnimationMixer を持つ。
+	const mixer = motions === null ? null : new THREE.AnimationMixer(model);
+	const nodeNames = new Map(
+		table.joints.flatMap((joint) => {
+			const bone = bonesByName.get(joint);
+			return bone === undefined ? [] : [[joint, bone.name] as const];
+		}),
+	);
+	const clips = new Map<string, THREE.AnimationAction>();
+	const actionOf = (action: BodyAction): THREE.AnimationAction | null => {
+		if (mixer === null || motions === null) return null;
+		const key = action.kind === "pose" ? `pose:${action.pose}` : action.kind;
+		let found = clips.get(key);
+		if (found === undefined) {
+			const clip =
+				action.kind === "pose"
+					? poseClip(table, action.pose, nodeNames)
+					: motions.clips[action.kind];
+			found = mixer.clipAction(clip);
+			found.setLoop(THREE.LoopRepeat, Number.POSITIVE_INFINITY);
+			clips.set(key, found);
+		}
+		return found;
+	};
+	let playing: THREE.AnimationAction | null = null;
+
+	const setAction = (action: BodyAction, rate: number) => {
+		const staticPose = action.kind === "pose" ? action.pose : DEFAULT_POSE;
+		target = poseOffset(table, staticPose);
+		const next = actionOf(action);
+		if (next === null) {
+			// 動きの素材が無い: 静止した姿勢（待機・歩く・走るは idle）。
+			if (staticPose === pose) return;
+			pose = staticPose;
+			applyPose();
+			return;
+		}
+		next.setEffectiveTimeScale(rate);
+		if (next === playing) return;
+		next.reset();
+		next.setEffectiveWeight(1);
+		next.play();
+		if (playing !== null) playing.crossFadeTo(next, MOTION_FADE_SECONDS, false);
+		playing = next;
+	};
+	// 動きの素材があれば、最初は idle のポーズの動きで始める（静止した姿勢と同じ見た目）。
+	if (mixer !== null) {
+		setAction({ kind: "pose", pose: DEFAULT_POSE }, 1);
+		mixer.update(0);
+	}
+
 	return {
 		object,
 		materials,
 		setPose(next) {
-			if (next === pose) return;
-			pose = next;
-			applyPose();
-			target = poseOffset(table, pose);
+			setAction({ kind: "pose", pose: next }, 1);
 		},
+		setAction,
 		update(dt) {
+			mixer?.update(dt);
 			current = followOffset(current, target, dt);
 			place();
 		},
 		snap() {
+			if (mixer !== null && playing !== null) {
+				for (const action of clips.values()) {
+					if (action !== playing) action.stop();
+				}
+				playing.stopFading();
+				playing.setEffectiveWeight(1);
+				mixer.update(0);
+			}
 			current = target;
 			place();
 		},
 		offset: () => current,
 		pickUv(raycaster) {
 			object.updateMatrixWorld(true);
+			// 動いている体は、当たりの外接球を、いまの姿勢で作り直す（タップのときだけ）。
+			if (mixer !== null) {
+				for (const mesh of meshes) mesh.computeBoundingSphere();
+			}
 			const [hit] = raycaster.intersectObjects(meshes, false);
 			if (hit === undefined || hit.face == null || hit.barycoord == null) {
 				return null;
@@ -256,6 +345,7 @@ function modelInstance(
 			return uvOfBindPoint(frame.elements, bind);
 		},
 		dispose() {
+			mixer?.stopAllAction();
 			for (const material of materials) material.dispose();
 		},
 	};

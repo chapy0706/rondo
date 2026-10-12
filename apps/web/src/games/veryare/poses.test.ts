@@ -3,11 +3,14 @@ import { describe, expect, it } from "vitest";
 import posesFixture from "../../../../../packages/contracts/src/fixtures/veryare-poses.json";
 import {
 	DEFAULT_POSE,
+	POSE_NOTICE_MS,
 	RANDOM_POSE_POOL,
+	canChangePose,
 	modelPoseOf,
 	parseModelPose,
 	pickNextPose,
 	poseLabel,
+	poseNoticeVisible,
 } from "./poses";
 
 describe("ポーズの一覧と対応（issue-56 / 共有の見本 veryare-poses.json）", () => {
@@ -87,5 +90,45 @@ describe("pickNextPose - ポーズボタン（乱数を注入できる）", () =
 
 	it("プールが1つで、いまのポーズと同じなら、そのまま（ほかに選べない）", () => {
 		expect(pickNextPose("idle", ["idle"], () => 0.3)).toBe("idle");
+	});
+});
+
+describe("canChangePose - ポーズボタンを使える時期（issue-57）", () => {
+	const base = {
+		phase: "preparation" as const,
+		role: "hider" as const,
+		spectator: false,
+		submitted: false,
+	};
+
+	it("準備移動とペイントフェーズの隠れ側だけ。確定の電文を送る前まで", () => {
+		expect(canChangePose(base)).toBe(true);
+		expect(canChangePose({ ...base, phase: "painting" })).toBe(true);
+		expect(canChangePose({ ...base, phase: "painting", submitted: true })).toBe(
+			false,
+		);
+	});
+
+	it("待機ルーム（鬼選出）・探索の開始以降・鬼・観戦者は使えない", () => {
+		for (const phase of [
+			"oni-selection",
+			"exploration",
+			"reveal",
+			"ended",
+		] as const) {
+			expect(canChangePose({ ...base, phase })).toBe(false);
+		}
+		expect(canChangePose({ ...base, role: "oni" })).toBe(false);
+		expect(canChangePose({ ...base, spectator: true })).toBe(false);
+	});
+});
+
+describe("poseNoticeVisible - 押したとき、選んだポーズの表示名を短く出す", () => {
+	it("押してから 1 秒の間だけ出す。押していなければ出さない", () => {
+		expect(POSE_NOTICE_MS).toBe(1000);
+		expect(poseNoticeVisible(null, 5000)).toBe(false);
+		expect(poseNoticeVisible(1000, 1000)).toBe(true);
+		expect(poseNoticeVisible(1000, 1999)).toBe(true);
+		expect(poseNoticeVisible(1000, 2000)).toBe(false);
 	});
 });

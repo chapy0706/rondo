@@ -74,6 +74,15 @@ import {
 	isHirayaStage,
 	swingAngle,
 } from "./hiraya";
+import {
+	type BodyAction,
+	INITIAL_MOTION,
+	type MotionState,
+	playbackRate,
+	smoothSpeed,
+	stepMotion,
+} from "./motionState";
+import { parseMotionSet } from "./motions";
 import { DEFAULT_POSE, modelPoseOf } from "./poses";
 import type { View } from "./rules";
 import {
@@ -139,8 +148,12 @@ export interface VeryareScene extends TestableScene {
 	 * （ペイントフェーズで描いている途中を含む / issue-25）。
 	 */
 	setAvatar(position: Point, color: string, paint: VeryarePaint | null): void;
-	/** 自分の体のポーズ（issue-56）。素材の体のときだけ変わる（仮のカプセルでは何もしない）。 */
-	setAvatarPose(pose: VeryareModelPose): void;
+	/**
+	 * 自分の体の、選んだポーズ（issue-56。選んでいなければ null）と、静止の指定（issue-57。ペイント
+	 * フェーズ・確定のあと）。体は、実際に進んだ距離から求めた速さで、待機・歩く・走る・ポーズを切り替える
+	 * （motionState.ts）。素材の体のときだけ変わる（仮のカプセルでは何もしない）。
+	 */
+	setAvatarPose(chosen: VeryareModelPose | null, fixed: boolean): void;
 	/** 自分の体の向き（サーバーの向き。x 軸から z 軸へ）。null なら変えない。 */
 	setAvatarFacing(facing: number | null): void;
 	/** 素材の体に差し替えたか（ポーズボタンを出すかに使う / issue-56）。 */
@@ -400,7 +413,15 @@ export function createScene(
 	let bodyKit: BodyKit = placeholderBodyKit;
 	const avatarSurface = createPaintSurface();
 	let avatar = bodyKit.create(avatarSurface.texture, 0xffffff);
-	let avatarPose: VeryareModelPose = DEFAULT_POSE;
+	/** 自分の体の動き（issue-57）: 選んだポーズ、静止の指定、ならした速さ、状態、いま当てている動き。 */
+	let avatarChosen: VeryareModelPose | null = null;
+	let avatarFixed = false;
+	let avatarSpeed = 0;
+	let avatarMotion: MotionState = INITIAL_MOTION;
+	let avatarAction: BodyAction = { kind: "pose", pose: DEFAULT_POSE };
+	let avatarRate = 1;
+	/** 前の描画での、自分の体の位置（進んだ距離を求める）。 */
+	let avatarLast: { x: number; z: number } | null = null;
 	scene.add(avatar.object);
 	/**
 	 * 体を作る口が替わったら、自分の体と鬼の体を作り直す（位置・向き・ポーズ・見え方はそのまま）。
@@ -413,7 +434,7 @@ export function createScene(
 		next.object.position.copy(avatar.object.position);
 		next.object.rotation.copy(avatar.object.rotation);
 		next.object.visible = avatar.object.visible;
-		next.setPose(avatarPose);
+		next.setAction(avatarAction, avatarRate);
 		next.snap();
 		scene.remove(avatar.object);
 		avatar.dispose();
@@ -729,7 +750,10 @@ export function createScene(
 				// キャラクターの素材の差し替えも、待機ルームにいる間だけ（issue-56）。
 				const parts = options.bodies?.take();
 				if (parts != null) {
-					const kit = createModelBodyKit(parts.body, parts.poses);
+					// 動きの素材（issue-57）は、読めて形が正しいときだけ使う（無ければ静止した姿勢）。
+					const motions =
+						parts.motions === null ? null : parseMotionSet(parts.motions);
+					const kit = createModelBodyKit(parts.body, parts.poses, motions);
 					if (kit !== null) useBodyKit(kit);
 					options.trace?.({ kind: "character", swapped: kit !== null });
 				}
@@ -766,9 +790,9 @@ export function createScene(
 			avatar.object.position.z = position.z;
 			avatarSurface.draw(color, paint);
 		},
-		setAvatarPose(pose) {
-			avatarPose = pose;
-			avatar.setPose(pose);
+		setAvatarPose(chosen, fixed) {
+			avatarChosen = chosen;
+			avatarFixed = fixed;
 		},
 		setAvatarFacing(facing) {
 			if (facing !== null) avatar.object.rotation.y = turnOf(facing);
@@ -995,8 +1019,39 @@ export function createScene(
 				? avatarFloor
 				: followFloor(avatarFeet, avatarFloor, dt);
 			avatar.object.position.y = avatarFeet;
-			// ポーズを変えたときの補正（足もと・水平の中心）を、なめらかに寄せる（issue-56）。
-			avatar.update(dt);
+			// 自分の体の動き（issue-57）。実際に進んだ距離（壁で止まった後の手元の位置）から速さを求め、
+			// 待機・歩く・走る・ポーズを切り替える。空間が変わった直後は、位置が飛ぶので速さを 0 にする。
+			// 見えているときだけ更新する（鬼本人の画面で、鬼の体に替わっている間は止める）。
+			if (avatar.object.visible) {
+				const here = {
+					x: avatar.object.position.x,
+					z: avatar.object.position.z,
+				};
+				const moved =
+					jumped || avatarLast === null
+						? 0
+						: Math.hypot(here.x - avatarLast.x, here.z - avatarLast.z);
+				avatarLast = here;
+				avatarSpeed = jumped ? 0 : smoothSpeed(avatarSpeed, moved, dt);
+				const step = stepMotion(avatarMotion, {
+					speed: avatarSpeed,
+					dt,
+					chosen: avatarChosen,
+					fixed: avatarFixed,
+				});
+				avatarMotion = step.state;
+				avatarAction = step.action;
+				const speeds = bodyKit.motionSpeeds;
+				avatarRate =
+					speeds === null || step.action.kind === "pose"
+						? 1
+						: playbackRate(step.action.kind, avatarSpeed, speeds);
+				avatar.setAction(avatarAction, avatarRate);
+				// 動きを進め、ポーズの補正（足もと・水平の中心）をなめらかに寄せる（issue-56）。
+				avatar.update(dt);
+			} else {
+				avatarLast = null;
+			}
 			// 鬼本人の体は、自分の体と同じ位置（手元の位置）に、足もとを合わせて置く。
 			selfOni.position.set(
 				avatar.object.position.x,

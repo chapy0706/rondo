@@ -11,8 +11,9 @@
  *   捨てない。2回目以降の対戦は、新しい差し替え口で読み直す（ブラウザのキャッシュから届く）。
  *   前の対戦の後片付けで three のメッシュを解放するため、同じものを使い回さない
  * - 入口は画面全体で1つ（gameAssets）。ロビーとゲームの画面が同じものを使う
- * - キャラクター（issue-56）: 体（X Bot）とポーズの表の2つの glb を読み、1つの差し替え口にまとめる。
- *   どちらかが読めなければ、仮のカプセルのまま（警告は出さない）。対戦の画面を開いた時点で読み始め、
+ * - キャラクター（issue-56 / issue-57）: 体（X Bot）・ポーズの表・動きの3つの glb を読み、1つの差し替え口に
+ *   まとめる。体かポーズの表が読めなければ、仮のカプセルのまま。動きだけが読めなければ、体は静止した
+ *   姿勢のまま（どちらも警告は出さない）。対戦の画面を開いた時点で読み始め、
  *   待機ルームにいる間に差し替える（シーンの bodies の受け口）
  *
  * 差し替えるのは、待機ルームにいる間だけ（シーンが take() し、ステージへ移ったら lock() する）。
@@ -41,22 +42,35 @@ export const HIRAYA_KEYS = {
 export const CHARACTER_KEYS = {
 	body: "character-body",
 	poses: "character-poses",
+	motions: "character-motions",
 } as const;
 
-/** キャラクターの2つの glb（体と、ポーズの表）。 */
+/** キャラクターの3つの glb（体、ポーズの表、動き）。動きは、読めなければ null（体は静止のまま）。 */
 export interface CharacterParts<T> {
 	readonly body: T;
 	readonly poses: T;
+	readonly motions: T | null;
 }
 
-/** 2つの読み込みの結果を1つにまとめる。どちらかが読めなければ、その失敗のまま（体を先に見る）。 */
+/**
+ * 3つの読み込みの結果を1つにまとめる。体とポーズの表のどちらかが読めなければ、その失敗のまま
+ * （体を先に見る）。動き（issue-57）は省略できる。
+ */
 export function combineCharacter<T>(
 	body: LoadResult<T>,
 	poses: LoadResult<T>,
+	motions: LoadResult<T>,
 ): LoadResult<CharacterParts<T>> {
 	if (!body.ok) return body;
 	if (!poses.ok) return poses;
-	return { ok: true, value: { body: body.value, poses: poses.value } };
+	return {
+		ok: true,
+		value: {
+			body: body.value,
+			poses: poses.value,
+			motions: motions.ok ? motions.value : null,
+		},
+	};
 }
 
 /** 平屋の4つの glb。屋外の飾り・屋根・家具の箱は、読めなければ null。 */
@@ -150,7 +164,8 @@ export function createVeryareAssets<T>(
 			const pending = Promise.all([
 				preload(CHARACTER_KEYS.body),
 				preload(CHARACTER_KEYS.poses),
-			]).then(([body, poses]) => {
+				preload(CHARACTER_KEYS.motions),
+			]).then(([body, poses, motions]) => {
 				trace({
 					kind: "load",
 					key: CHARACTER_KEYS.body,
@@ -163,7 +178,13 @@ export function createVeryareAssets<T>(
 					ok: poses.ok,
 					...(poses.ok ? {} : { reason: poses.reason }),
 				});
-				return combineCharacter(body, poses);
+				trace({
+					kind: "load",
+					key: CHARACTER_KEYS.motions,
+					ok: motions.ok,
+					...(motions.ok ? {} : { reason: motions.reason }),
+				});
+				return combineCharacter(body, poses, motions);
 			});
 			return createSwapSlot(pending);
 		},
