@@ -137,7 +137,7 @@ pub fn payload_round_trips_test() {
 
 /// ポーズ（issue-56）: ポーズだけの確定と、ペイントとポーズの確定を読む。
 pub fn pose_samples_test() {
-  let assert [_, _, pose_only, both] = items(at(fixture(), ["valid"]))
+  let assert [_, _, pose_only, both, ..] = items(at(fixture(), ["valid"]))
   let assert Ok(paint.Confirm(strokes: None, pose: Some("maleCrouch"))) =
     decode.run(pose_only, paint.event_decoder())
   let assert Ok(paint.Confirm(strokes: Some(_), pose: Some("femaleDance"))) =
@@ -151,4 +151,20 @@ pub fn unknown_pose_is_treated_as_null_test() {
     decode.run(at(unknown, ["withPaint"]), paint.event_decoder())
   decode.run(at(unknown, ["withoutPaint"]), paint.event_decoder())
   |> should.be_error
+}
+
+/// 5部位（issue-54）: 腕・脚のストロークを読み、一括配信に同じ部位の名前で載せる。
+pub fn limb_parts_round_trip_test() {
+  let assert [_, _, _, _, limbs] = items(at(fixture(), ["valid"]))
+  let assert Ok(paint.Confirm(strokes: Some(strokes), pose: None)) =
+    decode.run(limbs, paint.event_decoder())
+  list.map(strokes, fn(s) { s.part })
+  |> should.equal([paint.LeftArm, paint.RightArm, paint.LeftLeg, paint.RightLeg])
+  let sent = over_the_wire(paint.payload(strokes))
+  decode.run(sent, paint.paint_decoder()) |> should.equal(Ok(strokes))
+  decode.run(
+    sent,
+    decode.at(["strokes"], decode.list(decode.at(["part"], decode.string))),
+  )
+  |> should.equal(Ok(["left-arm", "right-arm", "left-leg", "right-leg"]))
 }

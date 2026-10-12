@@ -35,6 +35,7 @@
 import type {
 	VeryareModelPose,
 	VeryarePaint,
+	VeryarePaintPart,
 	VeryarePose,
 } from "@rondo/contracts";
 import * as THREE from "three";
@@ -270,7 +271,13 @@ export interface SceneHider {
 }
 
 export type PaintPick =
-	| { readonly kind: "body"; readonly u: number; readonly v: number }
+	| {
+			readonly kind: "body";
+			/** 当たった部位（issue-54。仮のカプセルは胴）。 */
+			readonly part: VeryarePaintPart;
+			readonly u: number;
+			readonly v: number;
+	  }
 	| { readonly kind: "stage"; readonly color: string };
 
 export interface SceneOptions {
@@ -1087,7 +1094,7 @@ export function createScene(
 			const body = avatar.pickUv(raycaster);
 			// 体に当たれば、体を先にする（カメラが壁の裏に回っても、自分の体には描ける。
 			// カメラの壁へのめり込みは許容している / ADR 0034）。
-			if (body !== null) return { kind: "body", u: body.u, v: body.v };
+			if (body !== null) return { kind: "body", ...body };
 			// 平屋の glb を表示している間は、見えている一番手前の面の見た目の色（素材の色とテクスチャ）。
 			// 屋根・天井（隠れているとき）・見えない箱・ガラス・体の描画は拾わない（surfaceColor.ts）。
 			if (modelShown() && spaces.stage.visible) {

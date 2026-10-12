@@ -226,6 +226,143 @@ describe("createModelBodyKit - 素材の体（スキンつき）", () => {
 	});
 });
 
+// --- 5部位（issue-54） -------------------------------------------------------------------
+
+/**
+ * 腕のある小さな素材の体: 胴の板（Hips に付く。x -0.3〜0.3、y 0〜2）と、横へ伸びた左腕の板（LeftArm に
+ * 付く。x 0.3〜1.0、y 1.7〜1.9）。基準姿勢の高さは 2.0（体の座標では 0.8 倍）。
+ */
+function armBody(): THREE.Group {
+	const hips = new THREE.Bone();
+	hips.name = "mixamorigHips";
+	hips.userData.name = "mixamorig:Hips";
+	const spine = new THREE.Bone();
+	spine.name = "mixamorigSpine";
+	spine.userData.name = "mixamorig:Spine";
+	spine.position.set(0, 1, 0);
+	const arm = new THREE.Bone();
+	arm.name = "mixamorigLeftArm";
+	arm.userData.name = "mixamorig:LeftArm";
+	arm.position.set(0.3, 0.8, 0);
+	const hand = new THREE.Bone();
+	hand.name = "mixamorigLeftHand";
+	hand.userData.name = "mixamorig:LeftHand";
+	hand.position.set(0.7, 0, 0);
+	hips.add(spine);
+	spine.add(arm);
+	arm.add(hand);
+	const geometry = new THREE.BufferGeometry();
+	geometry.setAttribute(
+		"position",
+		new THREE.Float32BufferAttribute(
+			[
+				// 胴の板
+				-0.3, 0, 0, 0.3, 0, 0, -0.3, 2, 0, 0.3, 2, 0,
+				// 左腕の板
+				0.3, 1.7, 0, 1.0, 1.7, 0, 0.3, 1.9, 0, 1.0, 1.9, 0,
+			],
+			3,
+		),
+	);
+	geometry.setIndex([0, 1, 2, 2, 1, 3, 4, 5, 6, 6, 5, 7]);
+	geometry.setAttribute(
+		"skinIndex",
+		new THREE.Uint16BufferAttribute(
+			[
+				...Array(4).fill([0, 0, 0, 0]).flat(),
+				...Array(4).fill([2, 0, 0, 0]).flat(),
+			],
+			4,
+		),
+	);
+	geometry.setAttribute(
+		"skinWeight",
+		new THREE.Float32BufferAttribute(Array(8).fill([1, 0, 0, 0]).flat(), 4),
+	);
+	const mesh = new THREE.SkinnedMesh(
+		geometry,
+		new THREE.MeshStandardMaterial(),
+	);
+	const root = new THREE.Group();
+	root.add(hips, mesh);
+	root.updateMatrixWorld(true);
+	mesh.bind(new THREE.Skeleton([hips, spine, arm, hand]));
+	return root;
+}
+
+describe("createModelBodyKit - 5部位（スキンの重みで部位を割り当てる）", () => {
+	it("頂点に部位の番号を付ける（胴 0、左腕 1）", () => {
+		const source = armBody();
+		const kit = createModelBodyKit(
+			source,
+			posesGroup({ [POSE_EXTRAS_KEY]: table }),
+		);
+		if (kit === null) throw new Error("作れない");
+		let parts: number[] = [];
+		source.traverse((node) => {
+			if (node instanceof THREE.SkinnedMesh) {
+				parts = [...node.geometry.getAttribute("paintPart").array];
+			}
+		});
+		expect(parts).toEqual([0, 0, 0, 0, 1, 1, 1, 1]);
+	});
+
+	it("腕をタップすると左腕の部位。根元から先へ v が増える。胴は胴のまま", () => {
+		const kit = createModelBodyKit(
+			armBody(),
+			posesGroup({ [POSE_EXTRAS_KEY]: table }),
+		);
+		if (kit === null) throw new Error("作れない");
+		const body = kit.create(new THREE.Texture(), 0xffffff);
+		// 体の座標は素材の 0.8 倍。腕の板は x 0.24〜0.8、y 1.36〜1.52。
+		const near = body.pickUv(
+			rayAt(body.object, new THREE.Vector3(0.3, 1.44, 0)),
+		);
+		const far = body.pickUv(
+			rayAt(body.object, new THREE.Vector3(0.7, 1.44, 0)),
+		);
+		expect(near?.part).toBe("left-arm");
+		expect(far?.part).toBe("left-arm");
+		expect(far?.v ?? 0).toBeGreaterThan(near?.v ?? 1);
+		// 腕の根元は上腕の関節（x 0.24）。先は手（x 0.8）。
+		expect(near?.v).toBeCloseTo((0.3 - 0.24) / (0.8 - 0.24), 4);
+		const torso = body.pickUv(
+			rayAt(body.object, new THREE.Vector3(0.1, 0.4, 0)),
+		);
+		expect(torso?.part).toBe("torso");
+		expect(torso?.v).toBeCloseTo(0.25, 6);
+		body.dispose();
+	});
+
+	it("腕の骨が1本しかなく円柱が作れない部位の頂点は、胴として描く", () => {
+		const source = armBody();
+		source.traverse((node) => {
+			// 手の骨を胴の骨の名前にする（左腕の骨は上腕の1本だけになる）。
+			if (node instanceof THREE.Bone && node.name === "mixamorigLeftHand") {
+				node.userData.name = "mixamorig:Spine1";
+			}
+		});
+		const kit = createModelBodyKit(
+			source,
+			posesGroup({ [POSE_EXTRAS_KEY]: table }),
+		);
+		if (kit === null) throw new Error("作れない");
+		const body = kit.create(new THREE.Texture(), 0xffffff);
+		const hit = body.pickUv(
+			rayAt(body.object, new THREE.Vector3(0.7, 1.44, 0)),
+		);
+		expect(hit?.part).toBe("torso");
+		body.dispose();
+	});
+
+	it("仮のカプセルは、いつも胴", () => {
+		const body = placeholderBodyKit.create(new THREE.Texture(), 0xffffff);
+		const hit = body.pickUv(rayAt(body.object, new THREE.Vector3(0, 0.8, 0)));
+		expect(hit?.part).toBe("torso");
+		body.dispose();
+	});
+});
+
 // --- 動き（issue-57） -------------------------------------------------------------------
 
 /** 偽の動き: 待機は Spine を少し傾けたまま、歩く・走るは Spine を回し、大きさと位置も変える。 */

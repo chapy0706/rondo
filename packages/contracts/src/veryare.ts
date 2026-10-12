@@ -59,16 +59,27 @@ export interface VeryareUniformPaint {
 }
 
 /**
- * 人間のペイント（ADR 0037 の簡略版 / issue-25）。描き込み面は円柱で、面の上の位置は
- * 円柱を回る角度 u（0〜1）と高さ v（0 が足もと、1 が頭）。いまの部位は胴（体全体）だけ。
+ * 人間のペイント（ADR 0037 / issue-25・issue-54）。描き込み面は部位ごとの円柱で、面の上の位置は
+ * 円柱を回る角度 u（0〜1）と軸の向きの位置 v（0〜1。胴は 0 が足もと、1 が頭）。胴だけのペイント
+ * （issue-25 の形）も、そのまま読める。
  */
 export interface VeryareStrokesPaint {
 	readonly kind: "strokes";
 	readonly strokes: readonly VeryareStroke[];
 }
 
-/** 描き込み面の部位。5本円柱（ADR 0037）で "left-arm" などを足す。 */
-export type VeryarePaintPart = "torso";
+/**
+ * 描き込み面の部位（5本円柱 / ADR 0037・issue-54）。胴は頭を含む。u・v は部位ごとの円柱の上の位置
+ * （u は円柱を回る角度、v は軸の向きの位置。どちらも 0〜1）。
+ */
+export const VERYARE_PAINT_PARTS = [
+	"torso",
+	"left-arm",
+	"right-arm",
+	"left-leg",
+	"right-leg",
+] as const;
+export type VeryarePaintPart = (typeof VERYARE_PAINT_PARTS)[number];
 
 export interface VeryareStroke {
 	readonly part: VeryarePaintPart;

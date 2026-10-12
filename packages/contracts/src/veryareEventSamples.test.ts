@@ -8,6 +8,7 @@ import {
 	VERYARE_CPU_POSES,
 	VERYARE_MODEL_POSES,
 	VERYARE_PAINT_LIMITS,
+	VERYARE_PAINT_PARTS,
 } from "./veryare";
 import {
 	doorsNoticeSamples,
@@ -116,5 +117,23 @@ describe("veryare のポーズの見本（issue-56 / ADR 0009）", () => {
 			paint: null,
 			pose: null,
 		});
+	});
+
+	it("ペイントの部位（issue-54）: 受け付ける見本は5部位をすべて使い、一覧に無い部位は拒む見本", () => {
+		const parts = new Set(
+			paintFixture.valid.flatMap((e) =>
+				e.paint === null ? [] : e.paint.strokes.map((s) => s.part),
+			),
+		);
+		expect([...parts].sort()).toEqual([...VERYARE_PAINT_PARTS].sort());
+		const known = new Set<string>(VERYARE_PAINT_PARTS);
+		expect(
+			paintFixture.invalid.some(
+				(e) =>
+					e.paint != null &&
+					"strokes" in e.paint &&
+					e.paint.strokes.some((s) => !known.has(s.part)),
+			),
+		).toBe(true);
 	});
 });

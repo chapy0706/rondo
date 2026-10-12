@@ -110,6 +110,51 @@ describe("ストロークの編集（誠実なクライアントは上限を超�
 		]);
 	});
 
+	it("部位を指定して描き始める。指を動かして別の部位に移ったら、同じ色・太さで新しいストロークにする（issue-54）", () => {
+		let draft = beginStroke(emptyDraft, {
+			color: "#a07850",
+			size: 0.04,
+			point: { part: "left-arm", u: 0.1, v: 0.9 },
+		});
+		draft = extendStroke(draft, { part: "left-arm", u: 0.1, v: 0.7 });
+		draft = extendStroke(draft, { part: "torso", u: 0.3, v: 0.8 });
+		draft = extendStroke(draft, { part: "torso", u: 0.3, v: 0.7 });
+		expect(draft.strokes).toEqual([
+			{
+				part: "left-arm",
+				color: "#a07850",
+				size: 0.04,
+				points: [
+					{ u: 0.1, v: 0.9 },
+					{ u: 0.1, v: 0.7 },
+				],
+			},
+			{
+				part: "torso",
+				color: "#a07850",
+				size: 0.04,
+				points: [
+					{ u: 0.3, v: 0.8 },
+					{ u: 0.3, v: 0.7 },
+				],
+			},
+		]);
+	});
+
+	it("別の部位に移ったとき、ストロークの本数が上限なら、足さない", () => {
+		const { maxStrokes } = VERYARE_PAINT_LIMITS;
+		let draft = emptyDraft;
+		for (let i = 0; i < maxStrokes; i++) {
+			draft = beginStroke(draft, {
+				color: "#a07850",
+				size: 0.04,
+				point: { u: 0.1, v: 0.1 },
+			});
+		}
+		const full = extendStroke(draft, { part: "right-leg", u: 0.5, v: 0.5 });
+		expect(full).toBe(draft);
+	});
+
 	it("u の端をまたぐ距離は、近い向きで測る（0.99 → 0.01 は 0.02 しか離れていない）", () => {
 		let draft = beginStroke(emptyDraft, {
 			color: "#a07850",
@@ -289,6 +334,32 @@ describe("ここの色と、スポイト", () => {
 		expect(bodyColorAt(strokes, { u: 0.45, v: 0.5 })).toBe("#111111");
 		expect(bodyColorAt(strokes, { u: 0.01, v: 0.5 })).toBe("#333333");
 		expect(bodyColorAt(strokes, { u: 0.25, v: 0.5 })).toBe(UNPAINTED_COLOR);
+	});
+
+	it("体のスポイトは、同じ部位のストロークだけを見る（issue-54）", () => {
+		const strokes: VeryareStroke[] = [
+			{
+				part: "torso",
+				color: "#111111",
+				size: 0.05,
+				points: [{ u: 0.5, v: 0.5 }],
+			},
+			{
+				part: "right-arm",
+				color: "#222222",
+				size: 0.05,
+				points: [{ u: 0.5, v: 0.5 }],
+			},
+		];
+		expect(bodyColorAt(strokes, { part: "torso", u: 0.5, v: 0.5 })).toBe(
+			"#111111",
+		);
+		expect(bodyColorAt(strokes, { part: "right-arm", u: 0.5, v: 0.5 })).toBe(
+			"#222222",
+		);
+		expect(bodyColorAt(strokes, { part: "left-leg", u: 0.5, v: 0.5 })).toBe(
+			UNPAINTED_COLOR,
+		);
 	});
 });
 

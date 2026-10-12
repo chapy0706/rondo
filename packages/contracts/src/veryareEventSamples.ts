@@ -132,4 +132,37 @@ export const paintEventSamples = [
 		},
 		pose: "femaleDance",
 	},
+	// 腕・脚の部位（issue-54 / ADR 0037）。
+	{
+		type: "paint",
+		paint: {
+			kind: "strokes",
+			strokes: [
+				{
+					part: "left-arm",
+					color: "#a07850",
+					size: 0.04,
+					points: [{ u: 0.25, v: 0.5 }],
+				},
+				{
+					part: "right-arm",
+					color: "#b5a46a",
+					size: 0.04,
+					points: [{ u: 0.25, v: 0.5 }],
+				},
+				{
+					part: "left-leg",
+					color: "#6b5440",
+					size: 0.04,
+					points: [{ u: 0.25, v: 0.5 }],
+				},
+				{
+					part: "right-leg",
+					color: "#000000",
+					size: 0.04,
+					points: [{ u: 0.25, v: 0.5 }],
+				},
+			],
+		},
+	},
 ] as const satisfies readonly VeryarePaintEvent[];

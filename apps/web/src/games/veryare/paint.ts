@@ -1,9 +1,10 @@
 /**
- * 人間のペイント（ADR 0025・0037 の簡略版 / issue-25）。純粋関数で、three.js と React を使わない。
+ * 人間のペイント（ADR 0025・0037 / issue-25・issue-54）。純粋関数で、three.js と React を使わない。
  *
- * 描き込み面は、胴（体全体）の円柱1本。面の上の位置は、円柱を回る角度 u（0〜1。正面 +z が 0、
- * +x が 0.25）と、高さ v（0 が足もと、1 が頭）。体のシェーダー（body.ts）も同じ式で u・v を
- * 求めるので、ここで描いた位置が体の同じ所に映る。
+ * 描き込み面は、部位ごとの円柱（5部位の円柱と、描き込み面の並べ方は paintParts.ts）。ここの体の円柱は
+ * 胴の円柱で、面の上の位置は、円柱を回る角度 u（0〜1。正面 +z が 0、+x が 0.25）と、高さ v（0 が
+ * 足もと、1 が頭）。体のシェーダー（body.ts）も同じ式で u・v を求めるので、ここで描いた位置が体の
+ * 同じ所に映る。仮のカプセルは、胴の円柱だけを使う。
  *
  * - 描く: タップの光線と円柱の交差（intersectCylinder）で u・v を求め、ストロークに点を足す。
  *   u・v は小数第3位に丸めて持つ（送る形と、自分の画面の見た目を同じにする）。誠実なクライアントは
@@ -16,9 +17,11 @@
 
 import {
 	VERYARE_PAINT_LIMITS,
+	VERYARE_PAINT_PARTS,
 	type VeryareModelPose,
 	type VeryarePaint,
 	type VeryarePaintEvent,
+	type VeryarePaintPart,
 	type VeryareStroke,
 	type VeryareStrokePoint,
 } from "@rondo/contracts";
@@ -40,9 +43,6 @@ export const BRUSH_SIZES = { small: 0.02, medium: 0.04, large: 0.08 } as const;
 
 /** ペイントフェーズの終わりの、確定（自動で送る）までの時間（ミリ秒）。この間は描けない。 */
 export const PAINT_LOCK_MS = 2000;
-
-/** 描き込み面の大きさ（ピクセル）。円周（約 1.26 m）が高さ（1 m）より長いので横長にする。 */
-export const PAINT_TEXTURE = { width: 256, height: 128 } as const;
 
 export interface Vec3 {
 	readonly x: number;
@@ -86,6 +86,14 @@ export function uvOf(point: Vec3): VeryareStrokePoint {
 
 // --- ストロークの編集 ---------------------------------------------------------------
 
+/**
+ * 描き込み面の上の点と、その部位（5本円柱 / issue-54。paintParts.ts）。部位を省くと胴（仮のカプセルと、
+ * issue-25 の胴だけの描き込み面）。
+ */
+export interface PaintPoint extends VeryareStrokePoint {
+	readonly part?: VeryarePaintPart;
+}
+
 /** 描いている途中のペイント。strokes は送る形のまま（丸めた u・v）。 */
 export interface PaintDraft {
 	readonly strokes: readonly VeryareStroke[];
@@ -122,7 +130,7 @@ export function beginStroke(
 	start: {
 		readonly color: string;
 		readonly size: number;
-		readonly point: VeryareStrokePoint;
+		readonly point: PaintPoint;
 	},
 ): PaintDraft {
 	const { maxStrokes, maxPoints } = VERYARE_PAINT_LIMITS;
@@ -130,7 +138,7 @@ export function beginStroke(
 		return draft;
 	}
 	const stroke: VeryareStroke = {
-		part: "torso",
+		part: start.point.part ?? "torso",
 		color: start.color,
 		size: start.size,
 		points: [rounded(start.point)],
@@ -138,13 +146,16 @@ export function beginStroke(
 	return { strokes: [...draft.strokes, stroke] };
 }
 
-/** 描いているストロークに点を足す。前の点からブラシの半径の半分より近い点と、上限を超える点は足さない。 */
-export function extendStroke(
-	draft: PaintDraft,
-	point: VeryareStrokePoint,
-): PaintDraft {
+/**
+ * 描いているストロークに点を足す。前の点からブラシの半径の半分より近い点と、上限を超える点は足さない。
+ * 点が別の部位に移ったら、同じ色・太さで、その部位の新しいストロークを描き始める（issue-54）。
+ */
+export function extendStroke(draft: PaintDraft, point: PaintPoint): PaintDraft {
 	const last = draft.strokes.at(-1);
 	if (last === undefined) return draft;
+	if ((point.part ?? "torso") !== last.part) {
+		return beginStroke(draft, { color: last.color, size: last.size, point });
+	}
 	if (pointCount(draft) >= VERYARE_PAINT_LIMITS.maxPoints) return draft;
 	const next = rounded(point);
 	const previous = last.points.at(-1);
@@ -248,13 +259,15 @@ export function hereColor(grid: StageGrid, position: Point): string {
 	return placeColor(grid, cellAt(grid, position));
 }
 
-/** 体のスポイト: その位置にいちばん上に塗られた色。塗っていなければ未塗装の色。 */
+/** 体のスポイト: その部位のその位置に、いちばん上に塗られた色。塗っていなければ未塗装の色。 */
 export function bodyColorAt(
 	strokes: readonly VeryareStroke[],
-	at: VeryareStrokePoint,
+	at: PaintPoint,
 ): string {
+	const part = at.part ?? "torso";
 	for (let i = strokes.length - 1; i >= 0; i--) {
 		const stroke = strokes[i] as VeryareStroke;
+		if (stroke.part !== part) continue;
 		if (filled(stroke).some((p) => uvDistance(p, at) <= stroke.size + 1e-9)) {
 			return stroke.color;
 		}
@@ -324,6 +337,12 @@ function isRecord(value: unknown): value is Record<string, unknown> {
 
 const COLOR = /^#[0-9a-f]{6}$/;
 
+const PARTS: ReadonlySet<unknown> = new Set(VERYARE_PAINT_PARTS);
+
+function isPart(value: unknown): value is VeryarePaintPart {
+	return PARTS.has(value);
+}
+
 function isUnit(value: unknown): value is number {
 	return typeof value === "number" && value >= 0 && value <= 1;
 }
@@ -332,7 +351,7 @@ function readStroke(value: unknown): VeryareStroke | null {
 	if (!isRecord(value)) return null;
 	const { part, color, size, points } = value;
 	const { minSize, maxSize } = VERYARE_PAINT_LIMITS;
-	if (part !== "torso" || typeof color !== "string" || !COLOR.test(color)) {
+	if (!isPart(part) || typeof color !== "string" || !COLOR.test(color)) {
 		return null;
 	}
 	if (typeof size !== "number" || size < minSize || size > maxSize) return null;

@@ -198,8 +198,8 @@ pub type Game(id) {
     /// フェーズの遷移の分岐には使わない。
     exploration_hiders: List(id),
     /// 人間の隠れ側が確定したペイント（issue-25）。ペイントフェーズの間に、まだ隠れている
-    /// 隠れ側が送った最初の1回だけ。探索の開始の一括配信に載せるためだけに使い、勝敗・被り・
-    /// 発見の判定には使わない（鬼 CPU は、人間の隠れ側を未塗装として扱う）。
+    /// 隠れ側が送った最初の1回だけ。探索の開始の一括配信に載せ、鬼 CPU の溶け込み度に平均色を
+    /// 使う（issue-54 / hider_color）。勝敗・被りの判定には使わない。
     paints: Dict(id, List(paint.Stroke)),
     /// 人間の隠れ側が確定したポーズ（issue-56。pose.gleam の一覧の識別子）。ペイントと同じ確定で、
     /// 同じ条件（最初の1回だけ）で受け付ける。一括配信に載せるためだけに使い、判定には使わない。
@@ -774,6 +774,16 @@ pub fn oni_cpu_active(game: Game(id)) -> Bool {
   game.phase == Exploration && option.is_some(game.oni_cpu)
 }
 
+/// 鬼 CPU が溶け込み度に使う、隠れ側の色。CPU の隠れ側は置き方の色、人間の隠れ側は確定した
+/// ペイントの平均色（issue-54 / paint.average_color）、塗っていなければ塗っていない体の色。
+pub fn hider_color(game: Game(id), id: id) -> palette.Rgb {
+  case dict.get(game.cpu_states, id), dict.get(game.paints, id) {
+    Ok(placement), _ -> placement.color
+    Error(Nil), Ok(strokes) -> paint.average_color(strokes)
+    Error(Nil), Error(Nil) -> palette.unpainted
+  }
+}
+
 /// 鬼 CPU の 0.5秒ぶん。歩いて、視界に入った隠れ側に発見の乱数を引く。見つけた隠れ側は
 /// found（人間の鬼が当てたときと同じ処理）で抜ける。探索中でなければ何もしない。
 pub fn tick(game: Game(id)) -> Game(id) {
@@ -784,14 +794,8 @@ pub fn tick(game: Game(id)) -> Game(id) {
         |> list.filter(fn(id) { set.contains(game.still_hiding, id) })
         |> list.filter_map(fn(id) {
           case dict.get(game.positions, id) {
-            Ok(Position(Stage, x, z)) -> {
-              let color = case dict.get(game.cpu_states, id) {
-                Ok(placement) -> placement.color
-                // 人間のペイントはまだ無い（issue-25）。塗っていない体の色で数える。
-                Error(Nil) -> palette.unpainted
-              }
-              Ok(oni_cpu.Hider(id:, x:, z:, color:))
-            }
+            Ok(Position(Stage, x, z)) ->
+              Ok(oni_cpu.Hider(id:, x:, z:, color: hider_color(game, id)))
             _ -> Error(Nil)
           }
         })

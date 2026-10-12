@@ -1,5 +1,5 @@
 {
-	"note": "人間のペイントの確定（issue-25）。limits はクライアントとサーバーで同じ値を使う上限。上限ちょうどは受け付け、1つ超えると丸ごと捨てることは、両方のテストが limits から作って確かめる。hiders は、ペイントを載せた探索の開始の一括配信の見本。 pose（issue-56）: ペイントの確定に、選んだポーズ（poses の id）を載せられる。paint は null（塗っていない）でもよい。paint と pose が両方 null の電文は捨てる。一覧に無い pose は null として扱う（unknownPose の見本: paint があれば pose だけ null で受け付け、paint が無ければ捨てる）。",
+	"note": "人間のペイントの確定（issue-25）。limits はクライアントとサーバーで同じ値を使う上限。上限ちょうどは受け付け、1つ超えると丸ごと捨てることは、両方のテストが limits から作って確かめる。hiders は、ペイントを載せた探索の開始の一括配信の見本。 pose（issue-56）: ペイントの確定に、選んだポーズ（poses の id）を載せられる。paint は null（塗っていない）でもよい。paint と pose が両方 null の電文は捨てる。一覧に無い pose は null として扱う（unknownPose の見本: paint があれば pose だけ null で受け付け、paint が無ければ捨てる）。 part（issue-54）: 描き込み面の部位は torso・left-arm・right-arm・left-leg・right-leg の5つ（ADR 0037）。胴だけのペイント（issue-25 の形）も、そのまま受け付ける。一覧に無い部位のストロークがあれば、丸ごと捨てる。",
 	"limits": {
 		"maxStrokes": 100,
 		"maxPoints": 1000,
@@ -93,6 +93,58 @@
 				]
 			},
 			"pose": "femaleDance"
+		},
+		{
+			"type": "paint",
+			"paint": {
+				"kind": "strokes",
+				"strokes": [
+					{
+						"part": "left-arm",
+						"color": "#a07850",
+						"size": 0.04,
+						"points": [
+							{
+								"u": 0.25,
+								"v": 0.5
+							}
+						]
+					},
+					{
+						"part": "right-arm",
+						"color": "#b5a46a",
+						"size": 0.04,
+						"points": [
+							{
+								"u": 0.25,
+								"v": 0.5
+							}
+						]
+					},
+					{
+						"part": "left-leg",
+						"color": "#6b5440",
+						"size": 0.04,
+						"points": [
+							{
+								"u": 0.25,
+								"v": 0.5
+							}
+						]
+					},
+					{
+						"part": "right-leg",
+						"color": "#000000",
+						"size": 0.04,
+						"points": [
+							{
+								"u": 0.25,
+								"v": 0.5
+							}
+						]
+					}
+				]
+			}
 		}
 	],
 	"invalid": [
@@ -119,7 +171,7 @@
 				"kind": "strokes",
 				"strokes": [
 					{
-						"part": "left-arm",
+						"part": "head",
 						"color": "#a07850",
 						"size": 0.04,
 						"points": [

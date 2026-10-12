@@ -19,7 +19,8 @@ import { VERYARE_MODEL_POSES, type VeryareModelPose } from "@rondo/contracts";
 import { z } from "zod";
 import { BODY_HEIGHT } from "./bodySize";
 import { FOOT_SETTLE_SECONDS, followFloor } from "./feet";
-import { type Vec3, uvOf } from "./paint";
+import type { Vec3 } from "./paint";
+import { type PaintCylinder, TORSO_CYLINDER, uvOnCylinder } from "./paintParts";
 
 /** scene の extras（userData）の中の名前。 */
 export const POSE_EXTRAS_KEY = "rondoPoses";
@@ -108,14 +109,15 @@ function apply(m: ArrayLike<number>, p: Vec3): Vec3 {
 }
 
 /**
- * 基準姿勢の点 p（メッシュの座標）の、描き込み面の (u, v)。frame はメッシュの座標 → 体の座標の行列
- * （体のシェーダーと同じもの）。
+ * 基準姿勢の点 p（メッシュの座標）の、部位の円柱（既定は胴 / paintParts.ts）の上の (u, v)。frame は
+ * メッシュの座標 → 体の座標の行列（体のシェーダーと同じもの）。
  */
 export function uvOfBindPoint(
 	frame: ArrayLike<number>,
 	p: Vec3,
+	cylinder: PaintCylinder = TORSO_CYLINDER,
 ): { readonly u: number; readonly v: number } {
-	return uvOf(apply(frame, p));
+	return uvOnCylinder(cylinder, apply(frame, p));
 }
 
 /** 三角形（頂点の番号 a・b・c）の基準姿勢の位置を、重心座標 bary で混ぜた点。 */

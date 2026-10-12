@@ -1,7 +1,7 @@
-/// 人間の隠れ側のペイント（ADR 0025・0037 の簡略版 / issue-25）。
+/// 人間の隠れ側のペイント（ADR 0025・0037 / issue-25・issue-54）。
 ///
-/// 描き込み面は胴（体全体）の円柱1本で、面の上の位置は、円柱を回る角度 u（0〜1）と
-/// 高さ v（0〜1）。ペイントフェーズの終わりに隠れ側が一度だけ送り（契約: VeryarePaintEvent）、
+/// 描き込み面は5本の円柱（胴・左腕・右腕・左脚・右脚）で、面の上の位置は、部位ごとに、円柱を
+/// 回る角度 u（0〜1）と軸の向きの位置 v（0〜1）。ペイントフェーズの終わりに隠れ側が一度だけ送り（契約: VeryarePaintEvent）、
 /// サーバーは探索の開始の一括配信に、そのまま載せる。
 ///
 /// 電文の大きさを抑えるため、本数と点の数に上限を置く。値はクライアントと同じで、共有の見本
@@ -9,10 +9,12 @@
 /// 上限や形に合わないペイントは、丸ごと捨てる。
 import gleam/dynamic.{type Dynamic}
 import gleam/dynamic/decode
+import gleam/float
 import gleam/int
 import gleam/list
 import gleam/option.{type Option, None}
 import gleam/string
+import rondo_server/games/veryare/palette.{type Rgb, Rgb}
 import rondo_server/games/veryare/pose
 
 /// ストロークの本数の上限。
@@ -26,9 +28,35 @@ pub const min_size = 0.01
 
 pub const max_size = 0.15
 
-/// 描き込み面の部位。5本円柱（ADR 0037）で腕・脚を足す。
+/// 描き込み面の部位（5本円柱 / ADR 0037）。胴は頭を含む。
 pub type Part {
   Torso
+  LeftArm
+  RightArm
+  LeftLeg
+  RightLeg
+}
+
+/// 契約の部位の名前（VeryarePaintPart）。一覧に無い名前は Error。
+pub fn parse_part(name: String) -> Result(Part, Nil) {
+  case name {
+    "torso" -> Ok(Torso)
+    "left-arm" -> Ok(LeftArm)
+    "right-arm" -> Ok(RightArm)
+    "left-leg" -> Ok(LeftLeg)
+    "right-leg" -> Ok(RightLeg)
+    _ -> Error(Nil)
+  }
+}
+
+fn part_name(part: Part) -> String {
+  case part {
+    Torso -> "torso"
+    LeftArm -> "left-arm"
+    RightArm -> "right-arm"
+    LeftLeg -> "left-leg"
+    RightLeg -> "right-leg"
+  }
 }
 
 /// 1本のストローク。色は "#rrggbb"（小文字）、点は #(u, v)。
@@ -89,14 +117,11 @@ fn stroke_decoder() -> decode.Decoder(Stroke) {
   use size <- decode.field("size", number())
   use points <- decode.field("points", decode.list(point_decoder()))
   case
-    part == "torso"
-    && is_color(color)
-    && size >=. min_size
-    && size <=. max_size
-    && points != []
+    parse_part(part),
+    is_color(color) && size >=. min_size && size <=. max_size && points != []
   {
-    True -> decode.success(Stroke(Torso, color, size, points))
-    False -> decode.failure(fallback, "stroke")
+    Ok(part), True -> decode.success(Stroke(part, color, size, points))
+    _, _ -> decode.failure(fallback, "stroke")
   }
 }
 
@@ -129,6 +154,85 @@ fn number() -> decode.Decoder(Float) {
   decode.one_of(decode.float, [decode.map(decode.int, int.to_float)])
 }
 
+// --- 平均色（鬼 CPU の溶け込み度 / issue-54） ----------------------------------------
+
+const pi = 3.141592653589793
+
+const parts = [Torso, LeftArm, RightArm, LeftLeg, RightLeg]
+
+/// 部位の大きさの重み（体の上での広さの概算。周の長さ × 長さを、胴を 1 として比べたもの）。
+/// 部位の描き込み面は、どれも u・v が 0〜1 の面（面積 1）なので、体の上の広さに直すために掛ける。
+fn part_weight(part: Part) -> Float {
+  case part {
+    Torso -> 1.0
+    LeftArm | RightArm -> 0.1
+    LeftLeg | RightLeg -> 0.2
+  }
+}
+
+/// 1本のストロークの、描き込み面の上の面積の近似（点の数 × π × 半径²。点の重なりは数えない）。
+fn stroke_area(stroke: Stroke) -> Float {
+  int.to_float(list.length(stroke.points)) *. pi *. stroke.size *. stroke.size
+}
+
+/// 塗った割合（0〜1）。部位ごとに、面積の合計を 1 で止め、部位の重みで合わせる（重なりは
+/// 数えないので、近似）。
+pub fn coverage(strokes: List(Stroke)) -> Float {
+  let #(painted, total) =
+    list.fold(parts, #(0.0, 0.0), fn(acc, part) {
+      let area =
+        strokes
+        |> list.filter(fn(s) { s.part == part })
+        |> list.fold(0.0, fn(sum, s) { sum +. stroke_area(s) })
+      let weight = part_weight(part)
+      #(acc.0 +. weight *. float.min(1.0, area), acc.1 +. weight)
+    })
+  painted /. total
+}
+
+/// ペイントの平均色。ストロークの面積（部位の重みを掛けたもの）で重みを付けた平均色に、塗っていない体の色を、塗っていない
+/// 割合だけ混ぜる。塗っていなければ、塗っていない体の色。
+pub fn average_color(strokes: List(Stroke)) -> Rgb {
+  let #(weight, r, g, b) =
+    list.fold(strokes, #(0.0, 0.0, 0.0, 0.0), fn(acc, stroke) {
+      let area = stroke_area(stroke) *. part_weight(stroke.part)
+      let Rgb(cr, cg, cb) = rgb_of(stroke.color)
+      #(
+        acc.0 +. area,
+        acc.1 +. area *. int.to_float(cr),
+        acc.2 +. area *. int.to_float(cg),
+        acc.3 +. area *. int.to_float(cb),
+      )
+    })
+  case weight >. 0.0 {
+    False -> palette.unpainted
+    True -> {
+      let painted = coverage(strokes)
+      let mix = fn(sum: Float, base: Int) {
+        float.round(
+          painted *. sum /. weight +. { 1.0 -. painted } *. int.to_float(base),
+        )
+      }
+      Rgb(
+        mix(r, palette.unpainted.r),
+        mix(g, palette.unpainted.g),
+        mix(b, palette.unpainted.b),
+      )
+    }
+  }
+}
+
+/// "#rrggbb" を色にする（受け付けたストロークは is_color を通っている）。
+fn rgb_of(color: String) -> Rgb {
+  let channel = fn(start: Int) {
+    case int.base_parse(string.slice(color, start, 2), 16) {
+      Ok(value) -> value
+      Error(Nil) -> 0
+    }
+  }
+  Rgb(channel(1), channel(3), channel(5))
+}
+
 /// 一括配信に載せる形（契約: VeryareStrokesPaint）。
 pub fn payload(strokes: List(Stroke)) -> Dynamic {
   dynamic.properties([
@@ -141,11 +245,8 @@ pub fn payload(strokes: List(Stroke)) -> Dynamic {
 }
 
 fn stroke_payload(stroke: Stroke) -> Dynamic {
-  let part = case stroke.part {
-    Torso -> "torso"
-  }
   dynamic.properties([
-    #(dynamic.string("part"), dynamic.string(part)),
+    #(dynamic.string("part"), dynamic.string(part_name(stroke.part))),
     #(dynamic.string("color"), dynamic.string(stroke.color)),
     #(dynamic.string("size"), dynamic.float(stroke.size)),
     #(
