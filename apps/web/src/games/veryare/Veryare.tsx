@@ -685,7 +685,10 @@ export default function Veryare() {
 				// キャラクターの素材（issue-56）。待機ルームにいる間に、仮のカプセルから差し替える。
 				bodies: characterSlot,
 				...(traceEnabled(HIRAYA_DEV, window.location.search)
-					? { cameraLog: (message: string) => console.info(message) }
+					? {
+							cameraLog: (message: string) => console.info(message),
+							motionLog: (message: string) => console.info(message),
+						}
 					: {}),
 			});
 			sceneRef.current = scene;

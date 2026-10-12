@@ -60,9 +60,21 @@ export interface BodyInstance {
 	snap(): void;
 	/** いまの補正（体の座標）。 */
 	offset(): Vec3;
+	/**
+	 * 動きの状態（動きごとの名前・時間・重み。重みは、使える状態で再生中のものだけ）。動きが無い体は空。
+	 * 開発中の Console の記録と、テストに使う。
+	 */
+	motionStatus(): readonly MotionStatus[];
 	/** タップの光線が体に当たれば、描き込み面の (u, v)。当たらなければ null。 */
 	pickUv(raycaster: THREE.Raycaster): { u: number; v: number } | null;
 	dispose(): void;
+}
+
+/** 動き1つの状態。 */
+export interface MotionStatus {
+	readonly name: string;
+	readonly time: number;
+	readonly weight: number;
 }
 
 /** 体を作る口。paint があれば描き込み面を貼った体、無ければ tint の色の体（鬼）。 */
@@ -104,6 +116,7 @@ export const placeholderBodyKit: BodyKit = {
 			update: () => undefined,
 			snap: () => undefined,
 			offset: () => ZERO,
+			motionStatus: () => [],
 			pickUv(raycaster) {
 				object.updateMatrixWorld(true);
 				const inverse = object.matrixWorld.clone().invert();
@@ -264,7 +277,17 @@ function modelInstance(
 		}
 		return found;
 	};
+	/**
+	 * 動きの混ぜは、three のフェード（fadeIn・fadeOut）を使わず、ここで重みを持つ。three の fadeOut は、
+	 * 混ぜの途中でも重み 1 から下げ始めるので、続けて切り替えると重みの合計が 1 を超えていた。
+	 * 移る先（playing）は 1 へ、ほかの動きは、合計を MOTION_FADE_SECONDS で 0 へ下げる（割合は保つ）。
+	 * 合計はいつも 1。重みが 0 になった動きは止める。
+	 */
 	let playing: THREE.AnimationAction | null = null;
+	const weights = new Map<THREE.AnimationAction, number>();
+	const applyWeights = () => {
+		for (const [action, weight] of weights) action.setEffectiveWeight(weight);
+	};
 
 	const setAction = (action: BodyAction, rate: number) => {
 		const staticPose = action.kind === "pose" ? action.pose : DEFAULT_POSE;
@@ -279,11 +302,36 @@ function modelInstance(
 		}
 		next.setEffectiveTimeScale(rate);
 		if (next === playing) return;
-		next.reset();
-		next.setEffectiveWeight(1);
-		next.play();
-		if (playing !== null) playing.crossFadeTo(next, MOTION_FADE_SECONDS, false);
+		// 混ぜの途中で戻る動き（まだ重みがある）は、時間を続ける。止まっていた動きは、最初から。
+		if (!weights.has(next)) {
+			next.reset();
+			next.play();
+			weights.set(next, playing === null ? 1 : 0);
+		}
 		playing = next;
+		applyWeights();
+	};
+
+	/** 重みを dt 秒ぶん寄せる。 */
+	const blend = (dt: number) => {
+		if (playing === null) return;
+		let others = 0;
+		for (const [action, weight] of weights) {
+			if (action !== playing) others += weight;
+		}
+		const left = Math.max(0, others - dt / MOTION_FADE_SECONDS);
+		for (const [action, weight] of [...weights]) {
+			if (action === playing) continue;
+			const nextWeight = others > 0 ? (weight * left) / others : 0;
+			if (nextWeight <= 1e-6) {
+				action.stop();
+				weights.delete(action);
+			} else {
+				weights.set(action, nextWeight);
+			}
+		}
+		weights.set(playing, 1 - left);
+		applyWeights();
 	};
 	// 動きの素材があれば、最初は idle のポーズの動きで始める（静止した姿勢と同じ見た目）。
 	if (mixer !== null) {
@@ -299,23 +347,34 @@ function modelInstance(
 		},
 		setAction,
 		update(dt) {
-			mixer?.update(dt);
+			if (mixer !== null) {
+				blend(Math.max(0, dt));
+				mixer.update(Math.max(0, dt));
+			}
 			current = followOffset(current, target, dt);
 			place();
 		},
 		snap() {
 			if (mixer !== null && playing !== null) {
-				for (const action of clips.values()) {
-					if (action !== playing) action.stop();
+				for (const action of [...weights.keys()]) {
+					if (action === playing) continue;
+					action.stop();
+					weights.delete(action);
 				}
-				playing.stopFading();
-				playing.setEffectiveWeight(1);
+				weights.set(playing, 1);
+				applyWeights();
 				mixer.update(0);
 			}
 			current = target;
 			place();
 		},
 		offset: () => current,
+		motionStatus: () =>
+			[...clips.entries()].map(([name, action]) => ({
+				name,
+				time: action.time,
+				weight: weights.get(action) ?? 0,
+			})),
 		pickUv(raycaster) {
 			object.updateMatrixWorld(true);
 			// 動いている体は、当たりの外接球を、いまの姿勢で作り直す（タップのときだけ）。

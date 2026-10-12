@@ -7,6 +7,7 @@ import {
 	combineHiraya,
 	createVeryareAssets,
 	prefetchLobbyAssets,
+	takeOnce,
 } from "./assetSlots";
 
 const ok = <T>(value: T): LoadResult<T> => ({ ok: true, value });
@@ -198,5 +199,25 @@ describe("characterSlot - キャラクターの素材（issue-56 / issue-57）",
 		);
 		expect(combineCharacter(failed, ok("p"), ok("m"))).toEqual(failed);
 		expect(combineCharacter(ok("b"), failed, ok("m"))).toEqual(failed);
+	});
+});
+
+describe("takeOnce - 差し替え口から、1回だけ受け取る（毎コマの作り直しを防ぐ / issue-57 の不具合）", () => {
+	it("読めたら1回だけ返し、その後は null（差し替え口が返し続けても）", async () => {
+		const slot = createVeryareAssets(async (key: string) =>
+			ok(key),
+		).characterSlot();
+		const take = takeOnce(slot);
+		expect(take()).toBeNull();
+		await settle();
+		expect(take()).not.toBeNull();
+		expect(take()).toBeNull();
+		expect(take()).toBeNull();
+		// 元の差し替え口は、lock されるまで返し続ける作り（平屋と同じ）。
+		expect(slot.take()).not.toBeNull();
+	});
+
+	it("差し替え口が無ければ、いつも null", () => {
+		expect(takeOnce(undefined)()).toBeNull();
 	});
 });

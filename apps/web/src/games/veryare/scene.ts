@@ -33,7 +33,7 @@ import type {
 import * as THREE from "three";
 import type { SwapSlot } from "../../infrastructure/assets";
 import { type BodyAt, type Vec3, hiderAt, rayHitsBody } from "./aim";
-import type { CharacterParts, HirayaModel } from "./assetSlots";
+import { type CharacterParts, type HirayaModel, takeOnce } from "./assetSlots";
 import { type AssetEvent, stageDisplayEvent } from "./assetTrace";
 import {
 	type BodyInstance,
@@ -78,6 +78,7 @@ import {
 	type BodyAction,
 	INITIAL_MOTION,
 	type MotionState,
+	motionLogMessage,
 	playbackRate,
 	smoothSpeed,
 	stepMotion,
@@ -243,6 +244,11 @@ export interface SceneOptions {
 	readonly camera?: CameraSettings;
 	/** 開発中だけ渡す。カメラの高さの1行（cameraLogMessage）を、CAMERA_LOG_SECONDS ごとに受け取る。 */
 	readonly cameraLog?: (message: string) => void;
+	/**
+	 * 開発中だけ渡す。見えている体ごとの動きの状態・時間・重み（motionLogMessage）を、MOTION_LOG_SECONDS
+	 * ごとに受け取る（issue-57。動きが止まる不具合を、目視で見つけるため）。
+	 */
+	readonly motionLog?: (message: string) => void;
 }
 
 const ONI_COLOR = 0xef4444;
@@ -251,6 +257,8 @@ const ONI_NOSE_HEIGHT = BODY_HEIGHT * 0.75;
 /** 狙う点にいる隠れ側の光り方（黄色の発光）と、目印の色。 */
 const AIM_COLOR = 0xf5b841;
 const AIM_GLOW = 0.6;
+/** 開発中に、体の動きの状態を Console に出す間隔（秒）。 */
+const MOTION_LOG_SECONDS = 1;
 /** ここの色を求めるとき、線を引き始める高さ（足もとから。メートル）。 */
 const FLOOR_PROBE_HEIGHT = 0.5;
 /** 開発中に、カメラの高さを Console に出す間隔（秒）。 */
@@ -411,6 +419,8 @@ export function createScene(
 	scene.add(spaces["waiting-room"], spaces.stage);
 
 	let bodyKit: BodyKit = placeholderBodyKit;
+	/** キャラクターの素材を、差し替え口から1回だけ受け取る。 */
+	const takeCharacter = takeOnce(options.bodies);
 	const avatarSurface = createPaintSurface();
 	let avatar = bodyKit.create(avatarSurface.texture, 0xffffff);
 	/** 自分の体の動き（issue-57）: 選んだポーズ、静止の指定、ならした速さ、状態、いま当てている動き。 */
@@ -574,6 +584,40 @@ export function createScene(
 		camera.position.set(pose.position.x, pose.position.y, pose.position.z);
 		camera.lookAt(pose.target.x, pose.target.y, pose.target.z);
 		return { center, pose };
+	};
+
+	/** 開発中だけ、見えている体ごとの動きの状態を Console に出す（MOTION_LOG_SECONDS ごと）。 */
+	let motionLogAt = Number.NEGATIVE_INFINITY;
+	const logMotion = (now: number): void => {
+		const log = options.motionLog;
+		if (log === undefined || now - motionLogAt < MOTION_LOG_SECONDS * 1000)
+			return;
+		motionLogAt = now;
+		if (avatar.object.visible) {
+			log(
+				motionLogMessage("自分の体", {
+					action: avatarAction,
+					speed: avatarSpeed,
+					rate: avatarRate,
+					status: avatar.motionStatus(),
+				}),
+			);
+		}
+		// 鬼の体の動きは、まだ当てていない（issue-57 の後半）。見えていれば、状態だけを出す。
+		for (const [label, figure] of [
+			["鬼本人の体", selfOniParts],
+			["鬼", oniParts],
+		] as const) {
+			if (!figure.group.visible) continue;
+			log(
+				motionLogMessage(label, {
+					action: { kind: "pose", pose: DEFAULT_POSE },
+					speed: 0,
+					rate: 1,
+					status: figure.body.motionStatus(),
+				}),
+			);
+		}
 	};
 
 	/** 開発中だけ、カメラの高さを Console に出す（描画のたびではなく、CAMERA_LOG_SECONDS ごと）。 */
@@ -747,8 +791,10 @@ export function createScene(
 		},
 		setSpace(space) {
 			if (space === "waiting-room") {
-				// キャラクターの素材の差し替えも、待機ルームにいる間だけ（issue-56）。
-				const parts = options.bodies?.take();
+				// キャラクターの素材の差し替えも、待機ルームにいる間だけ（issue-56）。setSpace は毎コマ
+				// 呼ばれ、差し替え口は lock まで同じ素材を返し続けるので、1回だけ受け取る（毎コマ体を
+				// 作り直して、動きが最初からやり直しになっていた / issue-57 の不具合）。
+				const parts = takeCharacter();
 				if (parts != null) {
 					// 動きの素材（issue-57）は、読めて形が正しいときだけ使う（無ければ静止した姿勢）。
 					const motions =
@@ -1082,6 +1128,7 @@ export function createScene(
 				material.opacity = opacity;
 			}
 			logCamera(performance.now(), placeCamera());
+			logMotion(performance.now());
 			renderer.render(scene, camera);
 		},
 		dispose() {

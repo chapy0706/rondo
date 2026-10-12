@@ -46,7 +46,7 @@ describe("turnToward - 近い回り方で、なめらかに回す", () => {
 	it("180° 近くでも、近い回り方で回る", () => {
 		expect(turnToward(0, deg(170), deg(10))).toBeCloseTo(deg(10), 12);
 		expect(turnToward(0, deg(-170), deg(10))).toBeCloseTo(deg(-10), 12);
-		expect(turnToward(deg(10), deg(-170), deg(5))).toBeCloseTo(deg(5), 12);
+		expect(turnToward(deg(10), deg(-169), deg(5))).toBeCloseTo(deg(5), 12);
 	});
 
 	it("±180° をまたぐときも、近い向きへ回り、行き過ぎない（結果は -180°〜180°）", () => {

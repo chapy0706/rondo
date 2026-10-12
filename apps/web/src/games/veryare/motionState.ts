@@ -128,3 +128,35 @@ export function stepMotion(
 			: { kind: "idle" };
 	return { state: { gait, stillSeconds: still, chosen }, action };
 }
+
+/**
+ * 開発中だけ Console に出す、体の動きの1行（issue-57。動きが止まる不具合を、目視で見つけるため）。
+ * status は体の動きごとの時間・重み（body.ts の motionStatus）。重みの付いた動きだけを出す。
+ */
+export function motionLogMessage(
+	label: string,
+	info: {
+		readonly action: BodyAction;
+		readonly speed: number;
+		readonly rate: number;
+		readonly status: readonly {
+			readonly name: string;
+			readonly time: number;
+			readonly weight: number;
+		}[];
+	},
+): string {
+	const state =
+		info.action.kind === "pose" ? `pose:${info.action.pose}` : info.action.kind;
+	const weighted = info.status.filter((s) => s.weight > 0);
+	const parts =
+		weighted.length === 0
+			? "動きなし（静止した姿勢）"
+			: weighted
+					.map(
+						(s) =>
+							`${s.name} 時間 ${s.time.toFixed(2)} 重み ${s.weight.toFixed(2)}`,
+					)
+					.join("、");
+	return `[veryare-motion] ${label}: ${state}（速さ ${info.speed.toFixed(2)} m/秒・再生 ${info.rate.toFixed(2)} 倍）・${parts}`;
+}

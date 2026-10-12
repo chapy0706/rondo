@@ -11,6 +11,7 @@ import {
 	WALK_RATE,
 	WALK_TO_IDLE,
 	WALK_TO_RUN,
+	motionLogMessage,
 	nextGait,
 	playbackRate,
 	smoothSpeed,
@@ -218,5 +219,37 @@ describe("stepMotion - 待機・歩く・走る・ポーズの切り替え（時
 		expect(
 			run(INITIAL_MOTION, [{ speed: 0, dt: 0.1, fixed: true }]).actions,
 		).toEqual(["pose:idle"]);
+	});
+});
+
+describe("motionLogMessage - 開発中だけ Console に出す、体の動きの1行", () => {
+	it("体の名前、状態、速さ、再生の速さと、重みの付いた動きの時間・重み", () => {
+		expect(
+			motionLogMessage("自分の体", {
+				action: { kind: "walk" },
+				speed: 1.321,
+				rate: 0.891,
+				status: [
+					{ name: "walk", time: 0.4249, weight: 0.75 },
+					{ name: "idle", time: 3.1, weight: 0.25 },
+					{ name: "run", time: 0.2, weight: 0 },
+				],
+			}),
+		).toBe(
+			"[veryare-motion] 自分の体: walk（速さ 1.32 m/秒・再生 0.89 倍）・walk 時間 0.42 重み 0.75、idle 時間 3.10 重み 0.25",
+		);
+	});
+
+	it("ポーズは名前つき。動きの素材が無い体は「動きなし」", () => {
+		expect(
+			motionLogMessage("自分の体", {
+				action: { kind: "pose", pose: "maleCrouch" },
+				speed: 0,
+				rate: 1,
+				status: [],
+			}),
+		).toBe(
+			"[veryare-motion] 自分の体: pose:maleCrouch（速さ 0.00 m/秒・再生 1.00 倍）・動きなし（静止した姿勢）",
+		);
 	});
 });

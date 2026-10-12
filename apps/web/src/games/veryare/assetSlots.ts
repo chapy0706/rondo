@@ -209,3 +209,18 @@ export function gameAssets(): VeryareAssets<Group> {
 	}, devTrace);
 	return shared;
 }
+
+/**
+ * 差し替え口から、素材を1回だけ受け取る関数（issue-57 の不具合の直し）。差し替え口の take() は、lock()
+ * されるまで同じ素材を返し続けるので、毎コマ呼ぶ側（シーンの setSpace）は、これを通して1回だけ受け取る。
+ * 差し替え口が無ければ、いつも null。
+ */
+export function takeOnce<T>(slot: SwapSlot<T> | undefined): () => T | null {
+	let taken = false;
+	return () => {
+		if (taken || slot === undefined) return null;
+		const value = slot.take();
+		if (value !== null) taken = true;
+		return value;
+	};
+}
