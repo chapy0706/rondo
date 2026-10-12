@@ -44,10 +44,10 @@ const EXCLUDE =
 const EXCLUDE_NODE = /^(床の間 壁|内壁|外壁|ガラス)/;
 /** 小物の大きさ（最も長い辺。メートル）。 */
 const SMALL = 0.15;
-/** 目の高さ（apps/web/src/games/veryare/camera.ts の EYE_HEIGHT）。 */
-const EYE_HEIGHT = 0.8;
-/** 足もとからのカメラの最高点（cameraHeight.test.ts の cameraTopAboveFeet。約 1.692 m）。 */
-const CAMERA_TOP = 1.692;
+/** 目の高さ（apps/web/src/games/veryare/bodySize.ts の EYE_HEIGHT。体の高さ 1.6 m × 0.8）。 */
+const EYE_HEIGHT = 1.28;
+/** 足もとからのカメラの最高点（camera.ts の CAMERA_MAX_HEIGHT）。 */
+const CAMERA_TOP = 1.85;
 /** 家具の余白（cameraGuard.ts の CAMERA_FURNITURE_MARGIN）。 */
 const MARGIN = 0.1;
 const QUALITIES = [512, 1024];

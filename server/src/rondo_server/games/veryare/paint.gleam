@@ -11,7 +11,9 @@ import gleam/dynamic.{type Dynamic}
 import gleam/dynamic/decode
 import gleam/int
 import gleam/list
+import gleam/option.{type Option, None}
 import gleam/string
+import rondo_server/games/veryare/pose
 
 /// ストロークの本数の上限。
 pub const max_strokes = 100
@@ -34,12 +36,30 @@ pub type Stroke {
   Stroke(part: Part, color: String, size: Float, points: List(#(Float, Float)))
 }
 
-/// ペイントの確定 { type: "paint", paint: { kind: "strokes", strokes } }。
-pub fn event_decoder() -> decode.Decoder(List(Stroke)) {
+/// ペイントの確定の中身。塗っていなければ strokes は None、ポーズを変えていなければ pose は None。
+pub type Confirm {
+  Confirm(strokes: Option(List(Stroke)), pose: Option(String))
+}
+
+/// ペイントの確定 { type: "paint", paint: { kind: "strokes", strokes } | null, pose?: id | null }
+/// （pose は issue-56）。一覧に無い pose は None と同じ。paint と pose が両方 None なら拒む（捨てる）。
+pub fn event_decoder() -> decode.Decoder(Confirm) {
   use kind <- decode.field("type", decode.string)
   case kind {
-    "paint" -> decode.field("paint", paint_decoder(), decode.success)
-    _ -> decode.failure([], "paint")
+    "paint" -> {
+      use strokes <- decode.field("paint", decode.optional(paint_decoder()))
+      use raw <- decode.optional_field(
+        "pose",
+        None,
+        decode.optional(decode.string),
+      )
+      let chosen = option.then(raw, pose.parse)
+      case strokes, chosen {
+        None, None -> decode.failure(Confirm(None, None), "paint")
+        _, _ -> decode.success(Confirm(strokes, chosen))
+      }
+    }
+    _ -> decode.failure(Confirm(None, None), "paint")
   }
 }
 

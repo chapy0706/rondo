@@ -1,5 +1,5 @@
 {
-	"note": "人間のペイントの確定（issue-25）。limits はクライアントとサーバーで同じ値を使う上限。上限ちょうどは受け付け、1つ超えると丸ごと捨てることは、両方のテストが limits から作って確かめる。hiders は、ペイントを載せた探索の開始の一括配信の見本。",
+	"note": "人間のペイントの確定（issue-25）。limits はクライアントとサーバーで同じ値を使う上限。上限ちょうどは受け付け、1つ超えると丸ごと捨てることは、両方のテストが limits から作って確かめる。hiders は、ペイントを載せた探索の開始の一括配信の見本。 pose（issue-56）: ペイントの確定に、選んだポーズ（poses の id）を載せられる。paint は null（塗っていない）でもよい。paint と pose が両方 null の電文は捨てる。一覧に無い pose は null として扱う（unknownPose の見本: paint があれば pose だけ null で受け付け、paint が無ければ捨てる）。",
 	"limits": {
 		"maxStrokes": 100,
 		"maxPoints": 1000,
@@ -64,6 +64,35 @@
 					}
 				]
 			}
+		},
+		{
+			"type": "paint",
+			"paint": null,
+			"pose": "maleCrouch"
+		},
+		{
+			"type": "paint",
+			"paint": {
+				"kind": "strokes",
+				"strokes": [
+					{
+						"part": "torso",
+						"color": "#a07850",
+						"size": 0.04,
+						"points": [
+							{
+								"u": 0,
+								"v": 0.5
+							},
+							{
+								"u": 0.25,
+								"v": 0.5
+							}
+						]
+					}
+				]
+			},
+			"pose": "femaleDance"
 		}
 	],
 	"invalid": [
@@ -249,6 +278,15 @@
 					}
 				]
 			}
+		},
+		{
+			"type": "paint",
+			"paint": null,
+			"pose": null
+		},
+		{
+			"type": "paint",
+			"paint": null
 		}
 	],
 	"hiders": {
@@ -291,7 +329,46 @@
 						}
 					]
 				}
+			},
+			{
+				"playerId": "c",
+				"x": 3.5,
+				"z": 2.5,
+				"facing": null,
+				"pose": "maleCrouch",
+				"paint": null
 			}
 		]
+	},
+	"unknownPose": {
+		"withPaint": {
+			"type": "paint",
+			"paint": {
+				"kind": "strokes",
+				"strokes": [
+					{
+						"part": "torso",
+						"color": "#a07850",
+						"size": 0.04,
+						"points": [
+							{
+								"u": 0,
+								"v": 0.5
+							},
+							{
+								"u": 0.25,
+								"v": 0.5
+							}
+						]
+					}
+				]
+			},
+			"pose": "moonwalk"
+		},
+		"withoutPaint": {
+			"type": "paint",
+			"paint": null,
+			"pose": "standing"
+		}
 	}
 }

@@ -23,6 +23,7 @@
 
 import type {
 	VeryareHiderState,
+	VeryareModelPose,
 	VeryareOniNotice,
 	VeryarePaint,
 } from "@rondo/contracts";
@@ -77,6 +78,12 @@ import {
 	undoStroke,
 } from "./paint";
 import { FLOOR_COLOR, UNPAINTED_COLOR } from "./palette";
+import {
+	DEFAULT_POSE,
+	RANDOM_POSE_POOL,
+	pickNextPose,
+	poseLabel,
+} from "./poses";
 import {
 	type Outcome,
 	type Phase,
@@ -212,6 +219,13 @@ export default function Veryare() {
 	}, []);
 	/** 描いているペイント（issue-25）。 */
 	const [draft, setDraft] = useState<PaintDraft>(emptyDraft);
+	/** 自分のポーズ（issue-56）と、ポーズボタンを押したか（押していれば、確定のときに送る）。 */
+	const [pose, setPose] = useState<VeryareModelPose>(DEFAULT_POSE);
+	const [poseChosen, setPoseChosen] = useState(false);
+	/** 素材の体に差し替えたか（シーンが決める。ポーズボタンを出すかに使う）。 */
+	const [bodyPosable, setBodyPosable] = useState(false);
+	/** キャラクターの素材の差し替え口（issue-56）。対戦の画面を開いた時点で読み込みを始める。 */
+	const [characterSlot] = useState(() => assets.characterSlot());
 	/** 選んでいる色。null の間は「ここの色」。 */
 	const [paintColor, setPaintColor] = useState<string | null>(null);
 	const [hsl, setHsl] = useState<Hsl>({ h: 30, s: 40, l: 50 });
@@ -354,6 +368,8 @@ export default function Veryare() {
 						id: h.playerId,
 						x: h.x,
 						z: h.z,
+						facing: h.facing,
+						pose: h.pose,
 						color: h.paint?.kind === "uniform" ? h.paint.color : DEFAULT_COLOR,
 						paint: h.paint,
 					}))
@@ -494,14 +510,25 @@ export default function Veryare() {
 				submitted: paintSubmitted,
 				confirmed: paintConfirmed,
 				strokeCount: draft.strokes.length,
+				poseChosen,
 			})
 		) {
 			return;
 		}
 		submittedRef.current = true;
 		setPaintSubmitted(true);
-		send(paintEvent(draft.strokes));
-	}, [phase, remainingMs, paintSubmitted, paintConfirmed, draft, send]);
+		// ペイントとポーズは、同じ確定の電文で一度だけ送る（issue-56）。
+		send(paintEvent(draft.strokes, poseChosen ? pose : null));
+	}, [
+		phase,
+		remainingMs,
+		paintSubmitted,
+		paintConfirmed,
+		draft,
+		send,
+		pose,
+		poseChosen,
+	]);
 	// 自分の体に映すペイント。探索の開始に届いた自分のペイント（サーバーが確定したもの）を先に、
 	// 無ければ描いている途中のもの。
 	const serverSelfPaint =
@@ -598,6 +625,9 @@ export default function Veryare() {
 		setModelShown,
 		showPaintPanel,
 		aim,
+		pose,
+		bodyPosable,
+		setBodyPosable,
 	});
 	latest.current = {
 		selfPaint,
@@ -624,6 +654,9 @@ export default function Veryare() {
 		setModelShown,
 		showPaintPanel,
 		aim,
+		pose,
+		bodyPosable,
+		setBodyPosable,
 	};
 
 	const canvasRef = useRef<HTMLCanvasElement | null>(null);
@@ -647,6 +680,8 @@ export default function Veryare() {
 			const scene = createScene(canvas, {
 				trace: devTrace,
 				camera,
+				// キャラクターの素材（issue-56）。待機ルームにいる間に、仮のカプセルから差し替える。
+				bodies: characterSlot,
 				...(traceEnabled(HIRAYA_DEV, window.location.search)
 					? { cameraLog: (message: string) => console.info(message) }
 					: {}),
@@ -763,6 +798,11 @@ export default function Veryare() {
 						: null,
 				);
 				scene.setSelfOni(current.selfOni ? selfFacing : null);
+				// 自分の体の向きとポーズ（issue-56）。ポーズを変えたときは、シーンがなめらかに寄せる。
+				scene.setAvatarFacing(selfFacing);
+				scene.setAvatarPose(current.pose);
+				const posable = scene.bodyPosable();
+				if (posable !== current.bodyPosable) current.setBodyPosable(posable);
 				scene.setAim(current.aim);
 				scene.setHiders(current.sceneHiders);
 				scene.setView(current.view);
@@ -786,7 +826,8 @@ export default function Veryare() {
 			sceneRef.current?.dispose();
 			sceneRef.current = null;
 		};
-	}, []);
+		// characterSlot は useState の値で変わらない（シーンは画面を開いている間、1つだけ作る）。
+	}, [characterSlot]);
 
 	// 空間が変わったら、その空間の初期位置に立ち、暗転から明ける短い演出を入れる。
 	// ステージの初期位置は、ステージの通知の玄関（サーバーも同じ所へ置く / issue-29a）。
@@ -982,6 +1023,21 @@ export default function Veryare() {
 					onUndo={() => setDraft(undoStroke)}
 					onClear={() => setDraft(clearPaint)}
 					onConfirm={() => setPaintConfirmed(true)}
+					{...(bodyPosable
+						? {
+								pose: {
+									label: poseLabel(pose),
+									chosen: poseChosen,
+									// いまと違うポーズを、プールからランダムに選ぶ（issue-56）。
+									onNext: () => {
+										setPose((current) =>
+											pickNextPose(current, RANDOM_POSE_POOL, Math.random),
+										);
+										setPoseChosen(true);
+									},
+								},
+							}
+						: {})}
 				/>
 			) : null}
 			{painting ? (

@@ -3,7 +3,7 @@ import { scenarios } from "./scenarios.ts";
 import { BOTS_PHASE_DIVISOR, SERVER_DEFAULTS, scaled } from "./timing.ts";
 
 describe("scenarios - 宣言の整合（書き間違いを、サーバーなしで見つける）", () => {
-	it("issue-49 の4つと、issue-27 の全員発見、issue-29b の壁越し・襖越し、issue-25 のペイント、issue-44 の平屋、issue-45 の平屋の射撃がそろっている", () => {
+	it("issue-49 の4つと、issue-27 の全員発見、issue-29b の壁越し・襖越し、issue-25 のペイント、issue-44 の平屋、issue-45 の平屋の射撃、issue-56 のポーズがそろっている", () => {
 		expect(scenarios.map((s) => s.name)).toEqual([
 			"時間切れで隠れ側の勝ち",
 			"鬼の離脱で隠れ側の勝ち",
@@ -14,6 +14,7 @@ describe("scenarios - 宣言の整合（書き間違いを、サーバーなし�
 			"ペイントの確定と一括配信",
 			"平屋のステージで時間切れ",
 			"平屋の壁越し・襖越しの射撃",
+			"ポーズの確定と一括配信",
 		]);
 	});
 

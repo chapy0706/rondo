@@ -113,4 +113,23 @@ export const paintEventSamples = [
 			],
 		},
 	},
+	{ type: "paint", paint: null, pose: "maleCrouch" },
+	{
+		type: "paint",
+		paint: {
+			kind: "strokes",
+			strokes: [
+				{
+					part: "torso",
+					color: "#a07850",
+					size: 0.04,
+					points: [
+						{ u: 0, v: 0.5 },
+						{ u: 0.25, v: 0.5 },
+					],
+				},
+			],
+		},
+		pose: "femaleDance",
+	},
 ] as const satisfies readonly VeryarePaintEvent[];

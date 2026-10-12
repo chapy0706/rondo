@@ -1,0 +1,126 @@
+{
+	"note": "隠れ側のポーズの一覧（issue-56）。id は英数字だけの識別子（素材のファイル名から作った）、label は表示名、source は素材のポーズの glb の名前（tools/character_assets.mjs が使う）。cpu は、サーバーの隠れ CPU・鬼のポーズの値から、素材のポーズへの対応。サーバーの pose.gleam と一致することを、server の pose_test が確かめる。",
+	"default": "idle",
+	"poses": [
+		{
+			"id": "idle",
+			"label": "立つ（既定）",
+			"source": "Idle"
+		},
+		{
+			"id": "femaleStanding1",
+			"label": "立つ 1",
+			"source": "Female Standing Pose1"
+		},
+		{
+			"id": "femaleStanding2",
+			"label": "立つ 2",
+			"source": "Female Standing Pose2"
+		},
+		{
+			"id": "femaleStanding3",
+			"label": "立つ 3",
+			"source": "Female Standing Pose3"
+		},
+		{
+			"id": "femaleStanding4",
+			"label": "立つ 4",
+			"source": "Female Standing Pose4"
+		},
+		{
+			"id": "femaleStanding5",
+			"label": "立つ 5",
+			"source": "Female Standing Pose5"
+		},
+		{
+			"id": "maleStanding1",
+			"label": "立つ 6",
+			"source": "Male Standing Pose1"
+		},
+		{
+			"id": "maleStanding2",
+			"label": "立つ 7",
+			"source": "Male Standing Pose2"
+		},
+		{
+			"id": "walking",
+			"label": "歩く",
+			"source": "Walking"
+		},
+		{
+			"id": "mediumRun",
+			"label": "走る",
+			"source": "Medium Run"
+		},
+		{
+			"id": "femaleDance",
+			"label": "踊る",
+			"source": "Female Dance Pose"
+		},
+		{
+			"id": "femaleDynamic1",
+			"label": "跳ぶ 1",
+			"source": "Female Dynamic Pose1"
+		},
+		{
+			"id": "femaleDynamic2",
+			"label": "跳ぶ 2",
+			"source": "Female Dynamic Pose2"
+		},
+		{
+			"id": "femaleDynamic3",
+			"label": "跳ぶ 3",
+			"source": "Female Dynamic Pose3"
+		},
+		{
+			"id": "maleCrouch",
+			"label": "しゃがむ",
+			"source": "Male Crouch Pose"
+		},
+		{
+			"id": "femaleSitting1",
+			"label": "座る 1",
+			"source": "Female Sitting Pose1"
+		},
+		{
+			"id": "femaleSitting2",
+			"label": "座る 2",
+			"source": "Female Sitting Pose2"
+		},
+		{
+			"id": "maleSitting1",
+			"label": "座る 3",
+			"source": "Male Sitting Pose1"
+		},
+		{
+			"id": "maleSitting2",
+			"label": "座る 4",
+			"source": "Male Sitting Pose2"
+		},
+		{
+			"id": "maleSitting3",
+			"label": "座る 5",
+			"source": "Male Sitting Pose3"
+		},
+		{
+			"id": "maleSitting4",
+			"label": "座る 6",
+			"source": "Male Sitting Pose4"
+		},
+		{
+			"id": "maleLaying1",
+			"label": "寝る 1",
+			"source": "Male Laying Pose1"
+		},
+		{
+			"id": "maleLaying2",
+			"label": "寝る 2",
+			"source": "Male Laying Pose2"
+		}
+	],
+	"cpu": {
+		"standing": "idle",
+		"crouching": "maleCrouch",
+		"lying": "maleLaying1"
+	}
+}

@@ -268,11 +268,20 @@ describe("parseHidersNotice - 探索開始時の一括配信（issue-33）", () 
 		);
 	});
 
+	it("ポーズ（issue-56）: 素材のポーズの識別子は、そのまま読む。一覧に無い文字列は null（既定の立ち姿）として読む", () => {
+		const read = (pose: unknown) =>
+			parseHidersNotice({ type: "hiders", hiders: [{ ...human, pose }] })
+				?.hiders[0]?.pose;
+		expect(read("maleCrouch")).toBe("maleCrouch");
+		expect(read("lying")).toBe("lying");
+		expect(read("jump")).toBeNull();
+	});
+
 	it("形が違えば null（境界での unknown 検証）", () => {
 		expect(parseHidersNotice({ type: "phase" })).toBeNull();
 		expect(parseHidersNotice({ type: "hiders", hiders: "x" })).toBeNull();
 		expect(
-			parseHidersNotice({ type: "hiders", hiders: [{ ...cpu, pose: "jump" }] }),
+			parseHidersNotice({ type: "hiders", hiders: [{ ...cpu, pose: 3 }] }),
 		).toBeNull();
 		expect(
 			parseHidersNotice({

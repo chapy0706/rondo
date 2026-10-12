@@ -5,6 +5,7 @@ import gleam/dynamic.{type Dynamic}
 import gleam/dynamic/decode
 import gleam/json
 import gleam/list
+import gleam/option.{None, Some}
 import gleeunit/should
 import rondo_server/games/veryare/paint
 import rondo_server/protocol/message
@@ -123,12 +124,31 @@ pub fn point_count_limit_test() {
 /// サーバーが一括配信に載せるペイントは、受け取ったペイントと同じ形（見本の hiders と同じ）。
 pub fn payload_round_trips_test() {
   let fixture = fixture()
-  let assert [_, sample] = items(at(fixture, ["valid"]))
-  let assert Ok(strokes) = decode.run(sample, paint.event_decoder())
+  let assert [_, sample, ..] = items(at(fixture, ["valid"]))
+  let assert Ok(paint.Confirm(strokes: Some(strokes), pose: None)) =
+    decode.run(sample, paint.event_decoder())
   let sent = over_the_wire(paint.payload(strokes))
-  let assert [hider] = items(at(fixture, ["hiders", "hiders"]))
+  let assert [hider, ..] = items(at(fixture, ["hiders", "hiders"]))
   decode.run(sent, paint.paint_decoder())
   |> should.equal(decode.run(at(hider, ["paint"]), paint.paint_decoder()))
   decode.run(sent, decode.at(["kind"], decode.string))
   |> should.equal(Ok("strokes"))
+}
+
+/// ポーズ（issue-56）: ポーズだけの確定と、ペイントとポーズの確定を読む。
+pub fn pose_samples_test() {
+  let assert [_, _, pose_only, both] = items(at(fixture(), ["valid"]))
+  let assert Ok(paint.Confirm(strokes: None, pose: Some("maleCrouch"))) =
+    decode.run(pose_only, paint.event_decoder())
+  let assert Ok(paint.Confirm(strokes: Some(_), pose: Some("femaleDance"))) =
+    decode.run(both, paint.event_decoder())
+}
+
+/// 一覧に無いポーズは null と同じ。ペイントがあれば、ポーズだけ無いとして受け付け、ペイントも無ければ捨てる。
+pub fn unknown_pose_is_treated_as_null_test() {
+  let unknown = at(fixture(), ["unknownPose"])
+  let assert Ok(paint.Confirm(strokes: Some(_), pose: None)) =
+    decode.run(at(unknown, ["withPaint"]), paint.event_decoder())
+  decode.run(at(unknown, ["withoutPaint"]), paint.event_decoder())
+  |> should.be_error
 }

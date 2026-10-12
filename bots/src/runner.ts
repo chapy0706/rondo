@@ -265,6 +265,25 @@ function act(
 			bot.send({ type: "game-event", gameType: GAME_TYPE, roomId, payload });
 			break;
 		}
+		case "pose": {
+			const payload: VeryarePaintEvent = {
+				type: "paint",
+				paint: null,
+				pose: action.pose,
+			};
+			bot.send({ type: "game-event", gameType: GAME_TYPE, roomId, payload });
+			break;
+		}
+		case "expect-pose": {
+			const id = idOf(action.target);
+			const pose = id === null ? undefined : latestHider(bot, id)?.pose;
+			if (pose === undefined || pose !== action.pose) {
+				context.problems.push(
+					`${action.check}: ${action.target} のポーズは ${action.pose ?? "null"} のはず（届いたもの: ${pose === undefined ? "なし" : (pose ?? "null")}）`,
+				);
+			}
+			break;
+		}
 		case "expect-paint": {
 			const id = idOf(action.target);
 			const paint = id === null ? undefined : latestPaint(bot, id);
@@ -355,6 +374,27 @@ function planOf(bot: Bot, context: Context): DoorShotPlan | null {
 		);
 	}
 	return context.plan;
+}
+
+/** いちばん新しい隠れ側の一括配信での、player の状態（ポーズ）。届いていなければ undefined。 */
+function latestHider(
+	bot: Bot,
+	player: string,
+): { readonly pose: string | null } | undefined {
+	let latest: { readonly pose: string | null } | undefined;
+	for (const { message } of bot.received) {
+		if (message.type !== "game-state" && message.type !== "game-state-to")
+			continue;
+		const payload = message.payload as { type?: unknown; hiders?: unknown };
+		if (payload.type !== "hiders" || !Array.isArray(payload.hiders)) continue;
+		const entry = (
+			payload.hiders as { playerId?: unknown; pose?: unknown }[]
+		).find((h) => h.playerId === player);
+		if (entry !== undefined) {
+			latest = { pose: typeof entry.pose === "string" ? entry.pose : null };
+		}
+	}
+	return latest;
 }
 
 /** いちばん新しい隠れ側の一括配信での、player のペイント。届いていなければ undefined。 */

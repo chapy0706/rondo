@@ -3,7 +3,7 @@
  * 収める / cameraRig.ts）に、次の2つを足す。どれも three を使わない純粋な計算。
  *
  * - 家具: 目の位置からカメラの位置への線が、家具の箱にふさがれない、いちばん遠い水平の距離を使う
- *   （allowedCameraReach）。低い家具（線が箱の上を通る）は止めない。目が箱の中にある・接するときは、その箱で
+ *   （allowedCameraReach）。低い家具（線が箱の上を通る）は止めない。体の円柱が箱に重なるときは、その箱で
  *   止めない（体が家具に重なっていても、カメラが決まるように）
  * - 近くの面: カメラの位置を、領域の境（壁・すべての戸）から壁の余白（CAMERA_WALL_MARGIN。設定の wallMargin）、家具の箱から
  *   CAMERA_FURNITURE_MARGIN 以上、水平に離す（placeGuardedCamera）。どちらの余白も、ニアクリップの
@@ -13,6 +13,7 @@
  * 縮むときは即座、伸びるときはなめらか（followCameraReach）は、呼び出し側でそのまま使う。
  */
 
+import { BODY_HEIGHT, BODY_RADIUS } from "./bodySize";
 import { type CameraSettings, DEFAULT_CAMERA, EYE_HEIGHT } from "./camera";
 import {
 	type ReachedPose,
@@ -51,8 +52,21 @@ export const WALL_FACE_OFFSET = 0.125;
 export const CAMERA_FURNITURE_MARGIN = 0.1;
 /** 水平の距離を探す刻み（メートル）。 */
 const REACH_STEP = 0.05;
-/** 目が箱にこれより近ければ、その箱は体を隠さないとみなす（体が家具に重なる・接するとき）。 */
-export const EYE_TOUCH = 0.001;
+/**
+ * 体の円柱（半径 BODY_RADIUS・足もとから BODY_HEIGHT）が、箱に重なるか。重なる箱は、体を隠すとは
+ * みなさない（体が家具に入り込んだ場所では、どこにカメラを置いても重なった部分は隠れるため）。
+ */
+export function bodyOverlapsBox(
+	body: { readonly x: number; readonly z: number; readonly feet: number },
+	box: FurnitureBox,
+): boolean {
+	if (body.feet + BODY_HEIGHT <= box.min.y || body.feet >= box.max.y) {
+		return false;
+	}
+	const dx = Math.max(box.min.x - body.x, 0, body.x - box.max.x);
+	const dz = Math.max(box.min.z - body.z, 0, body.z - box.max.z);
+	return Math.hypot(dx, dz) < BODY_RADIUS;
+}
 /** 押し戻しを繰り返す回数（角では2方向から押すため）。 */
 const PUSH_ROUNDS = 4;
 
@@ -303,7 +317,7 @@ function guardLevel(
 	const eye = { x: center.x, y: center.feet + EYE_HEIGHT, z: center.z };
 	for (const box of boxes) {
 		if (
-			distanceToBox(eye, box) >= EYE_TOUCH &&
+			!bodyOverlapsBox(center, box) &&
 			segmentHitsBox(eye, position, box) !== null
 		) {
 			return "hidden";

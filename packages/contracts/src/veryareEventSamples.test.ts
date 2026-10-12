@@ -2,8 +2,13 @@ import { describe, expect, it } from "vitest";
 import fixture from "./fixtures/veryare-events.json";
 import movement from "./fixtures/veryare-movement.json";
 import paintFixture from "./fixtures/veryare-paint.json";
+import posesFixture from "./fixtures/veryare-poses.json";
 import stageFixture from "./fixtures/veryare-stage.json";
-import { VERYARE_PAINT_LIMITS } from "./veryare";
+import {
+	VERYARE_CPU_POSES,
+	VERYARE_MODEL_POSES,
+	VERYARE_PAINT_LIMITS,
+} from "./veryare";
 import {
 	doorsNoticeSamples,
 	openDoorEventSamples,
@@ -81,5 +86,35 @@ describe("veryare のペイントの見本（issue-25 / ADR 0009）", () => {
 		expect(paintFixture.hiders.hiders[0]?.paint).toEqual(
 			paintFixture.valid[1]?.paint,
 		);
+	});
+});
+
+describe("veryare のポーズの見本（issue-56 / ADR 0009）", () => {
+	it("素材のポーズの識別子は、共有の見本（veryare-poses.json）と同じ順・同じ 23 個", () => {
+		expect(posesFixture.poses.map((p) => p.id)).toEqual([
+			...VERYARE_MODEL_POSES,
+		]);
+		expect(VERYARE_MODEL_POSES).toHaveLength(23);
+		for (const id of VERYARE_MODEL_POSES) expect(id).toMatch(/^[A-Za-z0-9]+$/);
+	});
+
+	it("CPU と鬼のポーズの値は、見本の対応（cpu）の鍵と同じで、対応先と既定は一覧の中", () => {
+		expect(Object.keys(posesFixture.cpu)).toEqual([...VERYARE_CPU_POSES]);
+		const ids = new Set<string>(VERYARE_MODEL_POSES);
+		for (const target of Object.values(posesFixture.cpu)) {
+			expect(ids.has(target)).toBe(true);
+		}
+		expect(ids.has(posesFixture.default)).toBe(true);
+	});
+
+	it("ペイントの確定の見本: ポーズだけの確定と、ペイントとポーズの確定がある。両方 null は拒む見本", () => {
+		expect(
+			paintFixture.valid.some((e) => e.paint === null && "pose" in e),
+		).toBe(true);
+		expect(paintFixture.invalid).toContainEqual({
+			type: "paint",
+			paint: null,
+			pose: null,
+		});
 	});
 });

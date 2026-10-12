@@ -6,15 +6,15 @@
  * - 領域の外: 体からカメラへの線が、体のいる領域の外へ出る（ADR 0043）
  * - 壁: カメラから領域の境（壁・すべての戸）までが、壁の面のずれとニアクリップの和より近い
  * - 家具の中・近い: カメラが家具の箱の中にある、または箱までがニアクリップより近い
- * - 隠す: 目からカメラへの線を、家具の箱がふさぐ（目が箱の中にある・接するときは除く）
+ * - 隠す: 目からカメラへの線を、家具の箱がふさぐ（体の円柱が箱に重なるときは除く）
  */
 
 import { EYE_HEIGHT } from "./camera";
 import {
-	EYE_TOUCH,
 	type FurnitureBox,
 	NEAR_CLEARANCE,
 	WALL_FACE_OFFSET,
+	bodyOverlapsBox,
 	boundaryEdges,
 	distanceToBox,
 	distanceToSegment,
@@ -81,7 +81,7 @@ export function cameraProblems(
 			}
 		}
 		if (
-			distanceToBox(eye, box) >= EYE_TOUCH &&
+			!bodyOverlapsBox({ ...body, feet }, box) &&
 			segmentHitsBox(eye, camera, box) !== null
 		) {
 			problems.push({ kind: "hides", object: box.name });

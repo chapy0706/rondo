@@ -1409,6 +1409,43 @@ pub fn paint_is_broadcast_at_exploration_start_test() {
   next_hiders(a) |> should.equal(hiders)
 }
 
+/// ポーズだけの確定（issue-56）。{ type: "paint", paint: null, pose }。
+fn pose_event(pose: String) -> Dynamic {
+  dynamic.properties([
+    #(dynamic.string("type"), dynamic.string("paint")),
+    #(dynamic.string("paint"), dynamic.nil()),
+    #(dynamic.string("pose"), dynamic.string(pose)),
+  ])
+}
+
+/// 隠れ側のポーズ（hiders の一覧の、playerId が id の人。null なら None）。
+fn pose_in(hiders: Dynamic, id: String) -> option.Option(String) {
+  let assert Ok(list) =
+    decode.run(hiders, decode.at(["hiders"], decode.list(decode.dynamic)))
+  let assert Ok(entry) =
+    list.find(list, fn(h) { field(h, "playerId", decode.string) == id })
+  field(entry, "pose", decode.optional(decode.string))
+}
+
+/// ペイントフェーズに確定したポーズ（issue-56）が、探索の開始の一括配信に載る。ペイントフェーズの
+/// 間は誰にも送らない。一覧に無いポーズ・確定しなかった人は null（既定の立ち姿）。最初の1回だけ。
+pub fn pose_is_broadcast_at_exploration_start_test() {
+  let #(room, a) = to_painting(["a", "b", "c", "d"])
+  room_actor.game_event(room, PlayerId("b"), pose_event("maleCrouch"))
+  room_actor.game_event(room, PlayerId("b"), pose_event("femaleDance"))
+  room_actor.game_event(room, PlayerId("c"), pose_event("moonwalk"))
+  let _ = room_actor.snapshot(room)
+  received_types(a, []) |> should.equal([])
+  until_phase(a, "exploration")
+  let hiders = next_state(a)
+  field(hiders, "type", decode.string) |> should.equal("hiders")
+  pose_in(hiders, "b") |> should.equal(Some("maleCrouch"))
+  pose_in(hiders, "c") |> should.equal(None)
+  pose_in(hiders, "d") |> should.equal(None)
+  decode.run(paint_in(hiders, "b"), decode.optional(decode.dynamic))
+  |> should.equal(Ok(None))
+}
+
 /// 被り判定（準備移動の終わり）の結果は、ペイントで変わらない。準備移動中のペイントは無視され、
 /// ペイントフェーズのペイントを受け付けても、まだ隠れている一覧は変わらない。
 pub fn paint_does_not_change_the_overlap_judgement_test() {

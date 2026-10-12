@@ -10,14 +10,14 @@
  * タップとドラッグは、指（pointerId）ごとに分ける。短く、あまり動かないものだけをタップとする。
  */
 
+import { BODY_HEIGHT, BODY_RADIUS } from "./bodySize";
+
 /** タップとみなす、押してから離すまでの時間の上限（ミリ秒）。 */
 export const TAP_MAX_MS = 300;
 /** タップとみなす、押してから動いた量の上限（画面の px）。 */
 export const TAP_MAX_MOVE_PX = 12;
 
 /** 体（足もと feet から高さ 1 m、半径 0.2 m の円柱。体の描き込み面と同じ大きさ）。 */
-const BODY_RADIUS = 0.2;
-const BODY_HEIGHT = 1;
 /** 狙う点が体の中かを決めるときの、表面からの余裕（メートル）。 */
 export const AIM_TOLERANCE = 0.05;
 

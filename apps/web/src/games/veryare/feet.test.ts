@@ -1,6 +1,7 @@
 import * as THREE from "three";
 import { describe, expect, it } from "vitest";
-import { cameraPose } from "./camera";
+import { PLACEHOLDER_CAPSULE } from "./bodySize";
+import { CAMERA_MAX_HEIGHT, EYE_HEIGHT, cameraPose } from "./camera";
 import { FOOT_SETTLE_SECONDS, followFloor } from "./feet";
 import { intersectCylinder } from "./paint";
 
@@ -47,13 +48,13 @@ describe("cameraPose - TPS カメラは体の高さについて行く（距離�
 		expect(high.position.z).toBeCloseTo(low.position.z, 9);
 	});
 
-	it("箱の表示（足もと 0）では、これまでと同じ位置（目線 0.8 m、距離 2.6 m）", () => {
+	it("箱の表示（足もと 0）では、目線 1.28 m（体の高さ 1.6 m の 0.8）、水平の距離はこれまでと同じ（高さは上限 1.85 m まで）", () => {
 		const pose = cameraPose({ x: 0, z: 0, feet: 0 }, 0, 0.35);
-		expect(pose.target).toEqual({ x: 0, y: 0.8, z: 0 });
+		expect(pose.target).toEqual({ x: 0, y: EYE_HEIGHT, z: 0 });
 		const dx = pose.position.x - pose.target.x;
-		const dy = pose.position.y - pose.target.y;
 		const dz = pose.position.z - pose.target.z;
-		expect(Math.hypot(dx, dy, dz)).toBeCloseTo(2.6, 9);
+		expect(Math.hypot(dx, dz)).toBeCloseTo(2.6 * Math.cos(0.35), 9);
+		expect(pose.position.y).toBeCloseTo(CAMERA_MAX_HEIGHT, 9);
 	});
 });
 
@@ -76,7 +77,8 @@ describe("体の高さを変えても、体の中の相対位置は変わらな�
 	it("ペイント: 同じ画面の点で、描き込み面の u・v は、足もと 0 でも 0.72 でも同じ", () => {
 		const uvAt = (feet: number) => {
 			const body = new THREE.Object3D();
-			body.position.set(1, 0.5 + feet, 2);
+			// 体の座標は、足もとが原点（bodySize.ts）。
+			body.position.set(1, feet, 2);
 			body.updateMatrixWorld();
 			const raycaster = rayFrom({ x: 1, z: 2, feet }, { x: 0.05, y: -0.1 });
 			const inverse = body.matrixWorld.clone().invert();
@@ -95,7 +97,14 @@ describe("体の高さを変えても、体の中の相対位置は変わらな�
 
 	it("照準: 鬼と隠れ側が同じ高さの床に立つとき、画面の中央の当たりは、床の高さに依らない", () => {
 		const hitAt = (feet: number) => {
-			const hider = new THREE.Mesh(new THREE.CapsuleGeometry(0.2, 0.6, 4, 12));
+			const hider = new THREE.Mesh(
+				new THREE.CapsuleGeometry(
+					PLACEHOLDER_CAPSULE.radius,
+					PLACEHOLDER_CAPSULE.length,
+					4,
+					12,
+				),
+			);
 			// 鬼の正面（カメラの向き）に、2 m 先に立つ隠れ側。
 			const pose = cameraPose({ x: 0, z: 0, feet }, 0.4, 0.35);
 			const ahead = new THREE.Vector3(
@@ -103,7 +112,11 @@ describe("体の高さを変えても、体の中の相対位置は変わらな�
 				0,
 				pose.target.z - pose.position.z,
 			).normalize();
-			hider.position.set(ahead.x * 2, 0.5 + feet, ahead.z * 2);
+			hider.position.set(
+				ahead.x * 2,
+				PLACEHOLDER_CAPSULE.centerY + feet,
+				ahead.z * 2,
+			);
 			hider.updateMatrixWorld();
 			const [hit] = rayFrom(
 				{ x: 0, z: 0, feet },

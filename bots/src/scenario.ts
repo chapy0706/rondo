@@ -13,6 +13,8 @@
  *   無ければ送らない（サーバーの既定）
  */
 
+import type { VeryareModelPose } from "@rondo/contracts";
+
 /** ボットの動き。 */
 export type Action =
 	/** 鬼希望エリアの中央へ動く（立候補）。 */
@@ -44,6 +46,21 @@ export type Action =
 	 * 点を1つ描いたストローク1本を送る。
 	 */
 	| { readonly type: "paint"; readonly color: string }
+	/**
+	 * 隠れ側として、塗らずにポーズだけを確定する（issue-56。契約の VeryarePaintEvent の paint を null、
+	 * pose を指定）。
+	 */
+	| { readonly type: "pose"; readonly pose: VeryareModelPose }
+	/**
+	 * 確かめ（issue-56）: 探索の開始に届いた隠れ側の一括配信で、target のポーズが pose か（null は
+	 * 確定しなかった・既定の立ち姿）。違えば、check の名前を添えて問題にする。
+	 */
+	| {
+			readonly type: "expect-pose";
+			readonly check: string;
+			readonly target: string;
+			readonly pose: string | null;
+	  }
 	/**
 	 * 確かめ（issue-25）: 探索の開始に届いた隠れ側の一括配信で、target のペイントが、color の
 	 * ストロークか。違えば、check の名前を添えて問題にする。

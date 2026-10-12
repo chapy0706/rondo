@@ -862,3 +862,110 @@ describe("runScenario - 平屋のステージ（issue-44）", () => {
 		]);
 	});
 });
+
+describe("runScenario - ポーズの確定と一括配信（issue-56）", () => {
+	const scenario: Scenario = {
+		name: "ポーズ",
+		bots: ["bot-a", "bot-b"],
+		steps: [
+			{ on: "joined", bot: "bot-a", action: { type: "touch-area" } },
+			{
+				on: { phase: "painting" },
+				bot: "bot-b",
+				action: { type: "pose", pose: "maleCrouch" },
+			},
+			{
+				on: { phase: "painting" },
+				bot: "bot-b",
+				action: { type: "pose", pose: "femaleDance" },
+				delayMs: 10,
+			},
+			{
+				on: { phase: "exploration" },
+				bot: "bot-a",
+				action: {
+					type: "expect-pose",
+					check: "最初のポーズだけが届く",
+					target: "bot-b",
+					pose: "maleCrouch",
+				},
+				delayMs: 20,
+			},
+		],
+		receivers: ["bot-a", "bot-b"],
+		rankings: [
+			{ bot: "bot-b", rank: 1, score: 1, details: details.hiderWon },
+			{ bot: "bot-a", rank: 2, score: 0, details: details.oniLost },
+		],
+	};
+
+	/** keepLast なら、最後のポーズを（誤って）一括配信に載せる偽物のサーバー。 */
+	function poseServer(keepLast: boolean): FakeServer {
+		const server = new FakeServer();
+		const poses: unknown[] = [];
+		server.onEvent = (s, player, message) => {
+			if (message.type !== "game-event") return;
+			const payload = message.payload as {
+				type: string;
+				x?: number;
+				pose?: unknown;
+			};
+			if (payload.type === "move" && player === "p-1" && payload.x === 0) {
+				s.phase("painting");
+			}
+			if (payload.type === "paint" && player === "p-2") {
+				poses.push(payload.pose);
+				if (poses.length < 2) return;
+				s.phase("exploration");
+				s.broadcast({
+					type: "game-state",
+					gameType: "veryare",
+					roomId: "room-1",
+					payload: {
+						type: "hiders",
+						hiders: [
+							{
+								playerId: "p-2",
+								x: 0,
+								z: 0,
+								facing: null,
+								pose: keepLast ? poses[1] : poses[0],
+								paint: null,
+							},
+						],
+					},
+				});
+				setTimeout(
+					() =>
+						s.ended([
+							{ player: "p-2", rank: 1, score: 1, details: details.hiderWon },
+							{ player: "p-1", rank: 2, score: 0, details: details.oniLost },
+						]),
+					60,
+				);
+			}
+		};
+		return server;
+	}
+
+	it("ペイントフェーズに、塗らずにポーズだけを確定する（paint は null）。探索の開始に届いたポーズを確かめる", async () => {
+		const server = poseServer(false);
+		const result = await run(server, scenario);
+		expect(result.problems).toEqual([]);
+		const sent = server.log.flatMap(({ player, message }) =>
+			message.type === "game-event" &&
+			(message.payload as { type?: string }).type === "paint"
+				? [[player, message.payload]]
+				: [],
+		);
+		expect(sent[0]).toEqual([
+			"p-2",
+			{ type: "paint", paint: null, pose: "maleCrouch" },
+		]);
+	});
+
+	it("違うポーズが届いたら、確かめの名前が問題に出る", async () => {
+		const result = await run(poseServer(true), scenario);
+		expect(result.problems.join("\n")).toContain("最初のポーズだけが届く");
+	});
+});

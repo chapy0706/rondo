@@ -9,7 +9,7 @@ import {
 	CAMERA_WALL_MARGIN,
 	cameraPose,
 } from "./camera";
-import { DEFAULT_CAMERA } from "./camera";
+import { CAMERA_MAX_HEIGHT, DEFAULT_CAMERA, EYE_HEIGHT } from "./camera";
 import { cameraReach, followCameraReach, reachedPose } from "./cameraRig";
 import { parseStageNotice } from "./stage";
 
@@ -167,7 +167,7 @@ describe("戸口を通る間の動き（壁と戸の手前で止め、数が破�
 describe("見る点を前へずらす（カメラが近づいたぶん / 上から見下ろす視点にならないように）", () => {
 	const center = { x: 1, z: 2, feet: 0.6 };
 	const full = CAMERA_DISTANCE * Math.cos(CAMERA_PITCH);
-	const eye = { x: 1, y: 0.6 + 0.8, z: 2 };
+	const eye = { x: 1, y: 0.6 + EYE_HEIGHT, z: 2 };
 
 	it("開けた所（水平の距離がいっぱい）では、ずらさない", () => {
 		const pose = reachedPose(center, 0.4, full);
@@ -248,5 +248,22 @@ describe("床の高さは、カメラの高さに一度だけ足す（二重に�
 			expect(raised.position.y - 0.6).toBeCloseTo(flat.position.y, 9);
 			expect(raised.target.y - 0.6).toBeCloseTo(flat.target.y, 9);
 		}
+	});
+});
+
+describe("カメラの高さの上限（issue-56。体の高さ 1.6 m で目が高くなったため）", () => {
+	it("どの水平の距離でも、カメラは足もとから CAMERA_MAX_HEIGHT（1.85 m）より高くならない", () => {
+		expect(CAMERA_MAX_HEIGHT).toBe(1.85);
+		const full = CAMERA_DISTANCE * Math.cos(CAMERA_PITCH);
+		for (let i = 0; i <= 100; i++) {
+			const pose = reachedPose({ x: 0, z: 0, feet: 0.6 }, 0, (full * i) / 100);
+			expect(pose.position.y - 0.6).toBeLessThanOrEqual(
+				CAMERA_MAX_HEIGHT + 1e-9,
+			);
+			// 見る点（目）より下にはならない。
+			expect(pose.position.y).toBeGreaterThan(pose.target.y);
+		}
+		const open = cameraPose({ x: 0, z: 0, feet: 0.6 }, 0, CAMERA_PITCH);
+		expect(open.position.y - 0.6).toBeLessThanOrEqual(CAMERA_MAX_HEIGHT + 1e-9);
 	});
 });

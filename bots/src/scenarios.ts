@@ -332,4 +332,51 @@ export const scenarios: readonly Scenario[] = [
 		receivers: ["bot-a", "bot-b", "bot-c"],
 		rankings: doorShotRankings,
 	},
+	{
+		// ポーズの確定と一括配信（issue-56）。隠れ側 B がペイントフェーズに、塗らずにポーズだけを2回
+		// 確定し、探索の開始に鬼 A へ届いた一括配信で、最初の1回（maleCrouch）だけが載っていることを
+		// 確かめる。C は確定しないので null（既定の立ち姿）。誰も撃たないので、時間切れで隠れ側の勝ち。
+		name: "ポーズの確定と一括配信",
+		bots: ["bot-a", "bot-b", "bot-c"],
+		steps: [
+			{ on: "joined", bot: "bot-a", action: { type: "touch-area" } },
+			...hide(["bot-b", "bot-c"]),
+			{
+				on: { phase: "painting" },
+				bot: "bot-b",
+				action: { type: "pose", pose: "maleCrouch" },
+				delayMs: 50,
+			},
+			{
+				on: { phase: "painting" },
+				bot: "bot-b",
+				action: { type: "pose", pose: "femaleDance" },
+				delayMs: 150,
+			},
+			{
+				on: { phase: "exploration" },
+				bot: "bot-a",
+				action: {
+					type: "expect-pose",
+					check: "最初のポーズだけが届く",
+					target: "bot-b",
+					pose: "maleCrouch",
+				},
+				delayMs: 100,
+			},
+			{
+				on: { phase: "exploration" },
+				bot: "bot-a",
+				action: {
+					type: "expect-pose",
+					check: "確定しなかった人のポーズは null",
+					target: "bot-c",
+					pose: null,
+				},
+				delayMs: 120,
+			},
+		],
+		receivers: ["bot-a", "bot-b", "bot-c"],
+		rankings: [hider("bot-b", true), hider("bot-c", true), oni("bot-a", false)],
+	},
 ];

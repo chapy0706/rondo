@@ -34,6 +34,7 @@ export type AssetEvent =
 			readonly edges: number;
 	  }
 	| { readonly kind: "furniture"; readonly boxes: number | null }
+	| { readonly kind: "character"; readonly swapped: boolean }
 	| { readonly kind: "stage"; readonly display: "model" }
 	| {
 			readonly kind: "stage";
@@ -83,6 +84,10 @@ export function traceMessage(event: AssetEvent): string {
 			return "待機ルーム: 平屋の glb に差し替えた";
 		case "fusuma":
 			return `襖: 操作軸 ${event.nodes} 組を見つけ、襖の辺 ${event.edges} 本に対応づけた（平屋は 10 組・108 本）`;
+		case "character":
+			return event.swapped
+				? "キャラクター: 素材の体に差し替えた"
+				: "キャラクター: 体かポーズの表が壊れているので、仮のカプセルのまま";
 		case "furniture":
 			return event.boxes === null
 				? "家具の箱: 読めない（地図の守りだけ）"

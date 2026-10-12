@@ -11,8 +11,9 @@
  *   捨てない。2回目以降の対戦は、新しい差し替え口で読み直す（ブラウザのキャッシュから届く）。
  *   前の対戦の後片付けで three のメッシュを解放するため、同じものを使い回さない
  * - 入口は画面全体で1つ（gameAssets）。ロビーとゲームの画面が同じものを使う
- * - キャラクター（issue-56）とペイントの本格版（issue-54）は、同じ入口に差し替え口を足して使う
- *   （シーンの bodies の受け口）
+ * - キャラクター（issue-56）: 体（X Bot）とポーズの表の2つの glb を読み、1つの差し替え口にまとめる。
+ *   どちらかが読めなければ、仮のカプセルのまま（警告は出さない）。対戦の画面を開いた時点で読み始め、
+ *   待機ルームにいる間に差し替える（シーンの bodies の受け口）
  *
  * 差し替えるのは、待機ルームにいる間だけ（シーンが take() し、ステージへ移ったら lock() する）。
  * 間に合わなければ、その回は仮の表示のまま。読み込みの失敗は警告を出さない（ローダーが記録する）。
@@ -35,6 +36,28 @@ export const HIRAYA_KEYS = {
 	roof: "hiraya-roof",
 	furniture: "hiraya-furniture",
 } as const;
+
+/** キャラクターの素材の key（issue-56）。 */
+export const CHARACTER_KEYS = {
+	body: "character-body",
+	poses: "character-poses",
+} as const;
+
+/** キャラクターの2つの glb（体と、ポーズの表）。 */
+export interface CharacterParts<T> {
+	readonly body: T;
+	readonly poses: T;
+}
+
+/** 2つの読み込みの結果を1つにまとめる。どちらかが読めなければ、その失敗のまま（体を先に見る）。 */
+export function combineCharacter<T>(
+	body: LoadResult<T>,
+	poses: LoadResult<T>,
+): LoadResult<CharacterParts<T>> {
+	if (!body.ok) return body;
+	if (!poses.ok) return poses;
+	return { ok: true, value: { body: body.value, poses: poses.value } };
+}
 
 /** 平屋の4つの glb。屋外の飾り・屋根・家具の箱は、読めなければ null。 */
 export interface HirayaParts<T> {
@@ -74,6 +97,8 @@ export interface VeryareAssets<T> {
 	 * 読み込みを始める。呼ぶたびに新しい差し替え口を返す。
 	 */
 	hirayaSlot(): SwapSlot<HirayaParts<T>>;
+	/** 対戦1回ぶんの、キャラクターの差し替え口（呼ぶたびに読み込みを始める）。 */
+	characterSlot(): SwapSlot<CharacterParts<T>>;
 }
 
 /**
@@ -119,6 +144,27 @@ export function createVeryareAssets<T>(
 			trace({ kind: "slot", from: prefetched === null ? "new" : "prefetch" });
 			const pending = prefetched ?? load();
 			prefetched = null;
+			return createSwapSlot(pending);
+		},
+		characterSlot() {
+			const pending = Promise.all([
+				preload(CHARACTER_KEYS.body),
+				preload(CHARACTER_KEYS.poses),
+			]).then(([body, poses]) => {
+				trace({
+					kind: "load",
+					key: CHARACTER_KEYS.body,
+					ok: body.ok,
+					...(body.ok ? {} : { reason: body.reason }),
+				});
+				trace({
+					kind: "load",
+					key: CHARACTER_KEYS.poses,
+					ok: poses.ok,
+					...(poses.ok ? {} : { reason: poses.reason }),
+				});
+				return combineCharacter(body, poses);
+			});
 			return createSwapSlot(pending);
 		},
 	};

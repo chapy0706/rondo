@@ -54,7 +54,7 @@ describe("toNdc - 画面の点を、-1〜1 の座標にする", () => {
 	});
 });
 
-describe("rayHitsBody - 線と体（足もと feet から高さ 1 m、半径 0.2 m の円柱）の当たり", () => {
+describe("rayHitsBody - 線と体（足もと feet から体の高さ 1.6 m、半径 0.2 m の円柱）の当たり", () => {
 	const body = { x: 2, z: 0, feet: 0.6 };
 
 	it("体の正面から水平に引いた線は、体の表面で当たる", () => {
@@ -64,8 +64,12 @@ describe("rayHitsBody - 線と体（足もと feet から高さ 1 m、半径 0.2
 
 	it("体の上を通る線・後ろ向きの線は当たらない", () => {
 		expect(
-			rayHitsBody({ x: 0, y: 1.7, z: 0 }, { x: 1, y: 0, z: 0 }, body),
+			rayHitsBody({ x: 0, y: 2.3, z: 0 }, { x: 1, y: 0, z: 0 }, body),
 		).toBeNull();
+		// 頭の少し下（足もと 0.6 + 1.6 = 2.2 m より下）は当たる。
+		expect(
+			rayHitsBody({ x: 0, y: 2.1, z: 0 }, { x: 1, y: 0, z: 0 }, body),
+		).not.toBeNull();
 		expect(
 			rayHitsBody({ x: 0, y: 1.1, z: 0 }, { x: -1, y: 0, z: 0 }, body),
 		).toBeNull();
@@ -97,7 +101,8 @@ describe("hiderAt - 狙う点にいる隠れ側を決める", () => {
 
 	it("体の外（横・上・床の下）なら null（外れ）", () => {
 		expect(hiderAt({ x: 1.5, y: 1.1, z: 0 }, hiders)).toBeNull();
-		expect(hiderAt({ x: 2, y: 1.8, z: 0 }, hiders)).toBeNull();
+		expect(hiderAt({ x: 2, y: 2.3, z: 0 }, hiders)).toBeNull();
+		expect(hiderAt({ x: 2, y: 2.1, z: 0 }, hiders)).toBe("b");
 		expect(hiderAt({ x: 2, y: 0.4, z: 0 }, hiders)).toBeNull();
 	});
 });

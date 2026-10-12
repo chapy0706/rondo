@@ -8,8 +8,44 @@
 
 import type { PlayerId } from "./messages";
 
-/** 隠れ側のポーズ（仮の3種類 / issue-33）。見た目と選ぶ画面は後の issue で作る。 */
-export type VeryarePose = "standing" | "crouching" | "lying";
+/** 隠れ CPU と鬼のポーズ（サーバーが選ぶ3種類 / issue-33）。 */
+export const VERYARE_CPU_POSES = ["standing", "crouching", "lying"] as const;
+export type VeryareCpuPose = (typeof VERYARE_CPU_POSES)[number];
+
+/**
+ * 人間の隠れ側が選ぶ、素材のポーズの識別子（issue-56）。英数字だけ。表示名と素材の対応は、共有の
+ * 見本（fixtures/veryare-poses.json）に置き、サーバーの pose.gleam と一致することを両方のテストで
+ * 確かめる。
+ */
+export const VERYARE_MODEL_POSES = [
+	"idle",
+	"femaleStanding1",
+	"femaleStanding2",
+	"femaleStanding3",
+	"femaleStanding4",
+	"femaleStanding5",
+	"maleStanding1",
+	"maleStanding2",
+	"walking",
+	"mediumRun",
+	"femaleDance",
+	"femaleDynamic1",
+	"femaleDynamic2",
+	"femaleDynamic3",
+	"maleCrouch",
+	"femaleSitting1",
+	"femaleSitting2",
+	"maleSitting1",
+	"maleSitting2",
+	"maleSitting3",
+	"maleSitting4",
+	"maleLaying1",
+	"maleLaying2",
+] as const;
+export type VeryareModelPose = (typeof VERYARE_MODEL_POSES)[number];
+
+/** 隠れ側のポーズ（CPU・鬼の3種類と、人間が選ぶ素材のポーズ）。 */
+export type VeryarePose = VeryareCpuPose | VeryareModelPose;
 
 /**
  * 隠れ側のペイント。全面1色（隠れ CPU が使う）と、人間が描いたストローク（issue-25）。
@@ -49,10 +85,15 @@ export interface VeryareStrokePoint {
 	readonly v: number;
 }
 
-/** ペイントの確定（ペイントフェーズの終わりに、隠れ側が一度だけ送る / ADR 0025）。 */
+/**
+ * ペイントの確定（ペイントフェーズの終わりに、隠れ側が一度だけ送る / ADR 0025）。選んだポーズ
+ * （issue-56）も同じ電文で送る。塗っていなければ paint は null、ポーズを変えていなければ pose は
+ * null（省略も null と同じ）。両方 null の電文は、サーバーが捨てる。一覧に無い pose は null として扱う。
+ */
 export interface VeryarePaintEvent {
 	readonly type: "paint";
-	readonly paint: VeryareStrokesPaint;
+	readonly paint: VeryareStrokesPaint | null;
+	readonly pose?: VeryareModelPose | null;
 }
 
 /**

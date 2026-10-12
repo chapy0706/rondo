@@ -117,7 +117,11 @@ export function reachedPose(
 		pitch,
 		position: {
 			x: eye.x + Math.sin(yaw) * h,
-			y: eye.y + up,
+			// 高さの上限（足もとから）。上限にかかっても、見る点（目）より下にはしない。
+			y: Math.max(
+				Math.min(eye.y + up, center.feet + settings.maxHeight),
+				eye.y + 0.01,
+			),
 			z: eye.z + Math.cos(yaw) * h,
 		},
 	};

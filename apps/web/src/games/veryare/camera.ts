@@ -4,12 +4,14 @@
  * リハーサルで変えるときは、ここだけを書き換える。
  */
 
+import { EYE_HEIGHT } from "./bodySize";
+
 /** カメラとキャラクターの距離（メートル）。 */
 export const CAMERA_DISTANCE = 2.6;
 /** カメラが見下ろす角度（ラジアン）。 */
 export const CAMERA_PITCH = 0.35;
-/** 目線の高さ（カメラが見る点。メートル）。 */
-export const EYE_HEIGHT = 0.8;
+/** 目線の高さ（カメラが見る点。メートル）。体の高さから決める（bodySize.ts）。 */
+export { EYE_HEIGHT };
 
 /**
  * ステージのカメラを、体のいる領域の外に出さないための定数（ADR 0043）。カメラは、体からカメラへの
@@ -34,6 +36,13 @@ export const CAMERA_LOOK_AHEAD = 1.0;
 export const CAMERA_SETTLE_SECONDS = 0.15;
 /** カメラを、見る点からこれより低くしない（メートル。水平の距離が 0 でも、向きが決まるように）。 */
 export const CAMERA_MIN_HEIGHT = 0.4;
+/**
+ * カメラの高さの上限（足もとから。メートル）。体の高さを 1.6 m にして目が高くなり（issue-56）、開けた
+ * 所のカメラが足もとから 2.17 m になって、和室B（床の間 0.72 m）では襖の板の上端（2.685 m）を越えて
+ * 隣の部屋が見えたため、入れた。平屋のどの領域でも、壁・襖の板・欄間・天井の下面より低い
+ * （cameraHeight.test.ts）。上限にかかると、見下ろす角度は浅くなる。
+ */
+export const CAMERA_MAX_HEIGHT = 1.85;
 
 /** カメラの位置と、見る点（メートル。three を使わない）。 */
 export interface CameraPose {
@@ -60,6 +69,7 @@ export function cameraPose(
 	yaw: number,
 	pitch: number,
 	distance = CAMERA_DISTANCE,
+	maxHeight = CAMERA_MAX_HEIGHT,
 ): CameraPose {
 	const target = { x: center.x, y: center.feet + EYE_HEIGHT, z: center.z };
 	const back = Math.cos(pitch) * distance;
@@ -67,7 +77,10 @@ export function cameraPose(
 		target,
 		position: {
 			x: target.x + Math.sin(yaw) * back,
-			y: target.y + Math.sin(pitch) * distance,
+			y: Math.min(
+				target.y + Math.sin(pitch) * distance,
+				center.feet + maxHeight,
+			),
 			z: target.z + Math.cos(yaw) * back,
 		},
 	};
@@ -89,6 +102,8 @@ export interface CameraSettings {
 	readonly minHeight: number;
 	/** いちばん近づいたとき、見る点を前方へずらす距離（CAMERA_LOOK_AHEAD）。 */
 	readonly lookAhead: number;
+	/** カメラの高さの上限（足もとから。CAMERA_MAX_HEIGHT）。 */
+	readonly maxHeight: number;
 }
 
 export const DEFAULT_CAMERA: CameraSettings = {
@@ -99,6 +114,7 @@ export const DEFAULT_CAMERA: CameraSettings = {
 	settleSeconds: CAMERA_SETTLE_SECONDS,
 	minHeight: CAMERA_MIN_HEIGHT,
 	lookAhead: CAMERA_LOOK_AHEAD,
+	maxHeight: CAMERA_MAX_HEIGHT,
 };
 
 /** URL の名前と、受け付ける範囲（範囲の外や数でない値は、既定のまま）。 */
@@ -110,6 +126,7 @@ const URL_KEYS: readonly [keyof CameraSettings, string, number, number][] = [
 	["settleSeconds", "camSettle", 0, 2],
 	["minHeight", "camMinHeight", 0, 2],
 	["lookAhead", "camLookAhead", 0, 3],
+	["maxHeight", "camMaxHeight", 0.5, 3],
 ];
 
 /**

@@ -16,18 +16,24 @@
 
 import {
 	VERYARE_PAINT_LIMITS,
+	type VeryareModelPose,
 	type VeryarePaint,
 	type VeryarePaintEvent,
 	type VeryareStroke,
 	type VeryareStrokePoint,
 } from "@rondo/contracts";
+import { BODY_HEIGHT, BODY_RADIUS } from "./bodySize";
 import { placeColor } from "./palette";
 import { UNPAINTED_COLOR } from "./palette";
 import type { Phase, Point, Role } from "./rules";
 import { type StageGrid, cellAt } from "./stage";
 
-/** 体の円柱（体のローカル座標。仮のカプセルの胴に合わせる）。 */
-export const BODY_CYLINDER = { radius: 0.2, yMin: -0.5, yMax: 0.5 } as const;
+/** 体の円柱（体のローカル座標。足もとが原点で、高さは体の高さ / bodySize.ts）。 */
+export const BODY_CYLINDER = {
+	radius: BODY_RADIUS,
+	yMin: 0,
+	yMax: BODY_HEIGHT,
+} as const;
 
 /** ブラシの大きさ（半径。u・v の単位）。 */
 export const BRUSH_SIZES = { small: 0.02, medium: 0.04, large: 0.08 } as const;
@@ -161,11 +167,19 @@ export function clearPaint(_draft: PaintDraft): PaintDraft {
 	return emptyDraft;
 }
 
-/** ペイントの確定の電文（契約: VeryarePaintEvent）。 */
+/**
+ * ペイントの確定の電文（契約: VeryarePaintEvent）。塗っていなければ paint は null。選んだポーズ
+ * （issue-56）があれば pose を載せる（無ければ省く）。
+ */
 export function paintEvent(
 	strokes: readonly VeryareStroke[],
+	pose: VeryareModelPose | null,
 ): VeryarePaintEvent {
-	return { type: "paint", paint: { kind: "strokes", strokes } };
+	const paint =
+		strokes.length > 0 ? { kind: "strokes" as const, strokes } : null;
+	return pose === null
+		? { type: "paint", paint }
+		: { type: "paint", paint, pose };
 }
 
 // --- 映す ---------------------------------------------------------------------------
@@ -265,16 +279,22 @@ export function hslToHex(h: number, s: number, l: number): string {
 
 // --- 送る ---------------------------------------------------------------------------
 
-/** 送るか。ペイントフェーズで、まだ送っておらず、何か塗っていて、「塗り終わり」か残り 2 秒以下。 */
+/**
+ * 送るか。ペイントフェーズで、まだ送っておらず、何か塗っているかポーズを選んでいて（issue-56）、
+ * 「塗り終わり」か残り 2 秒以下。
+ */
 export function shouldSubmitPaint(options: {
 	readonly phase: Phase;
 	readonly remainingMs: number;
 	readonly submitted: boolean;
 	readonly confirmed: boolean;
 	readonly strokeCount: number;
+	readonly poseChosen: boolean;
 }): boolean {
-	const { phase, remainingMs, submitted, confirmed, strokeCount } = options;
-	if (phase !== "painting" || submitted || strokeCount === 0) return false;
+	const { phase, remainingMs, submitted, confirmed, strokeCount, poseChosen } =
+		options;
+	if (phase !== "painting" || submitted) return false;
+	if (strokeCount === 0 && !poseChosen) return false;
 	return confirmed || remainingMs <= PAINT_LOCK_MS;
 }
 

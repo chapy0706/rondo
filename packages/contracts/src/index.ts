@@ -43,6 +43,8 @@ export type {
 	VeryarePaintEvent,
 	VeryarePaintPart,
 	VeryarePose,
+	VeryareCpuPose,
+	VeryareModelPose,
 	VeryareStroke,
 	VeryareStrokePoint,
 	VeryareStrokesPaint,
@@ -55,4 +57,8 @@ export type {
 	VeryareStageDoor,
 	VeryareStageNotice,
 } from "./veryare";
-export { VERYARE_PAINT_LIMITS } from "./veryare";
+export {
+	VERYARE_CPU_POSES,
+	VERYARE_MODEL_POSES,
+	VERYARE_PAINT_LIMITS,
+} from "./veryare";

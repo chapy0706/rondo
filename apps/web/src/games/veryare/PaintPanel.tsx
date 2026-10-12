@@ -59,6 +59,15 @@ export function PaintPanel(props: {
 	readonly onUndo: () => void;
 	readonly onClear: () => void;
 	readonly onConfirm: () => void;
+	/**
+	 * ポーズ（issue-56）。素材の体があるときだけ渡す（仮のカプセルでは、ボタンを出さない）。label は
+	 * いまのポーズの表示名、chosen はボタンを押したか（押していれば、塗っていなくても確定できる）。
+	 */
+	readonly pose?: {
+		readonly label: string;
+		readonly chosen: boolean;
+		readonly onNext: () => void;
+	};
 }) {
 	const { editable, submitted, locked, strokeCount, color, here } = props;
 	const status = submitted
@@ -171,9 +180,20 @@ export function PaintPanel(props: {
 				>
 					全部消す
 				</button>
+				{props.pose === undefined ? null : (
+					<button
+						type="button"
+						disabled={!editable}
+						onClick={props.pose.onNext}
+						data-testid="veryare-pose"
+						className={BUTTON}
+					>
+						ポーズ（{props.pose.label}）
+					</button>
+				)}
 				<button
 					type="button"
-					disabled={!editable || strokeCount === 0}
+					disabled={!editable || (strokeCount === 0 && !props.pose?.chosen)}
 					onClick={props.onConfirm}
 					data-testid="veryare-paint-done"
 					className="min-h-11 rounded-xl bg-accent px-4 font-bold text-accent-fg text-sm disabled:opacity-50"

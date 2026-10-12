@@ -78,6 +78,12 @@ describe("traceMessage - 出す文言", () => {
 		expect(traceMessage({ kind: "fusuma", nodes: 10, edges: 108 })).toContain(
 			"10 組を見つけ、襖の辺 108 本",
 		);
+		expect(traceMessage({ kind: "character", swapped: true })).toBe(
+			"キャラクター: 素材の体に差し替えた",
+		);
+		expect(traceMessage({ kind: "character", swapped: false })).toBe(
+			"キャラクター: 体かポーズの表が壊れているので、仮のカプセルのまま",
+		);
 		expect(traceMessage({ kind: "furniture", boxes: 120 })).toBe(
 			"家具の箱: 120 個（カメラの守りに使う）",
 		);

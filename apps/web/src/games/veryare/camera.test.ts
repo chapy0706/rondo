@@ -20,7 +20,7 @@ describe("CAMERA_PITCH_MAX - 壁に近づいたときの、見下ろす角度の
 
 describe("cameraSettings - 開発中だけ、URL でカメラの定数を変えられる", () => {
 	const all =
-		"?camDistance=3&camPitch=0.4&camPitchMax=0.8&camMargin=0.3&camSettle=0.2&camMinHeight=0.5&camLookAhead=1.5";
+		"?camDistance=3&camPitch=0.4&camPitchMax=0.8&camMargin=0.3&camSettle=0.2&camMinHeight=0.5&camLookAhead=1.5&camMaxHeight=2";
 
 	it("本番の既定（開発用の合図なし）では、URL の指定を無視する", () => {
 		expect(cameraSettings(false, all)).toEqual(DEFAULT_CAMERA);
@@ -35,6 +35,7 @@ describe("cameraSettings - 開発中だけ、URL でカメラの定数を変え�
 			settleSeconds: 0.2,
 			minHeight: 0.5,
 			lookAhead: 1.5,
+			maxHeight: 2,
 		};
 		expect(cameraSettings(true, all)).toEqual(expected);
 		expect(cameraSettings(false, `${all}&roof=1`)).toEqual(expected);

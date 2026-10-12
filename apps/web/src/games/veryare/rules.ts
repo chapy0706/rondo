@@ -14,6 +14,7 @@ import type {
 	VeryarePose,
 	VeryareShootEvent,
 } from "@rondo/contracts";
+import { VERYARE_MODEL_POSES } from "@rondo/contracts";
 import { parsePaint } from "./paint";
 
 export type Phase =
@@ -96,13 +97,20 @@ export function parsePhaseNotice(payload: unknown): PhaseNotice | null {
 
 const POSES: readonly VeryarePose[] = ["standing", "crouching", "lying"];
 
+/** 一括配信のポーズ（CPU・鬼の3種類と、素材のポーズの識別子 / issue-56）。 */
+const HIDER_POSES: ReadonlySet<string> = new Set<string>([
+	...POSES,
+	...VERYARE_MODEL_POSES,
+]);
+
 function isHiderState(value: unknown): value is VeryareHiderState {
 	if (!isRecord(value)) return false;
 	const { playerId, x, z, facing, pose, paint } = value;
 	if (typeof playerId !== "string") return false;
 	if (typeof x !== "number" || typeof z !== "number") return false;
 	if (facing !== null && typeof facing !== "number") return false;
-	if (pose !== null && !POSES.includes(pose as VeryarePose)) return false;
+	// ポーズは文字列か null。一覧に無い文字列は、読むときに null にする（既定の立ち姿 / issue-56）。
+	if (pose !== null && typeof pose !== "string") return false;
 	// ペイントは全面1色（隠れ CPU）か、人間のストローク（issue-25）。上限まで検証する。
 	return paint === null || parsePaint(paint) !== null;
 }
@@ -117,7 +125,14 @@ export function parseHidersNotice(
 	if (!isRecord(payload) || payload.type !== "hiders") return null;
 	const { hiders } = payload;
 	if (!Array.isArray(hiders) || !hiders.every(isHiderState)) return null;
-	return { type: "hiders", hiders };
+	return {
+		type: "hiders",
+		hiders: hiders.map((hider) => ({
+			...hider,
+			pose:
+				hider.pose !== null && HIDER_POSES.has(hider.pose) ? hider.pose : null,
+		})),
+	};
 }
 
 function isCell(value: unknown): boolean {

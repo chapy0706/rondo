@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import hirayaFixture from "../../../../../packages/contracts/src/fixtures/veryare-hiraya-stage.json";
+import { CAMERA_MAX_HEIGHT } from "./camera";
 import {
 	BOX_OBSTACLES,
 	HIRAYA_OBSTACLES,
@@ -12,9 +13,9 @@ import { CAMERA_FULL_REACH, reachedPose } from "./cameraRig";
 import { WALL_HEIGHT } from "./stageBoxes";
 
 describe("cameraTopAboveFeet - 領域の中に収めたカメラの、足もとからの最大の高さ", () => {
-	it("水平の距離 0〜最大のどこよりも低くない（角度の上限 0.45 rad では、開けた所の約 1.692 m）", () => {
+	it("水平の距離 0〜最大のどこよりも低くない（体の高さ 1.6 m では、高さの上限 CAMERA_MAX_HEIGHT の 1.85 m）", () => {
 		const top = cameraTopAboveFeet();
-		expect(top).toBeCloseTo(1.692, 2);
+		expect(top).toBeCloseTo(CAMERA_MAX_HEIGHT, 6);
 		for (let i = 0; i <= 500; i++) {
 			const pose = reachedPose(
 				{ x: 0, z: 0, feet: 0 },
@@ -103,12 +104,12 @@ describe("平屋と箱の表示の判定（tools/wall_heights.mjs で測った�
 		const [char, least] = margins.reduce((p, q) => (q[1] < p[1] ? q : p));
 		expect(char).toBe("B");
 		expect(least).toBeGreaterThan(0);
-		expect(least).toBeCloseTo(0.273, 2);
+		expect(least).toBeCloseTo(0.115, 3);
 	});
 
 	it("箱の表示（壁 2.4 m。閉じた襖の上は鴨居で 2.4 m までふさがる）でも、越えない", () => {
 		expect(BOX_OBSTACLES.wallTop).toBe(WALL_HEIGHT);
 		expect(peekRisks(BOX_OBSTACLES, top)).toEqual([]);
-		expect(clearance(BOX_OBSTACLES, top)).toBeCloseTo(0.708, 2);
+		expect(clearance(BOX_OBSTACLES, top)).toBeCloseTo(0.55, 3);
 	});
 });

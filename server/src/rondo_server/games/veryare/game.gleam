@@ -201,6 +201,9 @@ pub type Game(id) {
     /// 隠れ側が送った最初の1回だけ。探索の開始の一括配信に載せるためだけに使い、勝敗・被り・
     /// 発見の判定には使わない（鬼 CPU は、人間の隠れ側を未塗装として扱う）。
     paints: Dict(id, List(paint.Stroke)),
+    /// 人間の隠れ側が確定したポーズ（issue-56。pose.gleam の一覧の識別子）。ペイントと同じ確定で、
+    /// 同じ条件（最初の1回だけ）で受け付ける。一括配信に載せるためだけに使い、判定には使わない。
+    poses: Dict(id, String),
   )
 }
 
@@ -289,6 +292,7 @@ fn start_on(
     shot_sight: True,
     exploration_hiders: [],
     paints: dict.new(),
+    poses: dict.new(),
   )
 }
 
@@ -340,14 +344,44 @@ pub fn paint(
   player: id,
   strokes: List(paint.Stroke),
 ) -> Game(id) {
-  case
+  confirm(game, player, Some(strokes), None)
+}
+
+/// ペイントとポーズの確定（issue-25 / issue-56）。ペイントフェーズの間に、まだ隠れている隠れ側が
+/// 送った最初の1回だけを受け付ける（ペイントだけ・ポーズだけ・両方のどれでも1回）。両方 None は
+/// 無視する。位置もフェーズも変えないので、被り判定にも勝敗にも関わらない。
+pub fn confirm(
+  game: Game(id),
+  player: id,
+  strokes: Option(List(paint.Stroke)),
+  chosen: Option(String),
+) -> Game(id) {
+  let accepted =
     game.phase == Painting
     && set.contains(game.still_hiding, player)
     && !dict.has_key(game.paints, player)
-  {
-    True -> Game(..game, paints: dict.insert(game.paints, player, strokes))
+    && !dict.has_key(game.poses, player)
+    && { option.is_some(strokes) || option.is_some(chosen) }
+  case accepted {
     False -> game
+    True ->
+      Game(
+        ..game,
+        paints: case strokes {
+          Some(list) -> dict.insert(game.paints, player, list)
+          None -> game.paints
+        },
+        poses: case chosen {
+          Some(name) -> dict.insert(game.poses, player, name)
+          None -> game.poses
+        },
+      )
   }
+}
+
+/// 確定したポーズ（issue-56）。確定していなければ None。
+pub fn pose_of(game: Game(id), player: id) -> Option(String) {
+  option.from_result(dict.get(game.poses, player))
 }
 
 /// 確定したペイント。送っていなければ None。

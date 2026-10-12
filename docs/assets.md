@@ -105,6 +105,26 @@ GitHub のリポジトリは公開なので、ステージとキャラクター�
 - 正面の向きの手がかり（足先の骨が足首より前にある向き）と、腕の関節の高さも書き出す
 - X Bot（Mixamo、T-pose、With Skin）は、高さ 1.81 m、正面は glTF の +Z、腕は水平（肩・肘・手首が同じ高さ 1.44 m）、骨 65 本（`mixamorig:` で始まる）、メッシュ 2 つ（`Beta_Surface`、`Beta_Joints`）。issue-25 の部位割り当てに使う
 
+### 配信する形にする（issue-56）
+
+ゲームは、体の glb（X Bot）を1つと、ポーズの表（23 種類 × 骨 65 本の姿勢）を読み、実行時に体の骨へ姿勢を当てる（ポーズボタンで、読み込みを待たずに変わる）。`tools/character_assets.mjs` で、配信するフォルダに書き出す。
+
+```sh
+node tools/character_assets.mjs assets-src/converted/characters assets-src/delivery/v2/characters
+node tools/make_manifest.mjs assets-src/delivery
+```
+
+| key | 中身 | ファイル |
+| --- | --- | --- |
+| character-body | X Bot を meshopt で圧縮したもの（量子化 + `EXT_meshopt_compression`。約 0.35 MB） | `character-body-{512,1024}.glb` |
+| character-poses | メッシュは持たず、scene の extras（`rondoPoses`）にポーズの表だけを入れたもの（約 80 KB）。骨ごとの位置・回転と、ポーズごとの外接箱（圧縮後の体に当てて、全頂点をスキンで動かして測ったもの） | `character-poses-{512,1024}.glb` |
+
+- 体にテクスチャが無いので、512 と 1024 は同じ中身（manifest は key と品質で引くため、両方に置く）
+- ポーズの識別子・表示名・素材の名前は、共有の見本 `packages/contracts/src/fixtures/veryare-poses.json` にある（道具は source の名前で、ポーズの glb を読む）
+- 23 本と X Bot は、骨 65 本の名前・並び・逆バインド行列と、2つのメッシュ（頂点位置まで）が同じで、骨の姿勢だけが違う（issue-56 で確認）。骨の名前・並びが違うポーズがあれば、道具は止まる
+- 道具は、各ポーズの一番低い点と高さ（体の高さ 1.6 m にそろえたとき）を、標準出力に出す
+- 配信の前に、Mixamo の規約の写しを `assets-src/licenses/` に保存する（下の「素材の規約」）
+
 ### 既知の問題
 
 - `character.fbx` は FBX 6.1（版 6100）で、Blender の FBX 読み込み（7.1 以降のみ）では読めない。いまは使わない（基準姿勢の人型は X Bot を使う）

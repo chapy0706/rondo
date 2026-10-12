@@ -25,19 +25,25 @@
  * 手元の位置と向きで動かす（setSelfOni）。
  */
 
-import type { VeryarePaint } from "@rondo/contracts";
+import type {
+	VeryareModelPose,
+	VeryarePaint,
+	VeryarePose,
+} from "@rondo/contracts";
 import * as THREE from "three";
 import type { SwapSlot } from "../../infrastructure/assets";
 import { type BodyAt, type Vec3, hiderAt, rayHitsBody } from "./aim";
-import type { HirayaModel } from "./assetSlots";
+import type { CharacterParts, HirayaModel } from "./assetSlots";
 import { type AssetEvent, stageDisplayEvent } from "./assetTrace";
 import {
+	type BodyInstance,
 	type BodyKit,
 	type PaintSurface,
+	createModelBodyKit,
 	createPaintSurface,
-	paintedMaterial,
 	placeholderBodyKit,
 } from "./body";
+import { BODY_HEIGHT } from "./bodySize";
 import {
 	CAMERA_PITCH,
 	type CameraSettings,
@@ -68,7 +74,7 @@ import {
 	isHirayaStage,
 	swingAngle,
 } from "./hiraya";
-import { intersectCylinder } from "./paint";
+import { DEFAULT_POSE, modelPoseOf } from "./poses";
 import type { View } from "./rules";
 import {
 	type AreaState,
@@ -133,6 +139,12 @@ export interface VeryareScene extends TestableScene {
 	 * （ペイントフェーズで描いている途中を含む / issue-25）。
 	 */
 	setAvatar(position: Point, color: string, paint: VeryarePaint | null): void;
+	/** 自分の体のポーズ（issue-56）。素材の体のときだけ変わる（仮のカプセルでは何もしない）。 */
+	setAvatarPose(pose: VeryareModelPose): void;
+	/** 自分の体の向き（サーバーの向き。x 軸から z 軸へ）。null なら変えない。 */
+	setAvatarFacing(facing: number | null): void;
+	/** 素材の体に差し替えたか（ポーズボタンを出すかに使う / issue-56）。 */
+	bodyPosable(): boolean;
 	/** 三人称カメラの向き（yaw: Y 軸まわり、pitch: 見下ろす角度）。 */
 	setCamera(yaw: number, pitch: number): void;
 	/** カメラの中心。self は自分、oni は鬼（ADR 0034）。 */
@@ -192,6 +204,10 @@ export interface SceneHider {
 	readonly id: string;
 	readonly x: number;
 	readonly z: number;
+	/** 向き（サーバーの向き）。人間の隠れ側は null（向きを変えない）。 */
+	readonly facing: number | null;
+	/** ポーズ（CPU の3種類か、素材のポーズの識別子 / issue-56）。null は既定の立ち姿。 */
+	readonly pose: VeryarePose | null;
 	/** 塗っていない部分の色。 */
 	readonly color: string;
 	/** 探索の開始に届いたペイント（issue-25）。無ければ null。 */
@@ -204,10 +220,10 @@ export type PaintPick =
 
 export interface SceneOptions {
 	/**
-	 * 体を作る口の差し替え（素材の X Bot / issue-25・issue-43）。待機ルームにいる間だけ take() し、
-	 * ステージへ移ったら lock() する。無ければ、ずっと仮のカプセル。
+	 * キャラクターの素材（X Bot とポーズの表 / issue-56・issue-43）。待機ルームにいる間だけ take() し、
+	 * ステージへ移ったら lock() する。無い・壊れているときは、ずっと仮のカプセル。
 	 */
-	readonly bodies?: SwapSlot<BodyKit>;
+	readonly bodies?: SwapSlot<CharacterParts<THREE.Group>>;
 	/** 素材の流れの記録（差し替えた・ステージに入ったときの表示と理由 / 開発中だけ Console へ）。 */
 	readonly trace?: (event: AssetEvent) => void;
 	/** カメラの定数（開発中だけ URL で変えられる / camera.ts の cameraSettings）。無ければ既定。 */
@@ -217,6 +233,8 @@ export interface SceneOptions {
 }
 
 const ONI_COLOR = 0xef4444;
+/** 鬼の正面の印の高さ（体の高さの 3/4）。 */
+const ONI_NOSE_HEIGHT = BODY_HEIGHT * 0.75;
 /** 狙う点にいる隠れ側の光り方（黄色の発光）と、目印の色。 */
 const AIM_COLOR = 0xf5b841;
 const AIM_GLOW = 0.6;
@@ -381,53 +399,69 @@ export function createScene(
 
 	let bodyKit: BodyKit = placeholderBodyKit;
 	const avatarSurface = createPaintSurface();
-	const avatarMaterial = paintedMaterial(avatarSurface.texture);
-	let avatar = bodyKit.create(avatarMaterial);
-	avatar.position.y = 0.5;
-	scene.add(avatar);
-	/** 体を作る口が替わったら、自分の体を作り直す（位置はそのまま）。隠れ側は次の setHiders で作り直す。 */
+	let avatar = bodyKit.create(avatarSurface.texture, 0xffffff);
+	let avatarPose: VeryareModelPose = DEFAULT_POSE;
+	scene.add(avatar.object);
+	/**
+	 * 体を作る口が替わったら、自分の体と鬼の体を作り直す（位置・向き・ポーズ・見え方はそのまま）。
+	 * 隠れ側は次の setHiders で作り直す。
+	 */
 	const useBodyKit = (kit: BodyKit) => {
 		if (kit === bodyKit) return;
 		bodyKit = kit;
-		const next = kit.create(avatarMaterial);
-		next.position.copy(avatar.position);
-		scene.remove(avatar);
-		avatar.geometry.dispose();
+		const next = kit.create(avatarSurface.texture, 0xffffff);
+		next.object.position.copy(avatar.object.position);
+		next.object.rotation.copy(avatar.object.rotation);
+		next.object.visible = avatar.object.visible;
+		next.setPose(avatarPose);
+		next.snap();
+		scene.remove(avatar.object);
+		avatar.dispose();
 		avatar = next;
-		scene.add(avatar);
+		scene.add(avatar.object);
+		for (const figure of [oniParts, selfOniParts]) {
+			figure.group.remove(figure.body.object);
+			figure.body.dispose();
+			figure.body = oniBody(figure.group);
+		}
 		hiderKey = "";
 	};
 	// 隠れ側の描き込み面（作り直すときに捨てる）。
 	const hiderSurfaces: PaintSurface[] = [];
 
-	// 鬼の体。正面が分かるよう、前に小さな印を付ける。グループの原点が足もと。
-	const oniFigure = (): THREE.Group => {
+	// 鬼の体（赤い体。素材の体なら立ち姿に固定 / issue-56）。正面が分かるよう、前に小さな印を付ける。
+	// グループの原点が足もと。
+	const oniBody = (group: THREE.Group): BodyInstance => {
+		const body = bodyKit.create(null, ONI_COLOR);
+		body.snap();
+		group.add(body.object);
+		return body;
+	};
+	const oniFigure = (): { readonly group: THREE.Group; body: BodyInstance } => {
 		const group = new THREE.Group();
-		const body = new THREE.Mesh(
-			new THREE.CapsuleGeometry(0.2, 0.6, 4, 12),
-			new THREE.MeshStandardMaterial({ color: ONI_COLOR }),
-		);
-		body.position.y = 0.5;
 		const nose = new THREE.Mesh(
 			new THREE.ConeGeometry(0.08, 0.2, 8),
 			new THREE.MeshStandardMaterial({ color: COLORS.accent }),
 		);
 		nose.rotation.x = Math.PI / 2;
-		nose.position.set(0, 0.75, 0.25);
-		group.add(body, nose);
+		nose.position.set(0, ONI_NOSE_HEIGHT, 0.25);
+		group.add(nose);
+		const body = oniBody(group);
 		group.visible = false;
 		scene.add(group);
-		return group;
+		return { group, body };
 	};
 	/** 正面の印（ローカルの +z）を、サーバーの向き facing の方へ回す角度。 */
 	const turnOf = (facing: number) =>
 		Math.atan2(Math.cos(facing), Math.sin(facing));
 	// ほかの人の画面の鬼（通知の間を補間した位置）と、鬼本人の画面の自分の体。
-	const oni = oniFigure();
-	const selfOni = oniFigure();
+	const oniParts = oniFigure();
+	const selfOniParts = oniFigure();
+	const oni = oniParts.group;
+	const selfOni = selfOniParts.group;
 	/** 自分の体（ふつうの体と、鬼本人の体）の材質。半透明にするときに使う。 */
 	const selfMaterials = (): THREE.Material[] => {
-		const list: THREE.Material[] = [avatarMaterial];
+		const list: THREE.Material[] = [...avatar.materials];
 		selfOni.traverse((node) => {
 			if (node instanceof THREE.Mesh)
 				list.push(node.material as THREE.Material);
@@ -445,7 +479,7 @@ export function createScene(
 	aimMarker.visible = false;
 	scene.add(aimMarker);
 	let aimPoint: Vec3 | null = null;
-	/** 隠れ側の体（メッシュの中心は足もとから 0.5 m 上）。 */
+	/** 隠れ側の体（体の原点は足もと）。 */
 	const bodiesOf = (): (BodyAt & { readonly id: string })[] =>
 		hiderGroup.children.flatMap((child) => {
 			const id: unknown = child.userData.playerId;
@@ -455,12 +489,14 @@ export function createScene(
 							id,
 							x: child.position.x,
 							z: child.position.z,
-							feet: child.position.y - 0.5,
+							feet: child.position.y,
 						},
 					]
 				: [];
 		});
 	let hiderKey = "";
+	/** 隠れ側の体（hiderGroup の子と同じ並び）。 */
+	const hiderInstances: BodyInstance[] = [];
 
 	// ニアクリップは小さくし、壁の余白をそれより大きくする（壁際で壁の中が映らない / cameraGuard.ts）。
 	const camera = new THREE.PerspectiveCamera(CAMERA_FOV, 1, CAMERA_NEAR, 100);
@@ -486,7 +522,7 @@ export function createScene(
 
 	const cameraCenter = () => {
 		const onOni = view === "oni" && oni.visible;
-		const body = onOni ? oni.position : avatar.position;
+		const body = onOni ? oni.position : avatar.object.position;
 		return {
 			kind: onOni ? ("oni" as const) : ("self" as const),
 			x: body.x,
@@ -507,7 +543,13 @@ export function createScene(
 						furnitureNow(),
 						cameraSet,
 					)
-				: cameraPose(center, yaw, pitch, cameraSet.distance);
+				: cameraPose(
+						center,
+						yaw,
+						pitch,
+						cameraSet.distance,
+						cameraSet.maxHeight,
+					);
 		camera.position.set(pose.position.x, pose.position.y, pose.position.z);
 		camera.lookAt(pose.target.x, pose.target.y, pose.target.z);
 		return { center, pose };
@@ -684,8 +726,13 @@ export function createScene(
 		},
 		setSpace(space) {
 			if (space === "waiting-room") {
-				const kit = options.bodies?.take();
-				if (kit != null) useBodyKit(kit);
+				// キャラクターの素材の差し替えも、待機ルームにいる間だけ（issue-56）。
+				const parts = options.bodies?.take();
+				if (parts != null) {
+					const kit = createModelBodyKit(parts.body, parts.poses);
+					if (kit !== null) useBodyKit(kit);
+					options.trace?.({ kind: "character", swapped: kit !== null });
+				}
 				// 平屋の glb の差し替えも、待機ルームにいる間だけ（issue-46）。
 				const next = model === null ? stageSlot?.take() : null;
 				if (next != null) attachModel(next);
@@ -715,10 +762,18 @@ export function createScene(
 			room.areaRim.color.setHex(color);
 		},
 		setAvatar(position, color, paint) {
-			avatar.position.x = position.x;
-			avatar.position.z = position.z;
+			avatar.object.position.x = position.x;
+			avatar.object.position.z = position.z;
 			avatarSurface.draw(color, paint);
 		},
+		setAvatarPose(pose) {
+			avatarPose = pose;
+			avatar.setPose(pose);
+		},
+		setAvatarFacing(facing) {
+			if (facing !== null) avatar.object.rotation.y = turnOf(facing);
+		},
+		bodyPosable: () => bodyKit.posable,
 		setCamera(nextYaw, nextPitch) {
 			yaw = nextYaw;
 			pitch = nextPitch;
@@ -741,33 +796,36 @@ export function createScene(
 		setSelfOni(facing) {
 			const asOni = facing !== null;
 			selfOni.visible = asOni;
-			avatar.visible = !asOni;
+			avatar.object.visible = !asOni;
 			if (asOni) selfOni.rotation.y = turnOf(facing);
 		},
 		setHiders(hiders) {
 			const key = hiders
 				.map(
-					(h) => `${h.id}:${h.x}:${h.z}:${h.color}:${JSON.stringify(h.paint)}`,
+					(h) =>
+						`${h.id}:${h.x}:${h.z}:${h.facing}:${h.pose}:${h.color}:${JSON.stringify(h.paint)}`,
 				)
 				.join("|");
 			if (key === hiderKey) return;
 			hiderKey = key;
-			for (const child of [...hiderGroup.children]) {
-				hiderGroup.remove(child);
-				if (child instanceof THREE.Mesh) {
-					child.geometry.dispose();
-					(child.material as THREE.Material).dispose();
-				}
-			}
+			for (const child of [...hiderGroup.children]) hiderGroup.remove(child);
+			for (const body of hiderInstances.splice(0)) body.dispose();
 			for (const surface of hiderSurfaces.splice(0)) surface.dispose();
 			for (const hider of hiders) {
 				const surface = createPaintSurface();
 				surface.draw(hider.color, hider.paint);
 				hiderSurfaces.push(surface);
-				const mesh = bodyKit.create(paintedMaterial(surface.texture));
-				mesh.position.set(hider.x, 0.5, hider.z);
-				mesh.userData.playerId = hider.id;
-				hiderGroup.add(mesh);
+				const body = bodyKit.create(surface.texture, 0xffffff);
+				// CPU のポーズは素材のポーズに対応づける。未知の値・null は既定の立ち姿（issue-56）。
+				body.setPose(modelPoseOf(hider.pose));
+				body.snap();
+				body.object.position.set(hider.x, 0, hider.z);
+				if (hider.facing !== null) {
+					body.object.rotation.y = turnOf(hider.facing);
+				}
+				body.object.userData.playerId = hider.id;
+				hiderGroup.add(body.object);
+				hiderInstances.push(body);
 			}
 		},
 		setBlink(ids, self, level) {
@@ -775,36 +833,31 @@ export function createScene(
 				material.emissive.setHex(BLINK_COLOR);
 				material.emissiveIntensity = on ? level : 0;
 			};
-			glow(avatarMaterial, self);
+			for (const material of avatar.materials) glow(material, self);
 			const targets = new Set(ids);
 			// 狙う点にいる隠れ側は、黄色く光らせる（答え合わせの点滅が優先）。
 			const aimed = aimPoint === null ? null : hiderAt(aimPoint, bodiesOf());
-			for (const child of hiderGroup.children) {
-				if (!(child instanceof THREE.Mesh)) continue;
-				const id: unknown = child.userData.playerId;
-				const material = child.material as THREE.MeshStandardMaterial;
-				if (typeof id === "string" && targets.has(id)) {
-					glow(material, true);
-				} else if (id === aimed) {
-					material.emissive.setHex(AIM_COLOR);
-					material.emissiveIntensity = AIM_GLOW;
-				} else {
-					glow(material, false);
+			for (const body of hiderInstances) {
+				const id: unknown = body.object.userData.playerId;
+				for (const material of body.materials) {
+					if (typeof id === "string" && targets.has(id)) {
+						glow(material, true);
+					} else if (id === aimed) {
+						material.emissive.setHex(AIM_COLOR);
+						material.emissiveIntensity = AIM_GLOW;
+					} else {
+						glow(material, false);
+					}
 				}
 			}
 		},
 		pickPaint(x, y) {
 			placeCamera();
-			avatar.updateMatrixWorld();
 			const raycaster = new THREE.Raycaster();
 			raycaster.setFromCamera(new THREE.Vector2(x, y), camera);
-			// 自分の体: 光線を体のローカル座標へ移し、描き込み面の円柱との交差を求める。
-			const inverse = avatar.matrixWorld.clone().invert();
-			const origin = raycaster.ray.origin.clone().applyMatrix4(inverse);
-			const direction = raycaster.ray.direction
-				.clone()
-				.transformDirection(inverse);
-			const body = intersectCylinder({ origin, direction });
+			// 自分の体: 素材の体は、当たった面の基準姿勢の位置から、仮のカプセルは体の円柱との交差から、
+			// 描き込み面の u・v を求める（どのポーズでも同じ場所に塗れる / body.ts）。
+			const body = avatar.pickUv(raycaster);
 			// 体に当たれば、体を先にする（カメラが壁の裏に回っても、自分の体には描ける。
 			// カメラの壁へのめり込みは許容している / ADR 0034）。
 			if (body !== null) return { kind: "body", u: body.u, v: body.v };
@@ -879,9 +932,13 @@ export function createScene(
 			placeCamera();
 			const raycaster = new THREE.Raycaster();
 			raycaster.setFromCamera(new THREE.Vector2(0, 0), camera);
-			const [hit] = raycaster.intersectObjects(hiderGroup.children, false);
-			const id: unknown = hit?.object.userData.playerId;
-			return typeof id === "string" ? id : null;
+			// 体は、体の原点（グループ）の下にメッシュがあるので、当たったメッシュから体の原点をたどる。
+			const [hit] = raycaster.intersectObjects(hiderGroup.children, true);
+			for (let node = hit?.object ?? null; node !== null; node = node.parent) {
+				const id: unknown = node.userData.playerId;
+				if (typeof id === "string") return id;
+			}
+			return null;
 		},
 		pickAim(x, y) {
 			placeCamera();
@@ -930,13 +987,22 @@ export function createScene(
 			// 足もとの高さ（issue-46）。空間が変わったとき・鬼が見え始めたときは、寄せずに合わせる。
 			const jumped = renderedSpace !== lastSpace;
 			renderedSpace = lastSpace;
-			const avatarFloor = floorAt(avatar.position.x, avatar.position.z);
+			const avatarFloor = floorAt(
+				avatar.object.position.x,
+				avatar.object.position.z,
+			);
 			avatarFeet = jumped
 				? avatarFloor
 				: followFloor(avatarFeet, avatarFloor, dt);
-			avatar.position.y = 0.5 + avatarFeet;
+			avatar.object.position.y = avatarFeet;
+			// ポーズを変えたときの補正（足もと・水平の中心）を、なめらかに寄せる（issue-56）。
+			avatar.update(dt);
 			// 鬼本人の体は、自分の体と同じ位置（手元の位置）に、足もとを合わせて置く。
-			selfOni.position.set(avatar.position.x, avatarFeet, avatar.position.z);
+			selfOni.position.set(
+				avatar.object.position.x,
+				avatarFeet,
+				avatar.object.position.z,
+			);
 			if (oni.visible) {
 				const oniFloor = floorAt(oni.position.x, oni.position.z);
 				oniFeet =
@@ -946,7 +1012,7 @@ export function createScene(
 			}
 			// 隠れ側（CPU を含む）は動かないので、立っているマスの床の高さに直に置く。
 			for (const child of hiderGroup.children) {
-				child.position.y = 0.5 + floorAt(child.position.x, child.position.z);
+				child.position.y = floorAt(child.position.x, child.position.z);
 			}
 			updateCameraReach(dt, jumped);
 			// カメラが自分の体に近いほど、自分の体を半透明にする（体の中を映さないように / issue-46）。
@@ -973,6 +1039,8 @@ export function createScene(
 					for (const material of materials) material.dispose();
 				}
 			});
+			avatar.dispose();
+			for (const body of hiderInstances.splice(0)) body.dispose();
 			avatarSurface.dispose();
 			for (const surface of hiderSurfaces.splice(0)) surface.dispose();
 			renderer.dispose();

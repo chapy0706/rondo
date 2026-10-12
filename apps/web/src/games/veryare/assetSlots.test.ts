@@ -1,7 +1,9 @@
 import { describe, expect, it, vi } from "vitest";
 import type { LoadResult } from "../../infrastructure/assets";
 import {
+	CHARACTER_KEYS,
 	HIRAYA_KEYS,
+	combineCharacter,
 	combineHiraya,
 	createVeryareAssets,
 	prefetchLobbyAssets,
@@ -140,5 +142,43 @@ describe("素材の流れの記録（開発中だけ Console に出す / assetTr
 			ok: false,
 			reason: "http-error",
 		});
+	});
+});
+
+describe("characterSlot - キャラクターの素材（issue-56）", () => {
+	it("差し替え口を作ると、体とポーズの表の2つの key の読み込みを始める", async () => {
+		const preload = vi.fn(async (key: string) => ok(key));
+		const slot = createVeryareAssets(preload).characterSlot();
+		expect(keysOf(preload)).toEqual([
+			CHARACTER_KEYS.body,
+			CHARACTER_KEYS.poses,
+		]);
+		expect(CHARACTER_KEYS).toEqual({
+			body: "character-body",
+			poses: "character-poses",
+		});
+		await settle();
+		expect(slot.take()).toEqual({
+			body: CHARACTER_KEYS.body,
+			poses: CHARACTER_KEYS.poses,
+		});
+	});
+
+	it("体かポーズの表のどちらかが読めなければ、取り出せない（仮のカプセルのまま）", async () => {
+		for (const missing of [CHARACTER_KEYS.body, CHARACTER_KEYS.poses]) {
+			const slot = createVeryareAssets(async (key: string) =>
+				key === missing ? failed : ok(key),
+			).characterSlot();
+			await settle();
+			expect(slot.take()).toBeNull();
+		}
+	});
+
+	it("combineCharacter: 両方読めたときだけ、まとめる（失敗は先の失敗の理由のまま）", () => {
+		expect(combineCharacter(ok("b"), ok("p"))).toEqual(
+			ok({ body: "b", poses: "p" }),
+		);
+		expect(combineCharacter(failed, ok("p"))).toEqual(failed);
+		expect(combineCharacter(ok("b"), failed)).toEqual(failed);
 	});
 });

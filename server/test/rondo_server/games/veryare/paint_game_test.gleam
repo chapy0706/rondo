@@ -84,3 +84,44 @@ fn list_each(items: List(a), f: fn(a) -> Nil) -> Nil {
     }
   }
 }
+
+// --- ポーズ（issue-56） -----------------------------------------------------------------
+
+/// ポーズだけの確定（何も塗っていない）も受け付ける。ペイントは持たない。
+pub fn pose_only_confirmation_is_accepted_test() {
+  let g = game.confirm(in_phase(game.Painting), "b", None, Some("maleCrouch"))
+  game.pose_of(g, "b") |> should.equal(Some("maleCrouch"))
+  game.paint_of(g, "b") |> should.equal(None)
+  game.pose_of(g, "c") |> should.equal(None)
+}
+
+/// ペイントとポーズを一緒に確定できる。確定は最初の1回だけ（ポーズだけの確定のあとのペイントも無視）。
+pub fn confirmation_is_kept_only_once_test() {
+  let both =
+    game.confirm(
+      in_phase(game.Painting),
+      "b",
+      Some(strokes("#a07850")),
+      Some("femaleDance"),
+    )
+  game.paint_of(both, "b") |> should.equal(Some(strokes("#a07850")))
+  game.pose_of(both, "b") |> should.equal(Some("femaleDance"))
+  let later =
+    in_phase(game.Painting)
+    |> game.confirm("b", None, Some("maleCrouch"))
+    |> game.confirm("b", Some(strokes("#6b5440")), Some("idle"))
+  game.pose_of(later, "b") |> should.equal(Some("maleCrouch"))
+  game.paint_of(later, "b") |> should.equal(None)
+}
+
+/// 両方とも無い確定、ペイントフェーズの外、鬼のポーズは受け付けない。
+pub fn empty_or_out_of_phase_poses_are_ignored_test() {
+  let g = in_phase(game.Painting)
+  game.confirm(g, "b", None, None) |> should.equal(g)
+  game.confirm(in_phase(game.Preparation), "b", None, Some("maleCrouch"))
+  |> game.pose_of("b")
+  |> should.equal(None)
+  game.confirm(g, "a", None, Some("maleCrouch"))
+  |> game.pose_of("a")
+  |> should.equal(None)
+}

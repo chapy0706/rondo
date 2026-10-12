@@ -325,9 +325,10 @@ fn wrap(state: Game(PlayerId), pick: fn(Int) -> Int) -> Driver(PlayerId) {
             Ok(door) -> step(state, game.open_door(state, player, door), pick)
             Error(_) ->
               case decode.run(payload, paint.event_decoder()) {
-                // ペイントの確定（issue-25）。受け付けるかは状態機械が決める。誰にも送らない。
-                Ok(strokes) ->
-                  step(state, game.paint(state, player, strokes), pick)
+                // ペイントとポーズの確定（issue-25 / issue-56）。受け付けるかは状態機械が決める。
+                // 誰にも送らない（探索の開始の一括配信に載せる）。
+                Ok(paint.Confirm(strokes:, pose:)) ->
+                  step(state, game.confirm(state, player, strokes, pose), pick)
                 Error(_) -> moved(state, player, payload, pick)
               }
           }
@@ -641,7 +642,8 @@ fn hiders_resend(
 /// 探索開始時の、まだ隠れている隠れ側全員の状態（ADR 0025 / 0035）。
 /// 中身は探索の開始の時点の一覧（game.exploration_hiders）から作るので、送り直しても同じ。
 /// { type: "hiders", hiders: [{ playerId, x, z, facing, pose, paint }] }。
-/// 人間の隠れ側の向き・ポーズ・ペイントは、まだ持たないので null（issue-25 で足す）。
+/// 人間の隠れ側の向きは、まだ持たないので null。ポーズ（issue-56）とペイント（issue-25）は、確定した
+/// ものがあれば載せ、無ければ null。
 /// 隠れ CPU のペイントは全面1色で { kind: "uniform", color: "#rrggbb" }。
 fn hiders_payload(state: Game(PlayerId)) -> Dynamic {
   let hiders =
@@ -657,10 +659,14 @@ fn hiders_payload(state: Game(PlayerId)) -> Dynamic {
             #(dynamic.string("color"), dynamic.string(palette.to_hex(p.color))),
           ]),
         )
-        // 人間の隠れ側: 向き・ポーズはまだ持たない。ペイントは確定したものがあれば載せる。
+        // 人間の隠れ側: 向きはまだ持たない。ポーズ（issue-56）とペイントは、確定したものがあれば
+        // 載せる（無ければ null。クライアントは既定の立ち姿で描く）。
         None -> #(
           dynamic.nil(),
-          dynamic.nil(),
+          case game.pose_of(state, PlayerId(id)) {
+            Some(name) -> dynamic.string(name)
+            None -> dynamic.nil()
+          },
           case game.paint_of(state, PlayerId(id)) {
             Some(strokes) -> paint.payload(strokes)
             None -> dynamic.nil()

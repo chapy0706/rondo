@@ -172,7 +172,19 @@ describe("ストロークの編集（誠実なクライアントは上限を超�
 		const sample = paintFixture.valid[0] as {
 			paint: { strokes: VeryareStroke[] };
 		};
-		expect(paintEvent(sample.paint.strokes)).toEqual(paintFixture.valid[0]);
+		expect(paintEvent(sample.paint.strokes, null)).toEqual(
+			paintFixture.valid[0],
+		);
+	});
+
+	it("ポーズ（issue-56）: 塗っていなければ paint は null。ポーズを選んでいれば pose を載せる（見本の valid と同じ形）", () => {
+		expect(paintEvent([], "maleCrouch")).toEqual(paintFixture.valid[2]);
+		const sample = paintFixture.valid[0] as {
+			paint: { strokes: VeryareStroke[] };
+		};
+		expect(paintEvent(sample.paint.strokes, "femaleDance")).toEqual(
+			paintFixture.valid[3],
+		);
 	});
 });
 
@@ -298,6 +310,7 @@ describe("送るかの判断（終わりの 2 秒前か「塗り終わり」で�
 		submitted: false,
 		confirmed: false,
 		strokeCount: 3,
+		poseChosen: false,
 	};
 
 	it("確定の時間は 2 秒", () => {
@@ -321,6 +334,25 @@ describe("送るかの判断（終わりの 2 秒前か「塗り終わり」で�
 		expect(
 			shouldSubmitPaint({ ...base, confirmed: true, phase: "exploration" }),
 		).toBe(false);
+	});
+
+	it("何も塗っていなくても、ポーズを選んでいれば送る（issue-56）", () => {
+		expect(
+			shouldSubmitPaint({
+				...base,
+				confirmed: true,
+				strokeCount: 0,
+				poseChosen: true,
+			}),
+		).toBe(true);
+		expect(
+			shouldSubmitPaint({
+				...base,
+				remainingMs: 1500,
+				strokeCount: 0,
+				poseChosen: true,
+			}),
+		).toBe(true);
 	});
 
 	it("描き込めるのは、ペイントフェーズの隠れ側（観戦でない）で、送る前、残りが 2 秒より多い間だけ", () => {

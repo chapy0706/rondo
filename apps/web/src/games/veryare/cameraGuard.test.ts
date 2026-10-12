@@ -10,6 +10,7 @@ import {
 	NEAR_CLEARANCE,
 	WALL_FACE_OFFSET,
 	allowedCameraReach,
+	bodyOverlapsBox,
 	boundaryEdges,
 	distanceToBox,
 	distanceToSegment,
@@ -143,6 +144,20 @@ describe("定数 - 壁の余白はニアクリップより大きい（壁の中�
 			WALL_FACE_OFFSET + NEAR_CLEARANCE,
 		);
 		expect(CAMERA_FURNITURE_MARGIN).toBeGreaterThan(NEAR_CLEARANCE);
+	});
+});
+
+describe("bodyOverlapsBox - 体の円柱（半径 0.2 m・高さ 1.6 m）が箱に重なるか", () => {
+	const b = box("タンス", [1, 0, 0], [2, 1.5, 1]);
+	it("水平に半径より近く、高さが重なれば重なる", () => {
+		expect(bodyOverlapsBox({ x: 0.85, z: 0.5, feet: 0 }, b)).toBe(true);
+		expect(bodyOverlapsBox({ x: 1.5, z: 0.5, feet: 0 }, b)).toBe(true);
+	});
+	it("水平に半径より遠い、または高さが重ならなければ、重ならない", () => {
+		expect(bodyOverlapsBox({ x: 0.7, z: 0.5, feet: 0 }, b)).toBe(false);
+		expect(bodyOverlapsBox({ x: 1.5, z: 0.5, feet: 1.6 }, b)).toBe(false);
+		const high = box("照明", [1, 1.7, 0], [2, 2, 1]);
+		expect(bodyOverlapsBox({ x: 0.9, z: 0.5, feet: 0 }, high)).toBe(false);
 	});
 });
 
