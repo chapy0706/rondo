@@ -135,18 +135,39 @@ const URL_KEYS: readonly [keyof CameraSettings, string, number, number][] = [
  * 角度の上限が既定の角度より小さければ、既定の角度にそろえる（近づいて角度が下がらないように）。
  */
 export function cameraSettings(dev: boolean, search: string): CameraSettings {
-	const params = new URLSearchParams(search);
-	if (!dev && params.get("roof") !== "1") return DEFAULT_CAMERA;
+	const params = devUrlParams(dev, search);
+	if (params === null) return DEFAULT_CAMERA;
 	const settings: Record<keyof CameraSettings, number> = { ...DEFAULT_CAMERA };
 	for (const [key, name, min, max] of URL_KEYS) {
-		const raw = params.get(name);
-		const value = raw === null || raw.trim() === "" ? Number.NaN : Number(raw);
-		if (Number.isFinite(value) && value >= min && value <= max) {
-			settings[key] = value;
-		}
+		const value = urlNumber(params, name, min, max);
+		if (value !== null) settings[key] = value;
 	}
 	settings.pitchMax = Math.max(settings.pitchMax, settings.pitch);
 	return settings;
+}
+
+/**
+ * 開発用の合図（dev = NEXT_PUBLIC_VERYARE_HIRAYA、または URL の ?roof=1）があるときだけ、URL の指定を
+ * 返す。無ければ null（本番の既定では、URL で定数を変えない）。視点の自動追従（autoCamera.ts）も使う。
+ */
+export function devUrlParams(
+	dev: boolean,
+	search: string,
+): URLSearchParams | null {
+	const params = new URLSearchParams(search);
+	return dev || params.get("roof") === "1" ? params : null;
+}
+
+/** URL の数の指定。無い・数でない・範囲（min〜max）の外なら null。 */
+export function urlNumber(
+	params: URLSearchParams,
+	name: string,
+	min: number,
+	max: number,
+): number | null {
+	const raw = params.get(name);
+	const value = raw === null || raw.trim() === "" ? Number.NaN : Number(raw);
+	return Number.isFinite(value) && value >= min && value <= max ? value : null;
 }
 
 /**

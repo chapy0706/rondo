@@ -45,6 +45,13 @@ import {
 } from "./aim";
 import { gameAssets } from "./assetSlots";
 import { devTrace, traceEnabled } from "./assetTrace";
+import {
+	autoCameraActive,
+	autoCameraSettings,
+	loadAutoCamera,
+	saveAutoCamera,
+	stepAutoCamera,
+} from "./autoCamera";
 import { cameraSettings } from "./camera";
 import { browserStorage, loadCeiling, saveCeiling } from "./ceilingSetting";
 import { isHirayaStage } from "./hiraya";
@@ -241,6 +248,26 @@ export default function Veryare() {
 		setCeiling(next);
 		saveCeiling(browserStorage(), next);
 	};
+	/**
+	 * 視点の自動追従のあり・なし（同じ設定の中。既定はあり、端末の動きを減らす設定がオンならなし）。
+	 * 端末に覚えた値は、マウントの後に読む（autoCamera.ts）。
+	 */
+	const [autoCamera, setAutoCamera] = useState(true);
+	useEffect(() => {
+		setAutoCamera(
+			loadAutoCamera(
+				browserStorage(),
+				window.matchMedia("(prefers-reduced-motion: reduce)").matches,
+			),
+		);
+	}, []);
+	const toggleAutoCamera = () => {
+		const next = !autoCamera;
+		setAutoCamera(next);
+		saveAutoCamera(browserStorage(), next);
+	};
+	/** 視点パッドを指で押さえているか（向き 0 のまま押さえている間も、自動で回さない）。 */
+	const lookHeldRef = useRef(false);
 	/** 描いているペイント（issue-25）。 */
 	const [draft, setDraft] = useState<PaintDraft>(emptyDraft);
 	/** 自分のポーズ（issue-56）と、ポーズボタンを押したか（押していれば、確定のときに送る）。 */
@@ -647,6 +674,7 @@ export default function Veryare() {
 		materialSlot,
 		roofVisible,
 		ceiling,
+		autoCamera,
 		modelShown,
 		setModelShown,
 		showPaintPanel,
@@ -679,6 +707,7 @@ export default function Veryare() {
 		materialSlot,
 		roofVisible,
 		ceiling,
+		autoCamera,
 		modelShown,
 		setModelShown,
 		showPaintPanel,
@@ -740,6 +769,11 @@ export default function Veryare() {
 
 			let yaw = 0;
 			const pitch = camera.pitch;
+			// 視点の自動追従の定数（開発中だけ URL で変えられる）と、いまの回る速さ。
+			const follow = autoCameraSettings(HIRAYA_DEV, window.location.search);
+			let followRate = 0;
+			/** 視点パッドを最後に触った時刻（ミリ秒）。触っていなければ、ずっと前。 */
+			let lookTouchedAt = Number.NEGATIVE_INFINITY;
 			const reduceMotion = window.matchMedia(
 				"(prefers-reduced-motion: reduce)",
 			);
@@ -756,6 +790,30 @@ export default function Veryare() {
 				const current = latest.current;
 
 				yaw -= current.look.x * TURN_SPEED * dt;
+				// 視点の自動追従（yaw だけを動かす）。移動より先に回し、このコマの移動と体の向きは、
+				// 回した後の yaw を使う。
+				if (
+					lookHeldRef.current ||
+					current.look.x !== 0 ||
+					current.look.y !== 0
+				) {
+					lookTouchedAt = time;
+				}
+				const followed = stepAutoCamera(
+					{ yaw, rate: followRate },
+					{
+						move: current.move,
+						speed: Math.hypot(current.move.x, current.move.y) * WALK_SPEED,
+						secondsSinceLook: (time - lookTouchedAt) / 1000,
+						enabled:
+							current.autoCamera &&
+							autoCameraActive(current.phase, current.movable),
+						dt,
+					},
+					follow,
+				);
+				yaw = followed.yaw;
+				followRate = followed.rate;
 				if (current.movable) {
 					// 手元でも、サーバーと同じ規則（壁・襖・待機ルームの円）で動かす。
 					const rule = {
@@ -1036,7 +1094,7 @@ export default function Veryare() {
 					</div>
 				) : null}
 				{space === "stage" ? (
-					// 画面の隅の設定（天井のあり・なし。ランダム間取りと平屋の両方）。
+					// 画面の隅の設定（天井のあり・なし、視点の自動追従のあり・なし。ランダム間取りと平屋の両方）。
 					<div
 						className={`absolute right-2 flex flex-col items-end gap-1 ${notice?.outcome != null && phase === "reveal" ? "top-12" : "top-2"}`}
 					>
@@ -1049,15 +1107,26 @@ export default function Veryare() {
 							設定
 						</button>
 						{settingsOpen ? (
-							<button
-								type="button"
-								aria-pressed={ceiling}
-								onClick={toggleCeiling}
-								className="min-h-9 rounded-lg bg-ink/80 px-2 text-fg text-xs ring-1 ring-line ring-inset"
-								data-testid="veryare-ceiling"
-							>
-								天井: {ceiling ? "あり" : "なし"}
-							</button>
+							<>
+								<button
+									type="button"
+									aria-pressed={ceiling}
+									onClick={toggleCeiling}
+									className="min-h-9 rounded-lg bg-ink/80 px-2 text-fg text-xs ring-1 ring-line ring-inset"
+									data-testid="veryare-ceiling"
+								>
+									天井: {ceiling ? "あり" : "なし"}
+								</button>
+								<button
+									type="button"
+									aria-pressed={autoCamera}
+									onClick={toggleAutoCamera}
+									className="min-h-9 rounded-lg bg-ink/80 px-2 text-fg text-xs ring-1 ring-line ring-inset"
+									data-testid="veryare-auto-camera"
+								>
+									視点の自動追従: {autoCamera ? "あり" : "なし"}
+								</button>
+							</>
 						) : null}
 					</div>
 				) : null}
@@ -1159,7 +1228,22 @@ export default function Veryare() {
 					</button>
 				) : null}
 				<div className="flex flex-col items-center gap-1">
-					<div className="rounded-full bg-surface ring-1 ring-line ring-inset">
+					<div
+						className="rounded-full bg-surface ring-1 ring-line ring-inset"
+						// 押さえている間を知るため（自動追従を止める）。パッドの動きには関わらない。
+						onPointerDown={() => {
+							lookHeldRef.current = true;
+						}}
+						onPointerUp={() => {
+							lookHeldRef.current = false;
+						}}
+						onPointerCancel={() => {
+							lookHeldRef.current = false;
+						}}
+						onLostPointerCapture={() => {
+							lookHeldRef.current = false;
+						}}
+					>
 						<VirtualPad name="look" size={120} deadZone={PAD_DEAD_ZONE} />
 					</div>
 					<span className="text-fg-muted text-xs">視点</span>
