@@ -46,6 +46,7 @@ import {
 import { gameAssets } from "./assetSlots";
 import { devTrace, traceEnabled } from "./assetTrace";
 import { cameraSettings } from "./camera";
+import { browserStorage, loadCeiling, saveCeiling } from "./ceilingSetting";
 import { isHirayaStage } from "./hiraya";
 import { HIRAYA_DEV, roofToggleAllowed, veryareManifest } from "./manifest";
 import {
@@ -209,6 +210,15 @@ export default function Veryare() {
 		() => (grid !== null && isHirayaStage(grid) ? assets.hirayaSlot() : null),
 		[grid, assets],
 	);
+	/**
+	 * ランダム間取りの材質の差し替え口（stage-materials）。ステージの通知がランダム間取りになったとき
+	 * だけ、1回読み始める（通知が届き直しても、読み直さない）。
+	 */
+	const randomLayout = grid !== null && !isHirayaStage(grid);
+	const materialSlot = useMemo(
+		() => (randomLayout ? assets.stageMaterialSlot() : null),
+		[randomLayout, assets],
+	);
 	/** 平屋の glb を表示しているか（シーンが決める）と、屋根と天井を表示するか（既定は隠す）。 */
 	const [modelShown, setModelShown] = useState(false);
 	const [roofVisible, setRoofVisible] = useState(false);
@@ -217,6 +227,20 @@ export default function Veryare() {
 	useEffect(() => {
 		setRoofToggle(roofToggleAllowed(HIRAYA_DEV, window.location.search));
 	}, []);
+	/**
+	 * 天井のあり・なし（画面の隅の設定。既定はあり）。端末に覚えた値は、マウントの後に読む
+	 * （ceilingSetting.ts。読めなければ既定のまま）。
+	 */
+	const [ceiling, setCeiling] = useState(true);
+	const [settingsOpen, setSettingsOpen] = useState(false);
+	useEffect(() => {
+		setCeiling(loadCeiling(browserStorage()));
+	}, []);
+	const toggleCeiling = () => {
+		const next = !ceiling;
+		setCeiling(next);
+		saveCeiling(browserStorage(), next);
+	};
 	/** 描いているペイント（issue-25）。 */
 	const [draft, setDraft] = useState<PaintDraft>(emptyDraft);
 	/** 自分のポーズ（issue-56）と、ポーズボタンを押したか（押していれば、確定のときに送る）。 */
@@ -620,7 +644,9 @@ export default function Veryare() {
 		selfOni,
 		sceneHiders,
 		stageSlot,
+		materialSlot,
 		roofVisible,
+		ceiling,
 		modelShown,
 		setModelShown,
 		showPaintPanel,
@@ -650,7 +676,9 @@ export default function Veryare() {
 		selfOni,
 		sceneHiders,
 		stageSlot,
+		materialSlot,
 		roofVisible,
+		ceiling,
 		modelShown,
 		setModelShown,
 		showPaintPanel,
@@ -780,7 +808,9 @@ export default function Veryare() {
 
 				scene.setStage(current.grid, current.openDoors);
 				scene.setStageModel(current.stageSlot);
+				scene.setStageMaterials(current.materialSlot);
 				scene.setRoofVisible(current.roofVisible);
+				scene.setCeilingVisible(current.ceiling);
 				// ステージのカメラは領域の外に出さない（ADR 0043）。ペイント画面と待機ルームは対象外。
 				scene.setCameraClamp(
 					current.space === "stage" && !current.showPaintPanel,
@@ -1003,6 +1033,32 @@ export default function Veryare() {
 						<p className="font-bold text-fg text-lg" data-testid="veryare-miss">
 							{missText(miss.reason)}
 						</p>
+					</div>
+				) : null}
+				{space === "stage" ? (
+					// 画面の隅の設定（天井のあり・なし。ランダム間取りと平屋の両方）。
+					<div
+						className={`absolute right-2 flex flex-col items-end gap-1 ${notice?.outcome != null && phase === "reveal" ? "top-12" : "top-2"}`}
+					>
+						<button
+							type="button"
+							aria-expanded={settingsOpen}
+							onClick={() => setSettingsOpen((current) => !current)}
+							className="min-h-9 rounded-lg bg-ink/70 px-2 font-semibold text-fg text-xs ring-1 ring-line ring-inset"
+						>
+							設定
+						</button>
+						{settingsOpen ? (
+							<button
+								type="button"
+								aria-pressed={ceiling}
+								onClick={toggleCeiling}
+								className="min-h-9 rounded-lg bg-ink/80 px-2 text-fg text-xs ring-1 ring-line ring-inset"
+								data-testid="veryare-ceiling"
+							>
+								天井: {ceiling ? "あり" : "なし"}
+							</button>
+						) : null}
 					</div>
 				) : null}
 				{/* 終了後の勝敗は、基盤の結果画面（game-ended）に任せる（issue-42）。 */}

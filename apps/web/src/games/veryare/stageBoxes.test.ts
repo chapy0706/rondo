@@ -4,14 +4,18 @@ import skeletons from "../../../../../packages/contracts/src/fixtures/veryare-sk
 import { FLOOR_COLOR, ROOM_COLORS } from "./palette";
 import { edgeKey, parseStageNotice } from "./stage";
 import {
+	CEILING_COLOR,
 	FLOOR_THICKNESS,
+	FRAME_COLOR,
 	FUSUMA_COLOR,
+	FUSUMA_HEIGHT,
 	type StageBox,
 	WALL_COLOR,
 	WALL_HEIGHT,
 	WALL_THICKNESS,
 	stageBoxes,
 } from "./stageBoxes";
+import { CEILING_MULTIPLY, WALL_MULTIPLY } from "./stageMaterials";
 
 const tiny = parseStageNotice(movement.stage);
 if (tiny === null) throw new Error("見本が読めない");
@@ -31,7 +35,7 @@ describe("stageBoxes - 床の箱（issue-29c）", () => {
 	it("歩けるマスごとに1つ。上面が高さ 0 で、マスの大きさ", () => {
 		expect(floors).toHaveLength(16);
 		const first = floors.find((box) => box.x === 0.5 && box.z === 0.5);
-		expect(first).toEqual({
+		expect(first).toMatchObject({
 			kind: "floor",
 			x: 0.5,
 			y: -FLOOR_THICKNESS / 2,
@@ -70,7 +74,7 @@ describe("stageBoxes - 壁の箱（高さ 2.4 m、厚さ 0.1 m）", () => {
 
 	it("違う領域どうしの境（戸の一覧に無い）は壁。境の線の中央に立つ", () => {
 		// (1,0) と (2,0)（廊下と部屋 A）の境は x = 2。
-		expect(onEdge(boxes, 2, 0.5)).toEqual([
+		expect(onEdge(boxes, 2, 0.5)).toMatchObject([
 			{
 				kind: "wall",
 				x: 2,
@@ -218,4 +222,103 @@ describe("stageBoxes - 10種の骨格", () => {
 			expect(of(stageBoxes(stage, allOpen), "fusuma")).toEqual([]);
 		},
 	);
+});
+
+describe("stageBoxes - 材質の鍵（平屋の材質で飾る / stageMaterials.ts）", () => {
+	const boxes = stageBoxes(tiny, none);
+	const floorAt = (x: number, z: number) =>
+		of(boxes, "floor").find(
+			(b) =>
+				Math.abs(b.x - (x + 0.5)) < 1e-9 && Math.abs(b.z - (z + 0.5)) < 1e-9,
+		);
+
+	it("床は、場所の材質と、寄せる色（その場の代表色。いまの色と同じ）。畳は部屋の隅が絵の原点", () => {
+		const washitsu = floorAt(2, 0);
+		expect(washitsu?.material).toBe("tatami");
+		expect(washitsu?.tint).toBe(ROOM_COLORS.washitsu);
+		expect(washitsu?.tint).toBe(washitsu?.color);
+		expect(washitsu?.uvOrigin).toEqual({ x: 2, z: 0 });
+		const oshiire = floorAt(2, 3);
+		expect(oshiire?.material).toBe("wood-dark");
+		expect(oshiire?.tint).toBe(ROOM_COLORS.oshiire);
+		const corridor = floorAt(0, 0);
+		expect(corridor?.material).toBe("wood-board");
+		expect(corridor?.tint).toBe(FLOOR_COLOR);
+		expect(corridor?.uvOrigin).toEqual({ x: 0, z: 0 });
+	});
+
+	it("壁は木の板張り（濃い木目に WALL_MULTIPLY を掛ける）。襖の板は襖、鴨居・柱は濃い木目（寄せず、掛けない）", () => {
+		for (const wall of of(boxes, "wall")) {
+			expect(wall.material).toBe("wood-dark");
+			expect(wall.tint).toBeNull();
+			expect(wall.multiply).toBe(WALL_MULTIPLY);
+		}
+		for (const panel of of(boxes, "fusuma")) {
+			expect(panel.material).toBe("fusuma");
+			expect(panel.tint).toBeNull();
+			expect(panel.multiply).toBeNull();
+		}
+		for (const frame of of(boxes, "frame")) {
+			expect(frame.material).toBe("wood-dark");
+			expect(frame.tint).toBeNull();
+			expect(frame.multiply).toBeNull();
+		}
+		// 床は、代表色に寄せる（掛ける色は無い）。
+		for (const floor of of(boxes, "floor")) expect(floor.multiply).toBeNull();
+	});
+
+	it("色（素材が無いときに使う）は、これまでどおり", () => {
+		for (const wall of of(boxes, "wall")) expect(wall.color).toBe(WALL_COLOR);
+		for (const panel of of(boxes, "fusuma"))
+			expect(panel.color).toBe(FUSUMA_COLOR);
+		for (const frame of of(boxes, "frame"))
+			expect(frame.color).toBe(FRAME_COLOR);
+	});
+});
+
+describe("stageBoxes - 囲む（地図の端の壁、天井、玄関の引き戸）", () => {
+	const boxes = stageBoxes(tiny, none);
+
+	it("地図の東端・南端の辺にも、壁が立つ", () => {
+		// (4,2) の東は地図の外（x = 5）。(0,4) の南も地図の外（z = 5）。
+		expect(onEdge(boxes, 5, 2.5).map((b) => b.kind)).toEqual(["wall"]);
+		expect(onEdge(boxes, 0.5, 5).map((b) => b.kind)).toEqual(["wall"]);
+	});
+
+	it("天井は、歩けるマスごとに1つ。下面が壁と同じ高さ 2.4 m。木の板（wood-board）を CEILING_MULTIPLY で暗くする", () => {
+		const ceilings = of(boxes, "ceiling");
+		expect(ceilings).toHaveLength(of(boxes, "floor").length);
+		for (const c of ceilings) {
+			expect(c.y - c.height / 2).toBeCloseTo(WALL_HEIGHT, 9);
+			expect(c.width).toBe(1);
+			expect(c.depth).toBe(1);
+			expect(c.material).toBe("wood-board");
+			expect(c.tint).toBeNull();
+			expect(c.multiply).toBe(CEILING_MULTIPLY);
+			expect(c.color).toBe(CEILING_COLOR);
+		}
+	});
+
+	it("玄関の外へ出る辺の中央のマスは、引き戸（壁と同じ材質の板）と枠。ほかの辺は壁", () => {
+		const stage = parseStageNotice(skeletons.stages[0]);
+		if (stage === null) throw new Error("読めない");
+		const list = stageBoxes(stage, none);
+		// 骨格1の玄関は x 5〜9、南の辺は z = 39。中央は x = 7。
+		const door = onEdge(list, 7.5, 39);
+		expect(door.map((b) => b.kind)).toEqual(["frame", "entry-door"]);
+		const panel = door.find((b) => b.kind === "entry-door");
+		expect(panel?.material).toBe("wood-dark");
+		expect(panel?.multiply).toBe(WALL_MULTIPLY);
+		expect(panel?.color).toBe(WALL_COLOR);
+		expect(panel?.height).toBe(FUSUMA_HEIGHT);
+		// 両脇の柱。
+		expect(
+			list.filter(
+				(b) => b.kind === "frame" && b.z === 39 && Math.abs(b.x - 7.5) < 0.5,
+			),
+		).toHaveLength(3);
+		for (const x of [5.5, 6.5, 8.5, 9.5]) {
+			expect(onEdge(list, x, 39).map((b) => b.kind)).toEqual(["wall"]);
+		}
+	});
 });

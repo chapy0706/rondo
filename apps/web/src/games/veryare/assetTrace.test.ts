@@ -3,6 +3,7 @@ import {
 	createTracer,
 	manifestStatus,
 	stageDisplayEvent,
+	stageMaterialEvent,
 	traceEnabled,
 	traceMessage,
 } from "./assetTrace";
@@ -176,5 +177,60 @@ describe("stageDisplayEvent - ステージに入ったときの表示と、箱�
 				swapped: false,
 			}),
 		).toEqual({ kind: "stage", display: "boxes", reason: "no-slot" });
+	});
+});
+
+describe("stageMaterialEvent - ランダム間取りの材質（貼った / 色の箱のままの理由）", () => {
+	it("平屋のときは出さない。貼ったか、色の箱のままの理由を1つ返す", () => {
+		const base = {
+			hiraya: false,
+			hasSlot: true,
+			received: true,
+			applied: true,
+		};
+		expect(stageMaterialEvent({ ...base, hiraya: true })).toBeNull();
+		expect(stageMaterialEvent(base)).toEqual({
+			kind: "materials",
+			applied: true,
+		});
+		expect(stageMaterialEvent({ ...base, applied: false })).toEqual({
+			kind: "materials",
+			applied: false,
+			reason: "invalid",
+		});
+		expect(
+			stageMaterialEvent({ ...base, received: false, applied: false }),
+		).toEqual({ kind: "materials", applied: false, reason: "not-received" });
+		expect(
+			stageMaterialEvent({
+				...base,
+				hasSlot: false,
+				received: false,
+				applied: false,
+			}),
+		).toEqual({ kind: "materials", applied: false, reason: "no-slot" });
+	});
+
+	it("文言", () => {
+		expect(traceMessage({ kind: "materials", applied: true })).toBe(
+			"材質: 貼った（ランダム間取りの箱に、平屋の材質）",
+		);
+		expect(
+			traceMessage({ kind: "materials", applied: false, reason: "no-slot" }),
+		).toBe("材質: 色の箱のまま（材質の差し替え口が無い）");
+		expect(
+			traceMessage({
+				kind: "materials",
+				applied: false,
+				reason: "not-received",
+			}),
+		).toBe(
+			"材質: 色の箱のまま（読めない、または待機ルームの間に読み終わらなかった。詳しくは stage-materials の行）",
+		);
+		expect(
+			traceMessage({ kind: "materials", applied: false, reason: "invalid" }),
+		).toBe(
+			"材質: 色の箱のまま（素材の形が違う。鍵・extras・色の絵を確かめる）",
+		);
 	});
 });

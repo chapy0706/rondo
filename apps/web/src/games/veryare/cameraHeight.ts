@@ -126,7 +126,7 @@ export const HIRAYA_OBSTACLES: Readonly<Record<string, Obstacles>> = {
 };
 
 /**
- * 箱の表示（stageBoxes.ts）。床は 0、壁は 2.4 m。閉じた襖の板は 1.8 m だが、その上は鴨居の箱で
+ * 箱の表示（stageBoxes.ts）。床は 0、壁と天井の下面は 2.4 m。閉じた襖の板は 1.8 m だが、その上は鴨居の箱で
  * 壁と同じ 2.4 m までふさがるので、透かしは無い（襖の板の上端は、壁の上端と同じに扱う）。
  */
 export const BOX_OBSTACLES: Obstacles = {
@@ -134,8 +134,8 @@ export const BOX_OBSTACLES: Obstacles = {
 	wallTop: WALL_HEIGHT,
 	fusumaTop: null,
 	ranmaBottom: null,
-	// 箱の表示には天井が無い（壁の上は空いているが、カメラは壁より低いので、壁の上端で足りる）。
-	ceiling: null,
+	// 箱の表示の天井（stageBoxes.ts の ceiling）は、下面が壁と同じ 2.4 m。
+	ceiling: WALL_HEIGHT,
 };
 
 /** 領域の中に収めたカメラの、足もとからの最大の高さ（reachedPose を細かく区切って求める）。 */

@@ -3,6 +3,7 @@ import type { LoadResult } from "../../infrastructure/assets";
 import {
 	CHARACTER_KEYS,
 	HIRAYA_KEYS,
+	STAGE_MATERIALS_KEY,
 	combineCharacter,
 	combineHiraya,
 	createVeryareAssets,
@@ -219,5 +220,54 @@ describe("takeOnce - 差し替え口から、1回だけ受け取る（毎コマ�
 
 	it("差し替え口が無ければ、いつも null", () => {
 		expect(takeOnce(undefined)()).toBeNull();
+	});
+});
+
+describe("stageMaterialSlot - ランダム間取りの材質の素材（stage-materials）", () => {
+	it("差し替え口を作ると、stage-materials の key だけを読む。読めたら取り出せる（貼る）", async () => {
+		const preload = vi.fn(async (key: string) => ok(key));
+		const slot = createVeryareAssets(preload).stageMaterialSlot();
+		expect(keysOf(preload)).toEqual([STAGE_MATERIALS_KEY]);
+		expect(STAGE_MATERIALS_KEY).toBe("stage-materials");
+		await settle();
+		expect(slot.take()).toBe(STAGE_MATERIALS_KEY);
+	});
+
+	it("読めなければ、取り出せない（色の箱のまま）。読み込みの結果を記録する", async () => {
+		const trace = vi.fn();
+		const slot = createVeryareAssets(
+			async () => failed,
+			trace,
+		).stageMaterialSlot();
+		await settle();
+		expect(slot.take()).toBeNull();
+		expect(trace).toHaveBeenCalledWith({
+			kind: "load",
+			key: STAGE_MATERIALS_KEY,
+			ok: false,
+			reason: "http-error",
+		});
+	});
+
+	it("lock のあとは、読み終わっても差し替えない。takeOnce で1回だけ受け取る", async () => {
+		const late = createVeryareAssets(async (key: string) =>
+			ok(key),
+		).stageMaterialSlot();
+		late.lock();
+		await settle();
+		expect(late.take()).toBeNull();
+		const slot = createVeryareAssets(async (key: string) =>
+			ok(key),
+		).stageMaterialSlot();
+		const take = takeOnce(slot);
+		await settle();
+		expect(take()).toBe(STAGE_MATERIALS_KEY);
+		expect(take()).toBeNull();
+	});
+
+	it("差し替え口を作るまでは、何も読まない（平屋のルームでは読まない）", () => {
+		const preload = vi.fn(async (key: string) => ok(key));
+		createVeryareAssets(preload).hirayaSlot();
+		expect(keysOf(preload)).not.toContain(STAGE_MATERIALS_KEY);
 	});
 });

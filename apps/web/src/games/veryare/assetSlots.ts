@@ -15,6 +15,8 @@
  *   まとめる。体かポーズの表が読めなければ、仮のカプセルのまま。動きだけが読めなければ、体は静止した
  *   姿勢のまま（どちらも警告は出さない）。対戦の画面を開いた時点で読み始め、
  *   待機ルームにいる間に差し替える（シーンの bodies の受け口）
+ * - ランダム間取りの材質（stage-materials）: 1つの glb。ステージの通知がランダム間取りのときだけ読み、
+ *   待機ルームにいる間に1回だけ受け取って、箱に貼る（stageSurfaces.ts）。読めなければ、色の箱のまま
  *
  * 差し替えるのは、待機ルームにいる間だけ（シーンが take() し、ステージへ移ったら lock() する）。
  * 間に合わなければ、その回は仮の表示のまま。読み込みの失敗は警告を出さない（ローダーが記録する）。
@@ -44,6 +46,9 @@ export const CHARACTER_KEYS = {
 	poses: "character-poses",
 	motions: "character-motions",
 } as const;
+
+/** ランダム間取りの箱に貼る材質の素材の key（stageMaterials.ts・tools/stage_materials.mjs）。 */
+export const STAGE_MATERIALS_KEY = "stage-materials";
 
 /** キャラクターの3つの glb（体、ポーズの表、動き）。動きは、読めなければ null（体は静止のまま）。 */
 export interface CharacterParts<T> {
@@ -113,6 +118,8 @@ export interface VeryareAssets<T> {
 	hirayaSlot(): SwapSlot<HirayaParts<T>>;
 	/** 対戦1回ぶんの、キャラクターの差し替え口（呼ぶたびに読み込みを始める）。 */
 	characterSlot(): SwapSlot<CharacterParts<T>>;
+	/** 対戦1回ぶんの、ランダム間取りの材質の差し替え口（呼ぶたびに読み込みを始める）。 */
+	stageMaterialSlot(): SwapSlot<T>;
 }
 
 /**
@@ -185,6 +192,18 @@ export function createVeryareAssets<T>(
 					...(motions.ok ? {} : { reason: motions.reason }),
 				});
 				return combineCharacter(body, poses, motions);
+			});
+			return createSwapSlot(pending);
+		},
+		stageMaterialSlot() {
+			const pending = preload(STAGE_MATERIALS_KEY).then((result) => {
+				trace({
+					kind: "load",
+					key: STAGE_MATERIALS_KEY,
+					ok: result.ok,
+					...(result.ok ? {} : { reason: result.reason }),
+				});
+				return result;
 			});
 			return createSwapSlot(pending);
 		},

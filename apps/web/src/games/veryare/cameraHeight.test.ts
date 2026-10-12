@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import hirayaFixture from "../../../../../packages/contracts/src/fixtures/veryare-hiraya-stage.json";
 import { CAMERA_MAX_HEIGHT } from "./camera";
+import { CAMERA_NEAR } from "./cameraGuard";
 import {
 	BOX_OBSTACLES,
 	HIRAYA_OBSTACLES,
@@ -107,9 +108,18 @@ describe("平屋と箱の表示の判定（tools/wall_heights.mjs で測った�
 		expect(least).toBeCloseTo(0.115, 3);
 	});
 
-	it("箱の表示（壁 2.4 m。閉じた襖の上は鴨居で 2.4 m までふさがる）でも、越えない", () => {
+	it("箱の表示（壁 2.4 m。閉じた襖の上は鴨居で 2.4 m までふさがる。天井の下面も 2.4 m）でも、越えない", () => {
 		expect(BOX_OBSTACLES.wallTop).toBe(WALL_HEIGHT);
+		expect(BOX_OBSTACLES.ceiling).toBe(WALL_HEIGHT);
 		expect(peekRisks(BOX_OBSTACLES, top)).toEqual([]);
 		expect(clearance(BOX_OBSTACLES, top)).toBeCloseTo(0.55, 3);
+	});
+});
+
+describe("箱の表示の天井（2.4 m）とカメラ", () => {
+	it("カメラの高さの上限に、ニアクリップの距離を足しても、天井の下面より低い（天井の板が映り込まない）", () => {
+		expect(CAMERA_MAX_HEIGHT + CAMERA_NEAR).toBeLessThan(WALL_HEIGHT);
+		const top = cameraTopAboveFeet();
+		expect(top + CAMERA_NEAR).toBeLessThan(WALL_HEIGHT);
 	});
 });

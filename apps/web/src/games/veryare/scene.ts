@@ -11,6 +11,13 @@
  * （surfaceColor.ts）。屋根と天井は既定で隠す（TPS のカメラを遮るため）。
  * 襖は、開いていれば板を全部隠し、閉じていれば見せる（fusumaView.ts）。
  * いつも開いている片開き戸は、丁番で 90 度回して置く。読めなければ、箱の表示のまま（移動の規則は同じ）。
+ * ランダム間取り: 材質の素材（stage-materials）が待機ルームの間に読めていれば、箱を材質と寄せる色の組
+ * ごとに1つの形にまとめて、平屋の材質を貼って描く（stageSurfaces.ts）。色の箱は見えなくするだけで残し、
+ * 狙いの当たりに使う。スポイトは、貼った面の絵の画素 × 材質の色。読めない・形が違うときは、色の箱のまま。
+ * 天井（箱の ceiling）は、色の箱でも材質を貼った箱でも別のグループにまとめ、設定（ceilingSetting.ts）の
+ * とおりに見せる。天井は、狙いの当たりにもスポイトにも入れない。平屋は、屋根と天井の glb のうち天井の
+ * ノードだけを設定で切り替える。光: 半球の光（地面側は暖かい茶色。天井の下面を照らす）と、自分のカメラに
+ * 近い部屋の灯り（数は一定 / roomLights.ts）。ステージの背景は、暗い暖色の夜の色。
  * 平屋の床は地面より高い（畳 0.6 m など）。glb を表示している間は、体（自分・鬼・隠れ側・CPU）の
  * 足もとを、立っているマスの床の高さ（hiraya.ts の floorHeight）に合わせる。自分と鬼は、段差で
  * 跳ねないよう、なめらかに寄せる（feet.ts）。カメラは体の高さについて行く（camera.ts の cameraPose）。
@@ -34,7 +41,11 @@ import * as THREE from "three";
 import type { SwapSlot } from "../../infrastructure/assets";
 import { type BodyAt, type Vec3, hiderAt, rayHitsBody } from "./aim";
 import { type CharacterParts, type HirayaModel, takeOnce } from "./assetSlots";
-import { type AssetEvent, stageDisplayEvent } from "./assetTrace";
+import {
+	type AssetEvent,
+	stageDisplayEvent,
+	stageMaterialEvent,
+} from "./assetTrace";
 import {
 	type BodyInstance,
 	type BodyKit,
@@ -59,6 +70,7 @@ import {
 	placeGuardedCamera,
 } from "./cameraGuard";
 import { cameraLogMessage, followCameraReach, fullReach } from "./cameraRig";
+import { roofNodeVisible, stageCeilingVisible } from "./ceilingSetting";
 import { followFloor } from "./feet";
 import { parseFurniture } from "./furniture";
 import {
@@ -85,6 +97,12 @@ import {
 } from "./motionState";
 import { parseMotionSet } from "./motions";
 import { DEFAULT_POSE, modelPoseOf } from "./poses";
+import {
+	ROOM_LIGHT_COUNT,
+	type Spot,
+	nearestSpots,
+	roomLightSpots,
+} from "./roomLights";
 import type { View } from "./rules";
 import {
 	type AreaState,
@@ -96,6 +114,12 @@ import {
 } from "./rules";
 import { type StageGrid, cellAt } from "./stage";
 import { type StageBox, stageBoxes } from "./stageBoxes";
+import {
+	type StageMaterialSet,
+	pickStageMaterials,
+	stageLayers,
+	surfaceMeshes,
+} from "./stageSurfaces";
 import {
 	createTextureReader,
 	drawOnCanvas,
@@ -112,6 +136,16 @@ const COLORS = {
 	accent: 0xf5b841,
 	sub: 0x5fd3c4,
 } as const;
+
+/** ステージの背景（天井をなしにしたとき、壁の上から見える色）。暗い暖色の夜の色。 */
+const STAGE_BACKGROUND = 0x241a14;
+/** 半球の光の地面側の色（下を向く面 = 天井の下面を照らす。暖かい茶色）。 */
+const HEMISPHERE_GROUND = 0x6e5a46;
+/** 部屋の灯り（暖かい電球の色）。高さは天井の少し下。 */
+const ROOM_LIGHT_COLOR = 0xffd9a8;
+const ROOM_LIGHT_INTENSITY = 4;
+const ROOM_LIGHT_DISTANCE = 6;
+const ROOM_LIGHT_HEIGHT = 2.1;
 
 /** 鬼希望エリアの色（ADR 0024）。 */
 const AREA_COLORS = {
@@ -132,10 +166,17 @@ export interface VeryareScene extends TestableScene {
 	 * lock() する。null なら差し替えない（箱の表示）。
 	 */
 	setStageModel(slot: SwapSlot<HirayaModel> | null): void;
+	/**
+	 * ランダム間取りの材質の差し替え口（stage-materials）。待機ルームにいる間に1回だけ受け取り、
+	 * ステージへ移ったら lock() する。null なら貼らない（色の箱）。
+	 */
+	setStageMaterials(slot: SwapSlot<THREE.Group> | null): void;
 	/** 平屋の glb を表示しているか（屋根の切り替えのボタンを出すかに使う）。 */
 	stageModelShown(): boolean;
-	/** 屋根と天井を表示するか（既定は隠す / issue-46）。 */
+	/** 屋根を表示するか（開発用。既定は隠す / issue-46）。 */
 	setRoofVisible(visible: boolean): void;
+	/** 天井を表示するか（画面の隅の設定。既定はあり / ceilingSetting.ts）。 */
+	setCeilingVisible(visible: boolean): void;
 	/**
 	 * カメラを、体のいる領域の外に出さないか（ADR 0043）。ステージの準備移動・探索・答え合わせ・観戦で
 	 * true、ペイント画面と待機ルームでは false。
@@ -404,8 +445,10 @@ export function createScene(
 	renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
 
 	const scene = new THREE.Scene();
-	scene.background = new THREE.Color(COLORS.ink);
-	scene.add(new THREE.HemisphereLight(0xffffff, COLORS.ink, 1.2));
+	const roomBackground = new THREE.Color(COLORS.ink);
+	const stageBackground = new THREE.Color(STAGE_BACKGROUND);
+	scene.background = roomBackground;
+	scene.add(new THREE.HemisphereLight(0xffffff, HEMISPHERE_GROUND, 1.2));
 	const sun = new THREE.DirectionalLight(0xffffff, 1.4);
 	sun.position.set(3, 6, 2);
 	scene.add(sun);
@@ -679,10 +722,39 @@ export function createScene(
 	let stageGrid: StageGrid | null = null;
 	let stageOpen: ReadonlySet<string> | null = null;
 
-	// ステージの中身: 箱（地図と襖の状態から組み直す）と、平屋の glb（差し替えたら置いたまま）。
+	// ステージの中身: 箱（地図と襖の状態から組み直す）と、平屋の glb（差し替えたら置いたまま）と、
+	// 材質を貼った箱（ランダム間取りで、材質の素材があるとき。箱と一緒に組み直す）。
 	const boxGroup = new THREE.Group();
 	const modelGroup = new THREE.Group();
-	spaces.stage.add(boxGroup, modelGroup);
+	const surfaceGroup = new THREE.Group();
+	// 天井（色の箱と材質を貼った箱）。狙いの当たりとスポイトの対象（boxGroup・surfaceGroup）に入れない。
+	const boxCeilingGroup = new THREE.Group();
+	const surfaceCeilingGroup = new THREE.Group();
+	spaces.stage.add(
+		boxGroup,
+		modelGroup,
+		surfaceGroup,
+		boxCeilingGroup,
+		surfaceCeilingGroup,
+	);
+	let ceiling = true;
+	// 部屋の灯り。数は一定で、明るさ 0 で消す（数を変えないので、シェーダーを作り直さない）。
+	const roomLights = Array.from({ length: ROOM_LIGHT_COUNT }, () => {
+		const light = new THREE.PointLight(
+			ROOM_LIGHT_COLOR,
+			0,
+			ROOM_LIGHT_DISTANCE,
+			2,
+		);
+		spaces.stage.add(light);
+		return light;
+	});
+	/** 灯りを置ける部屋の位置（ランダム間取りの箱の表示のときだけ）。 */
+	let lightSpots: Spot[] = [];
+	let materialSlot: SwapSlot<THREE.Group> | null = null;
+	/** 材質の素材を受け取ったか（1回だけ受け取る）と、形が正しく読めた材質。 */
+	let materialsReceived = false;
+	let materials: StageMaterialSet | null = null;
 	let stageSlot: SwapSlot<HirayaModel> | null = null;
 	let model: HirayaModel | null = null;
 	/** glb の襖の板（襖の状態を持ち、差し替えのときにも当て直す / fusumaView.ts）。 */
@@ -709,11 +781,39 @@ export function createScene(
 	};
 
 	const showStage = () => {
-		const shown = modelShown();
-		modelGroup.visible = shown;
-		// 箱は、glb を表示している間も見えなくするだけで残す（鬼の狙いの壁と床の当たりに使う）。
-		boxGroup.visible = !shown;
-		if (model?.roof != null) model.roof.visible = roofVisible;
+		const layers = stageLayers(modelShown(), surfaceGroup.children.length > 0);
+		modelGroup.visible = layers.model;
+		surfaceGroup.visible = layers.surfaces;
+		// 箱は、glb や材質を貼った箱を表示している間も見えなくするだけで残す（鬼の狙いの壁と床の当たりに使う）。
+		boxGroup.visible = layers.boxes;
+		boxCeilingGroup.visible = layers.boxes && stageCeilingVisible(ceiling);
+		surfaceCeilingGroup.visible =
+			layers.surfaces && stageCeilingVisible(ceiling);
+		if (model?.roof != null) {
+			// 屋根のノードは開発用の切り替え、天井のノードは設定のとおり。
+			model.roof.visible = true;
+			for (const node of model.roof.children) {
+				node.visible = roofNodeVisible(
+					originalName(node),
+					roofVisible,
+					ceiling,
+				);
+			}
+		}
+	};
+
+	/** 部屋の灯りを、at（カメラの位置）に近い部屋へ置く。平屋の glb を表示している間は消す。 */
+	const placeRoomLights = (at: Spot) => {
+		const chosen = modelShown()
+			? []
+			: nearestSpots(lightSpots, at, ROOM_LIGHT_COUNT);
+		roomLights.forEach((light, index) => {
+			const spot = chosen[index];
+			light.intensity = spot === undefined ? 0 : ROOM_LIGHT_INTENSITY;
+			if (spot !== undefined) {
+				light.position.set(spot.x, ROOM_LIGHT_HEIGHT, spot.z);
+			}
+		});
 	};
 
 	/** 平屋の glb を、glb の座標のまま置く（差し替えは1回だけ）。 */
@@ -747,16 +847,52 @@ export function createScene(
 			: 0;
 
 	const clearStage = () => {
-		const meshes = [...boxGroup.children];
-		boxGroup.clear();
 		const geometries = new Set<THREE.BufferGeometry>();
-		for (const mesh of meshes) {
-			if (!(mesh instanceof THREE.InstancedMesh)) continue;
-			geometries.add(mesh.geometry);
-			(mesh.material as THREE.Material).dispose();
-			mesh.dispose();
+		for (const group of [boxGroup, boxCeilingGroup]) {
+			const meshes = [...group.children];
+			group.clear();
+			for (const mesh of meshes) {
+				if (!(mesh instanceof THREE.InstancedMesh)) continue;
+				geometries.add(mesh.geometry);
+				(mesh.material as THREE.Material).dispose();
+				mesh.dispose();
+			}
 		}
 		for (const geometry of geometries) geometry.dispose();
+		// 材質を貼った箱: 形と、複製した材質だけを捨てる（絵は素材のもの）。
+		for (const group of [surfaceGroup, surfaceCeilingGroup]) {
+			const surfaces = [...group.children];
+			group.clear();
+			for (const mesh of surfaces) {
+				if (!(mesh instanceof THREE.Mesh)) continue;
+				mesh.geometry.dispose();
+				(mesh.material as THREE.Material).dispose();
+			}
+		}
+	};
+
+	/** いまの地図と襖の状態で、箱（と、材質があれば材質を貼った箱）を組み直す。 */
+	const buildStage = () => {
+		clearStage();
+		if (stageGrid !== null && stageOpen !== null) {
+			const boxes = stageBoxes(stageGrid, stageOpen);
+			const ceilings = boxes.filter((box) => box.kind === "ceiling");
+			const others = boxes.filter((box) => box.kind !== "ceiling");
+			for (const mesh of stageMeshes(others)) boxGroup.add(mesh);
+			for (const mesh of stageMeshes(ceilings)) boxCeilingGroup.add(mesh);
+			if (materials !== null && !isHirayaStage(stageGrid)) {
+				for (const mesh of surfaceMeshes(others, materials)) {
+					surfaceGroup.add(mesh);
+				}
+				for (const mesh of surfaceMeshes(ceilings, materials)) {
+					surfaceCeilingGroup.add(mesh);
+				}
+			}
+			lightSpots = roomLightSpots(stageGrid);
+		} else {
+			lightSpots = [];
+		}
+		showStage();
 	};
 
 	return {
@@ -765,17 +901,14 @@ export function createScene(
 			if (grid === stageGrid && open === stageOpen) return;
 			stageGrid = grid;
 			stageOpen = open;
-			clearStage();
-			if (grid !== null) {
-				for (const mesh of stageMeshes(stageBoxes(grid, open))) {
-					boxGroup.add(mesh);
-				}
-			}
+			buildStage();
 			placeFusuma();
-			showStage();
 		},
 		setStageModel(slot) {
 			stageSlot = slot;
+		},
+		setStageMaterials(slot) {
+			materialSlot = slot;
 		},
 		stageModelShown() {
 			return modelShown();
@@ -787,6 +920,11 @@ export function createScene(
 		setRoofVisible(visible) {
 			if (visible === roofVisible) return;
 			roofVisible = visible;
+			showStage();
+		},
+		setCeilingVisible(visible) {
+			if (visible === ceiling) return;
+			ceiling = visible;
 			showStage();
 		},
 		setSpace(space) {
@@ -806,6 +944,13 @@ export function createScene(
 				// 平屋の glb の差し替えも、待機ルームにいる間だけ（issue-46）。
 				const next = model === null ? stageSlot?.take() : null;
 				if (next != null) attachModel(next);
+				// ランダム間取りの材質も、待機ルームにいる間に1回だけ受け取る。形が違えば色の箱のまま。
+				const assetRoot = materialsReceived ? null : materialSlot?.take();
+				if (assetRoot != null) {
+					materialsReceived = true;
+					materials = pickStageMaterials(assetRoot);
+					if (materials !== null) buildStage();
+				}
 			} else {
 				options.bodies?.lock();
 				if (lastSpace !== "stage") {
@@ -818,9 +963,21 @@ export function createScene(
 						}),
 					);
 				}
+				if (lastSpace !== "stage") {
+					const event = stageMaterialEvent({
+						hiraya: stageGrid !== null && isHirayaStage(stageGrid),
+						hasSlot: materialSlot !== null,
+						received: materialsReceived,
+						applied: surfaceGroup.children.length > 0,
+					});
+					if (event !== null) options.trace?.(event);
+				}
 				stageSlot?.lock();
+				materialSlot?.lock();
 			}
 			lastSpace = space;
+			const background = space === "stage" ? stageBackground : roomBackground;
+			if (scene.background !== background) scene.background = background;
 			spaces["waiting-room"].visible = space === "waiting-room";
 			spaces.stage.visible = space === "stage";
 		},
@@ -937,6 +1094,15 @@ export function createScene(
 				modelGroup.updateMatrixWorld(true);
 				const hit = firstVisibleHit(
 					raycaster.intersectObjects(modelGroup.children, true),
+				);
+				const color = hit === null ? null : surfaceColor(hit, readTexture);
+				return color === null ? null : { kind: "stage", color };
+			}
+			// 材質を貼った箱のときは、当たった面の絵の画素 × 材質の色（surfaceColor.ts）。
+			if (surfaceGroup.visible && spaces.stage.visible) {
+				surfaceGroup.updateMatrixWorld(true);
+				const hit = firstVisibleHit(
+					raycaster.intersectObjects(surfaceGroup.children, false),
 				);
 				const color = hit === null ? null : surfaceColor(hit, readTexture);
 				return color === null ? null : { kind: "stage", color };
@@ -1129,6 +1295,7 @@ export function createScene(
 			}
 			logCamera(performance.now(), placeCamera());
 			logMotion(performance.now());
+			placeRoomLights({ x: camera.position.x, z: camera.position.z });
 			renderer.render(scene, camera);
 		},
 		dispose() {

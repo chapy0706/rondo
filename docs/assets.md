@@ -264,6 +264,38 @@ node tools/build_house.mjs assets-src/house/hiraya.glb assets-src/converted/hous
 - 最後に、形のデータを圧縮する（`--geometry`。既定は meshopt / issue-55。上の「形のデータの圧縮」）
 - 各ファイルの大きさ・メッシュ数・三角形数（インスタンスの数を掛けたもの）・テクスチャ数を、`STATS` の行で出す
 
+## ランダム間取り: 材質の素材を作る（stage-materials）
+
+ランダム間取りの床・壁・襖の箱に、平屋の材質を貼るための素材。元の `hiraya-fbx.glb` から、5 つの材質だけを取り出す。
+
+```sh
+node tools/stage_materials.mjs assets-src/house/hiraya-fbx.glb assets-src/delivery/v2/house
+node tools/make_manifest.mjs assets-src/delivery
+```
+
+| 鍵 | 元の材質 | 使う所 | 1枚の大きさ |
+| --- | --- | --- | --- |
+| `tatami` | 畳-005 と畳縁-001 から作った、畳 2 枚ぶん（1.8 × 1.8 m）に縁を描いた絵 | 和室（3種類）の床。絵の原点は部屋（スロット）の隅 | 1.8 m |
+| `wood-board` | 木目-002-004 | 廊下、和室・押し入れ以外の部屋の床 | 1.0 m |
+| `wood-dark` | 木目-002-003_001 | 壁（木の板張り。木目は縦）、押し入れ・縁側の床、襖の鴨居と柱、いつも閉じている戸 | 約 2.0 m |
+| `fusuma` | 襖-001 | 襖の板（板の大きさに合わせず、そのまま繰り返す） | 約 3.27 m |
+| `doma` | 壁-001-003 | 玄関の床（廊下と同じ茶色に寄せる） | 約 0.37 m |
+
+- 出力は `stage-materials-{512,1024}.glb`（中身は同じ。品質は 512）。2026-10-12 の実測で 300,176 バイト（壁紙を外す前は 476,052 バイト）
+- 色の絵と法線の絵を 512 の WebP にする（`EXT_texture_webp`）。材質ごとに、小さな四角いメッシュを1枚付ける（three の GLTFLoader は、メッシュから参照されない材質を読まないため）。材質の名前が鍵
+- scene の extras（`rondoStageMaterials`）に、材質ごとの1枚の大きさ（メートル）と、色の絵の平均色（線形の値）を入れる。1枚の大きさは、元の glb のメッシュの UV と長さの比から測る
+- 障子（和紙）と壁紙は入れない。ランダム間取りの箱に障子は無い（障子は平屋の glb だけ）。壁は木の板張りで、`wood-dark` を使う
+- 壁の木目: `wood-dark` の絵は木目が縦（v の向き）に走る。壁の UV は、u が壁に沿う向き、v が −高さなので、そのまま貼ると木目が縦になる（入れ替えない）。床の UV は x・z
+- 場所と材質の対応は `apps/web/src/games/veryare/stageMaterials.ts` の `FLOOR_MATERIALS`・`SURFACE_MATERIALS`。玄関を板にするときは、`genkan` の1行を変える
+- 色の寄せ: 実行時に、材質の色の値へ「代表色 ÷ 絵の平均色」（線形の値、色ごと。0〜8 に抑える）を入れる。床はその場の代表色（`palette.ts`）。鴨居・柱・襖の板は寄せない
+- 壁の暗さ: 壁は、絵に `WALL_MULTIPLY`（灰色 `#6c6c6c`。線形 0.15）をそのまま掛ける。壁の平均色の明るさ（CIELAB の L）は約 20 で、床のどの代表色（いちばん暗い押し入れで L 約 37.5）よりも 15 以上暗く、襖の板（L 約 87.8）とは 30 以上違う。値を変えたら、手元の素材の検査で確かめる
+- ダミーの襖（開かない襖に見える壁。2026-10-12 に方針を変えて足した）: ランダム間取りの、2 つの歩ける場所の間の壁に、1 ステージ 4〜6 個（`dummyFusuma.ts`）。本物の閉じた襖と同じ板・鴨居・柱で、開けられない（サーバーは知らない）。位置は地図の行の文字列から作る乱数の種で決まり、全員の画面で同じ。本物の襖の辺とその両隣、玄関・縁側、ほかのダミーの隣には置かない。平屋には置かない。見分けるヒントとして、本物の閉じた襖の板にだけ、小さく暗い引き手（`hikite`）を付ける
+- 囲む: 地図の端（東端・南端を含む）と、歩けないマス・庭との境には、すべて壁（縁側の外も、部屋の壁と同じ木の板張り）を立てる。歩けるマスの辺に見えない境が残らないことは、`stageEnclosure.ts` の `uncoveredEdges` のテストで、10 種の骨格の全マスについて確かめる
+- 天井: 歩けるマスの上に、天井の板（下面が壁と同じ 2.4 m。下を向く面だけ）。材質は `wood-board` に `CEILING_MULTIPLY`（灰色 `#909090`）を掛け、L 約 27.6 で床のどの代表色よりも暗い。画面の右上の「設定」で、あり・なしを選べる（端末に覚える。既定はあり）。平屋は、屋根と天井の glb のうち、天井のノード（名前が「天井」で始まる）だけを切り替える
+- 玄関: 外へ出る辺（地図の端に面した辺）の中央のマス（幅が奇数なら 1 マス、偶数なら 2 マス）に、いつも閉じた引き戸（壁と同じ材質の板と、濃い木の枠。見た目だけ）。ほかの辺は壁
+- 読めない・形が違う（鍵が欠ける、extras が無い、色の絵が無い）ときは、色の箱のまま
+- 手元に素材があるときだけの検査: `apps/web/src/games/veryare/stageMaterialsFile.test.ts`（大きさ、鍵、寄せたあとの色差、白飛びの割合、壁と床の L の差 15 以上、襖と壁の L の差 30 以上、`wood-dark` の木目が縦）。素材が無ければ飛ばす
+
 ## 平屋: 戸・障子・欄間の一覧
 
 ```sh
@@ -360,6 +392,9 @@ node tools/furniture_boxes.mjs assets-src/house/hiraya-fbx.glb assets-src/delive
 
 # 1c. 実データで、カメラのめり込みを全探索する（めり込みが 0 件なら終了コード 0）
 node tools/check_camera_hiraya.mjs
+
+# 1d. ランダム間取りの材質の glb を作る（上の「ランダム間取り: 材質の素材を作る」）
+node tools/stage_materials.mjs assets-src/house/hiraya-fbx.glb assets-src/delivery/v2/house
 
 # 2. manifest.json を作る（assets-src/delivery/manifest.json。上書きする）
 node tools/make_manifest.mjs assets-src/delivery

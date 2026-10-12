@@ -35,6 +35,12 @@ export type AssetEvent =
 	  }
 	| { readonly kind: "furniture"; readonly boxes: number | null }
 	| { readonly kind: "character"; readonly swapped: boolean }
+	| { readonly kind: "materials"; readonly applied: true }
+	| {
+			readonly kind: "materials";
+			readonly applied: false;
+			readonly reason: "no-slot" | "not-received" | "invalid";
+	  }
 	| { readonly kind: "stage"; readonly display: "model" }
 	| {
 			readonly kind: "stage";
@@ -48,6 +54,13 @@ const PREFIX = "[veryare-assets] ";
 export function traceEnabled(dev: boolean, search: string): boolean {
 	return dev || new URLSearchParams(search).get("roof") === "1";
 }
+
+const MATERIAL_REASONS = {
+	"no-slot": "材質の差し替え口が無い",
+	"not-received":
+		"読めない、または待機ルームの間に読み終わらなかった。詳しくは stage-materials の行",
+	invalid: "素材の形が違う。鍵・extras・色の絵を確かめる",
+} as const;
 
 const BOX_REASONS = {
 	"no-stage": "ステージの通知が届いていない",
@@ -88,6 +101,10 @@ export function traceMessage(event: AssetEvent): string {
 			return event.swapped
 				? "キャラクター: 素材の体に差し替えた"
 				: "キャラクター: 体かポーズの表が壊れているので、仮のカプセルのまま";
+		case "materials":
+			return event.applied
+				? "材質: 貼った（ランダム間取りの箱に、平屋の材質）"
+				: `材質: 色の箱のまま（${MATERIAL_REASONS[event.reason]}）`;
 		case "furniture":
 			return event.boxes === null
 				? "家具の箱: 読めない（地図の守りだけ）"
@@ -148,4 +165,23 @@ export function devTrace(event: AssetEvent): void {
 	createTracer(traceEnabled(HIRAYA_DEV, search), (line) => console.info(line))(
 		event,
 	);
+}
+
+/**
+ * ステージに入ったときの、ランダム間取りの材質（貼ったか、色の箱のままの理由）。平屋のときは null
+ * （出さない）。received は差し替え口から受け取ったか、applied は素材の形が正しく貼ったか。
+ */
+export function stageMaterialEvent(state: {
+	readonly hiraya: boolean;
+	readonly hasSlot: boolean;
+	readonly received: boolean;
+	readonly applied: boolean;
+}): AssetEvent | null {
+	if (state.hiraya) return null;
+	if (state.applied) return { kind: "materials", applied: true };
+	if (state.received)
+		return { kind: "materials", applied: false, reason: "invalid" };
+	if (!state.hasSlot)
+		return { kind: "materials", applied: false, reason: "no-slot" };
+	return { kind: "materials", applied: false, reason: "not-received" };
 }
