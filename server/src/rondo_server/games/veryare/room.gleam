@@ -266,6 +266,8 @@ pub fn spec_with_stage(
   RoomSpec(
     id:,
     game_type:,
+    // ルーム名は作成の入口（connection/session）が入れる（issue-58）。
+    name: "",
     min_players:,
     max_players:,
     authority: None,

@@ -9,6 +9,7 @@
 ///   他の人にも見えるが、復帰トークンは本人にだけ送る（再接続の鍵 / connection/session_actor）
 /// - 表示名の既定は userN（ADR 0015）。set-name は本人の名前だけを変える
 /// - 1つの接続は同時に1つのルームにだけ入る
+/// - ルーム名は作成時に整えてルームに持たせ、一覧と room-joined に載せる（issue-58）
 import gleam/dynamic.{type Dynamic}
 import gleam/erlang/process.{type Subject}
 import gleam/int
@@ -26,9 +27,10 @@ import rondo_server/protocol/message.{
 }
 import rondo_server/room/room_actor.{
   type RoomState, AlreadyJoined, GameAlreadyStarted, Player, PlayerId, RoomFull,
-  RoomId,
+  RoomId, RoomSpec,
 }
 import rondo_server/room/room_directory.{LimitReached, StartFailed}
+import rondo_server/room/room_name
 
 /// 表示名の長さの上限（文字数）。
 const max_name_length = 20
@@ -90,8 +92,8 @@ pub fn handle(
   case incoming {
     SetName(_, name) -> #(set_name(session, name), [])
     ListRooms(game_type) -> #(session, [list_rooms(deps, game_type)])
-    CreateRoom(game_type, settings) ->
-      create(session, deps, game_type, settings)
+    CreateRoom(game_type, settings, raw_name) ->
+      create(session, deps, game_type, settings, raw_name)
     JoinRoom(game_type, room_id) -> join(session, deps, game_type, room_id)
     LeaveRoom(room_id) -> #(leave(session, room_id), [])
     // 再接続は入口（connection.receive）が先に引き受けて、切断中の接続アクターへ付け替える。
@@ -151,6 +153,7 @@ fn summary(state: RoomState) -> message.RoomSummary {
       True -> Waiting
       False -> Playing
     },
+    name: Some(state.name),
   )
 }
 
@@ -159,9 +162,11 @@ fn create(
   deps: Deps,
   game_type: String,
   settings: Option(Dynamic),
+  raw_name: Option(String),
 ) -> #(Session, List(ServerMessage)) {
   use <- not_in_room(session)
   let id = RoomId("room-" <> random_hex(8))
+  let name = room_name.normalize(raw_name, session.name)
   case catalog.spec_for(game_type, id, settings, deps.timing) {
     Error(UnknownGame) -> #(session, [
       error("unknown-game", "そのゲームはありません。"),
@@ -170,7 +175,7 @@ fn create(
       error("invalid-settings", "ルームの設定が正しくありません。"),
     ])
     Ok(#(spec, policy)) ->
-      case room_directory.open(deps.directory, spec) {
+      case room_directory.open(deps.directory, RoomSpec(..spec, name:)) {
         Error(LimitReached) -> #(session, [
           error("room-limit", "いま作れるルームの数が上限に達しています。"),
         ])
@@ -259,7 +264,13 @@ fn enter(
           PlayerInfo(player_id: id, name: player.name)
         })
       #(Session(..session, room: Some(Joined(game_type:, room_id:, room:))), [
-        RoomJoined(game_type:, room_id:, you: session.player_id, players:),
+        RoomJoined(
+          game_type:,
+          room_id:,
+          you: session.player_id,
+          players:,
+          room_name: Some(state.name),
+        ),
       ])
     }
   }

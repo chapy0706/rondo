@@ -21,6 +21,8 @@ export interface RoomSession {
 	readonly roomId: RoomId;
 	readonly you: PlayerId;
 	readonly players: readonly PlayerInfo[];
+	/** ルーム名（issue-58）。名前を持たない古いサーバーでは無い。 */
+	readonly roomName?: string;
 }
 
 /** 返事を待っている頼みごと。resume はリロード後の復帰。 */
@@ -114,6 +116,9 @@ function reduceServer(
 					roomId: message.roomId,
 					you: message.you,
 					players: message.players,
+					...(message.roomName === undefined
+						? {}
+						: { roomName: message.roomName }),
 				},
 				pending: null,
 				result: state.room?.roomId === message.roomId ? state.result : null,

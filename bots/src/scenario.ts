@@ -11,6 +11,8 @@
  *   届かないこと、少なくとも1通は観測できたことを確かめる
  * - settings: ルーム作成時の設定（create-room の settings。例: 平屋は { stage: 1 } / issue-44）。
  *   無ければ送らない（サーバーの既定）
+ * - roomName: ルーム作成時の名前（create-room の roomName / issue-58）。あれば、作成の返事と、
+ *   一覧（list-rooms）に、整えた名前が載ることを確かめる。無ければ送らない（既定の名前）
  */
 
 import type { VeryareModelPose } from "@rondo/contracts";
@@ -136,6 +138,7 @@ export interface Scenario {
 	readonly rankings: readonly ExpectedRow[];
 	readonly targeted?: boolean;
 	readonly settings?: Readonly<Record<string, number>>;
+	readonly roomName?: string;
 }
 
 /** 隠れ側・鬼の details（サーバーの games/veryare/result.gleam の写し方）。 */

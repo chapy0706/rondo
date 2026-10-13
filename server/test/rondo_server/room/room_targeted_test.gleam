@@ -16,6 +16,7 @@ fn open_room(ids: List(String)) -> Subject(Message) {
     RoomSpec(
       id: RoomId("r"),
       game_type: "chameleon",
+      name: "test",
       min_players: 1,
       max_players: 8,
       authority: None,

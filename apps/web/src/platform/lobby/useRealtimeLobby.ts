@@ -9,7 +9,12 @@
  * UI からは状態と操作関数だけを見せ、接続の都合を持ち込まない。
  */
 
-import type { GameType, RoomId, RoomSummary } from "@rondo/contracts";
+import {
+	type GameType,
+	type RoomId,
+	type RoomSummary,
+	cleanRoomName,
+} from "@rondo/contracts";
 import { useRouter } from "next/navigation";
 import { useCallback, useEffect, useState } from "react";
 import { playPathOf } from "../../games/registry";
@@ -31,8 +36,14 @@ export interface LobbyApi {
 	readonly failed: boolean;
 	/** 失敗の表示を消し、一覧を取り直す。 */
 	readonly retry: () => void;
-	/** ルームを作る。settings はマニフェストの roomOptions で選んだ値。 */
-	readonly createRoom: (settings?: Readonly<Record<string, number>>) => void;
+	/**
+	 * ルームを作る。settings はマニフェストの roomOptions で選んだ値。roomName は入力欄の
+	 * 名前で、整えて空になるなら送らない（サーバーが既定の名前を付ける / issue-58）。
+	 */
+	readonly createRoom: (
+		settings?: Readonly<Record<string, number>>,
+		roomName?: string,
+	) => void;
 	readonly joinRoom: (roomId: RoomId) => void;
 	readonly refresh: () => void;
 }
@@ -77,8 +88,13 @@ export function useRealtimeLobby(gameType: GameType): LobbyApi {
 	}, [gameType]);
 
 	const createRoom = useCallback(
-		(settings?: Readonly<Record<string, number>>) => {
-			getRealtimeSession().create(gameType, settings);
+		(settings?: Readonly<Record<string, number>>, roomName?: string) => {
+			const name = cleanRoomName(roomName ?? "");
+			getRealtimeSession().create(
+				gameType,
+				settings,
+				name === "" ? undefined : name,
+			);
 		},
 		[gameType],
 	);

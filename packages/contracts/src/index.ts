@@ -26,6 +26,12 @@ export type {
 	RoomSummary,
 	ServerMessage,
 } from "./messages";
+export {
+	ROOM_NAME_MAX_LENGTH,
+	cleanRoomName,
+	defaultRoomName,
+	normalizeRoomName,
+} from "./roomName";
 export type {
 	PlayResult,
 	RankingEntry,

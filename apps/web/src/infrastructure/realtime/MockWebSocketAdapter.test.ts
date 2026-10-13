@@ -49,3 +49,44 @@ describe("MockWebSocketAdapter - ロビーからの参加（issue-40）", () => 
 		expect(received.some((m) => m.type === "game-state")).toBe(false);
 	});
 });
+
+describe("MockWebSocketAdapter - ルーム名（issue-58）", () => {
+	beforeEach(() => {
+		vi.useFakeTimers();
+	});
+
+	afterEach(() => {
+		vi.useRealTimers();
+	});
+
+	it("決めた名前は整えてルームが持ち、room-joined と一覧に載る", () => {
+		const adapter = new MockWebSocketAdapter();
+		const received: ServerMessage[] = [];
+		adapter.subscribe((m) => received.push(m));
+		adapter.send({
+			type: "create-room",
+			gameType: "tilt-maze",
+			roomName: `  ${"あ".repeat(25)}  `,
+		});
+		vi.advanceTimersByTime(100);
+		const joined = received.find((m) => m.type === "room-joined");
+		expect(joined).toMatchObject({ roomName: "あ".repeat(20) });
+
+		adapter.send({ type: "list-rooms", gameType: "tilt-maze" });
+		vi.advanceTimersByTime(100);
+		const list = received.find((m) => m.type === "room-list");
+		if (list?.type !== "room-list") throw new Error("一覧が届かない");
+		expect(list.rooms.map((room) => room.name)).toContain("あ".repeat(20));
+	});
+
+	it("名前を決めなければ、表示名から既定の名前を付ける", () => {
+		const adapter = new MockWebSocketAdapter();
+		const received: ServerMessage[] = [];
+		adapter.subscribe((m) => received.push(m));
+		adapter.send({ type: "create-room", gameType: "veryare" });
+		vi.advanceTimersByTime(100);
+		const joined = received.find((m) => m.type === "room-joined");
+		expect(joined).toMatchObject({ roomName: "user1のルーム" });
+		adapter.close();
+	});
+});

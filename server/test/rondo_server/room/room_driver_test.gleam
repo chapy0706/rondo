@@ -56,6 +56,7 @@ fn open_room(min: Int, ids: List(String)) -> #(Subject(Message), process.Pid) {
     RoomSpec(
       id: RoomId("r"),
       game_type: "echo",
+      name: "test",
       min_players: min,
       max_players: 5,
       authority: None,

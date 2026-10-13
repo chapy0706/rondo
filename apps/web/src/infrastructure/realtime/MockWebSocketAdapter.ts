@@ -8,16 +8,19 @@
  * 本物の順位確定はサーバー権威（ADR 0008 / issue-13）が担う。
  * veryare は mockVeryare の台本どおりに、時間でフェーズ通知を流す（issue-24）。一覧から
  * 参加したときも、作成したときと同じ台本を流す（ロビーからの導線の確認用 / issue-40）。
+ * ルームには、サーバーと同じ規則（契約の normalizeRoomName）で名前を付ける（issue-58）。
  */
 
-import type {
-	ClientMessage,
-	GameType,
-	PlayerInfo,
-	RoomId,
-	RoomStatus,
-	RoomSummary,
-	ServerMessage,
+import {
+	type ClientMessage,
+	type GameType,
+	type PlayerInfo,
+	type RoomId,
+	type RoomStatus,
+	type RoomSummary,
+	type ServerMessage,
+	defaultRoomName,
+	normalizeRoomName,
 } from "@rondo/contracts";
 import { MultiplexingAdapter } from "./MultiplexingAdapter";
 import {
@@ -38,6 +41,7 @@ const CAPACITY = 4;
 interface MockRoom {
 	roomId: RoomId;
 	gameType: GameType;
+	name: string;
 	players: PlayerInfo[];
 	status: RoomStatus;
 }
@@ -66,9 +70,9 @@ export class MockWebSocketAdapter extends MultiplexingAdapter {
 				break;
 			case "create-room":
 				if (message.gameType === VERYARE) {
-					this.handleCreateVeryareRoom(message.settings);
+					this.handleCreateVeryareRoom(message.settings, message.roomName);
 				} else {
-					this.handleCreateRoom(message.gameType);
+					this.handleCreateRoom(message.gameType, message.roomName);
 				}
 				break;
 			case "join-room":
@@ -101,10 +105,12 @@ export class MockWebSocketAdapter extends MultiplexingAdapter {
 	 */
 	private handleCreateVeryareRoom(
 		settings: Readonly<Record<string, number>> | undefined,
+		roomName: string | undefined,
 	): void {
 		const room: MockRoom = {
 			roomId: `room-${randomId()}`,
 			gameType: VERYARE,
+			name: normalizeRoomName(roomName, this.self.name),
 			players: [this.self, ...mockPlayersOf(cpuOf(settings))],
 			status: "playing",
 		};
@@ -115,6 +121,7 @@ export class MockWebSocketAdapter extends MultiplexingAdapter {
 			roomId: room.roomId,
 			you: this.self.playerId,
 			players: [...room.players],
+			roomName: room.name,
 		});
 		this.startVeryareScript(room.roomId, settings);
 	}
@@ -132,6 +139,7 @@ export class MockWebSocketAdapter extends MultiplexingAdapter {
 			roomId: room.roomId,
 			you: this.self.playerId,
 			players: [...room.players],
+			roomName: room.name,
 		});
 		if (!this.scriptTimers.has(room.roomId)) {
 			this.startVeryareScript(room.roomId, undefined);
@@ -170,10 +178,14 @@ export class MockWebSocketAdapter extends MultiplexingAdapter {
 		this.emitRoomList(gameType);
 	}
 
-	private handleCreateRoom(gameType: GameType): void {
+	private handleCreateRoom(
+		gameType: GameType,
+		roomName: string | undefined,
+	): void {
 		const room: MockRoom = {
 			roomId: `room-${randomId()}`,
 			gameType,
+			name: normalizeRoomName(roomName, this.self.name),
 			players: [this.self],
 			status: "waiting",
 		};
@@ -184,6 +196,7 @@ export class MockWebSocketAdapter extends MultiplexingAdapter {
 			roomId: room.roomId,
 			you: this.self.playerId,
 			players: [...room.players],
+			roomName: room.name,
 		});
 	}
 
@@ -220,6 +233,7 @@ export class MockWebSocketAdapter extends MultiplexingAdapter {
 			roomId,
 			you: this.self.playerId,
 			players: [...room.players],
+			roomName: room.name,
 		});
 	}
 
@@ -285,6 +299,7 @@ export class MockWebSocketAdapter extends MultiplexingAdapter {
 			roomId,
 			you: this.self.playerId,
 			players: [...room.players],
+			roomName: room.name,
 		});
 	}
 
@@ -293,10 +308,12 @@ export class MockWebSocketAdapter extends MultiplexingAdapter {
 		if (this.seeded.has(gameType)) return;
 		this.seeded.add(gameType);
 		for (let index = 0; index < 2; index++) {
+			const owner = `user${index + 2}`;
 			const room: MockRoom = {
 				roomId: `room-${randomId()}`,
 				gameType,
-				players: [{ playerId: `p-${randomId()}`, name: `user${index + 2}` }],
+				name: defaultRoomName(owner),
+				players: [{ playerId: `p-${randomId()}`, name: owner }],
 				status: "waiting",
 			};
 			this.rooms.set(room.roomId, room);
@@ -313,6 +330,7 @@ export class MockWebSocketAdapter extends MultiplexingAdapter {
 				playerCount: room.players.length,
 				capacity: CAPACITY,
 				status: room.status,
+				name: room.name,
 			});
 		}
 		this.emit({ type: "room-list", gameType, rooms });

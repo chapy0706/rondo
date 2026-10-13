@@ -2,7 +2,8 @@
  * シナリオを1本動かす（issue-49）。
  *
  * 1. 全ボットをつなぐ（session と表示名）
- * 2. 先頭のボットが veryare のルームを作り、残りが順に参加する
+ * 2. 先頭のボットが veryare のルームを作り、残りが順に参加する。ルーム名があれば、作成の返事と
+ *    一覧に整えた名前が載ることを確かめる（issue-58）
  * 3. 手順（steps）を、引き金（全員がそろった直後・フェーズの通知）に合わせて動かす
  * 4. game-ended を待ち、結果と限定配信を検査する
  *
@@ -17,10 +18,14 @@ import type {
 	VeryarePaintEvent,
 	VeryareShootEvent,
 } from "@rondo/contracts";
+// ボットは Node の型除去で直接動くため、契約の入口（index.ts）は型としてだけ使い、
+// 実行時に要る規則はファイルを直接読む（issue-58）。
+import { normalizeRoomName } from "../../packages/contracts/src/roomName.ts";
 import { Bot, type CreateSocket } from "./client.ts";
 import {
 	type ScenarioResult,
 	checkGameEnded,
+	checkRoomName,
 	checkTargeted,
 } from "./expect.ts";
 import {
@@ -76,15 +81,16 @@ export async function runScenario(
 		const creator = bots.get(creatorName ?? "");
 		if (creator === undefined) throw new Error("ボットがいない");
 
-		creator.send(
-			scenario.settings === undefined
-				? { type: "create-room", gameType: GAME_TYPE }
-				: {
-						type: "create-room",
-						gameType: GAME_TYPE,
-						settings: scenario.settings,
-					},
-		);
+		creator.send({
+			type: "create-room",
+			gameType: GAME_TYPE,
+			...(scenario.settings === undefined
+				? {}
+				: { settings: scenario.settings }),
+			...(scenario.roomName === undefined
+				? {}
+				: { roomName: scenario.roomName }),
+		});
 		const created = await creator.waitFor(
 			(m) => m.type === "room-joined",
 			stepTimeoutMs,
@@ -98,6 +104,25 @@ export async function runScenario(
 			at: new Map(),
 			problems: [],
 		};
+		if (scenario.roomName !== undefined) {
+			// 参加する前の一覧で、整えた名前（規則は契約の normalizeRoomName）が載っているか。
+			const lister = bots.get(joinerNames[0] ?? "") ?? creator;
+			lister.send({ type: "list-rooms", gameType: GAME_TYPE });
+			const listing = await lister.waitFor(
+				(m) =>
+					m.type === "room-list" && m.rooms.some((r) => r.roomId === roomId),
+				stepTimeoutMs,
+				"room-list（ルーム名の確認）",
+			);
+			context.problems.push(
+				...checkRoomName(
+					normalizeRoomName(scenario.roomName, creatorName ?? ""),
+					roomId,
+					created,
+					listing,
+				),
+			);
+		}
 		// ボットの名前から、サーバーが発行したプレイヤー識別子へ（撃つ相手の指定に使う）。
 		const idOf = (name: string): string | null =>
 			bots.get(name)?.playerId ?? null;

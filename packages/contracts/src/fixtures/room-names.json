@@ -1,0 +1,92 @@
+[
+	{
+		"note": "決めた名前はそのまま",
+		"raw": "たのしい部屋",
+		"owner": "user1",
+		"expected": "たのしい部屋"
+	},
+	{
+		"note": "前後の空白（全角を含む）を落とす",
+		"raw": "  たのしい部屋　",
+		"owner": "user1",
+		"expected": "たのしい部屋"
+	},
+	{
+		"note": "NBSP と BOM も前後の空白として落とす",
+		"raw": " ﻿room ",
+		"owner": "user1",
+		"expected": "room"
+	},
+	{
+		"note": "省略したら既定の名前",
+		"raw": null,
+		"owner": "user1",
+		"expected": "user1のルーム"
+	},
+	{
+		"note": "空なら既定の名前",
+		"raw": "",
+		"owner": "user1",
+		"expected": "user1のルーム"
+	},
+	{
+		"note": "空白だけなら既定の名前",
+		"raw": " 　\t\n ",
+		"owner": "user1",
+		"expected": "user1のルーム"
+	},
+	{
+		"note": "21 文字以上は 20 文字に切る",
+		"raw": "あいうえおかきくけこさしすせそたちつてとな",
+		"owner": "user1",
+		"expected": "あいうえおかきくけこさしすせそたちつてと"
+	},
+	{
+		"note": "長さはコードポイントで数える（サロゲートペアも 1 文字）",
+		"raw": "😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀",
+		"owner": "user1",
+		"expected": "😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀"
+	},
+	{
+		"note": "切った末尾の空白も落とす",
+		"raw": "1234567890123456789 x",
+		"owner": "user1",
+		"expected": "1234567890123456789"
+	},
+	{
+		"note": "制御文字（Cc）は取り除く",
+		"raw": "a\u0000b\u001fc\u007fd\u0085e\u009f",
+		"owner": "user1",
+		"expected": "abcde"
+	},
+	{
+		"note": "双方向制御は取り除く",
+		"raw": "‮abc‪⁦d⁩",
+		"owner": "user1",
+		"expected": "abcd"
+	},
+	{
+		"note": "制御文字だけなら既定の名前",
+		"raw": "\u0007‮",
+		"owner": "user1",
+		"expected": "user1のルーム"
+	},
+	{
+		"note": "HTML の記号はそのまま残す（表示側で文字として出す）",
+		"raw": "<b>&amp;</b>",
+		"owner": "user1",
+		"expected": "<b>&amp;</b>"
+	},
+	{
+		"note": "既定の名前は、表示名を 16 文字で切って 20 文字に収める",
+		"raw": null,
+		"owner": "abcdefghijklmnopqrst",
+		"expected": "abcdefghijklmnopのルーム"
+	},
+	{
+		"note": "既定の名前でも、表示名の制御文字は取り除く",
+		"raw": "  ",
+		"owner": "a\u0007b",
+		"expected": "abのルーム"
+	}
+]

@@ -89,7 +89,7 @@ fn phase_fields(messages: List(ServerMessage)) -> List(#(String, String)) {
 }
 
 fn create_veryare(deps, c) -> #(Client, String) {
-  let #(c, replies) = send(deps, c, CreateRoom("veryare", None))
+  let #(c, replies) = send(deps, c, CreateRoom("veryare", None, None))
   let assert [RoomJoined(room_id:, ..)] = replies
   #(c, room_id)
 }
@@ -161,10 +161,14 @@ pub fn invalid_names_are_ignored_test() {
 pub fn creating_veryare_room_joins_and_starts_it_test() {
   let deps = server()
   let a = client(deps)
-  let #(a, replies) = send(deps, a, CreateRoom("veryare", settings(60)))
-  let assert [RoomJoined(game_type: "veryare", room_id: _, you:, players:)] =
-    replies
+  let #(a, replies) = send(deps, a, CreateRoom("veryare", settings(60), None))
+  let assert [
+    RoomJoined(game_type: "veryare", room_id: _, you:, players:, room_name:),
+  ] = replies
   you |> should.equal(id_of(a))
+  // 名前を決めなければ、作った人の表示名から既定の名前を付ける（issue-58）。
+  let assert Some(name) = room_name
+  string.ends_with(name, "のルーム") |> should.be_true
   list.map(players, fn(p) { p.player_id }) |> should.equal([id_of(a)])
 
   // 1人なので鬼希望エリアは赤（待機）。
@@ -237,10 +241,38 @@ pub fn targeted_delivery_reaches_only_the_target_socket_test() {
   to |> should.equal(id_of(b))
 }
 
+/// 決めた名前は整えてルームが持ち、作った人にも、後から参加した人にも届く（issue-58）。
+pub fn room_name_is_normalized_and_sent_on_join_test() {
+  let deps = server()
+  let #(_, replies) =
+    send(
+      deps,
+      client(deps),
+      CreateRoom("veryare", None, Some("\u{3000} <b>部屋</b>&\u{0007} ")),
+    )
+  let assert [RoomJoined(room_id:, room_name:, ..)] = replies
+  room_name |> should.equal(Some("<b>部屋</b>&"))
+
+  let #(_, replies) = send(deps, client(deps), JoinRoom("veryare", room_id))
+  let assert [RoomJoined(room_name:, ..)] = replies
+  room_name |> should.equal(Some("<b>部屋</b>&"))
+}
+
+/// 空白だけの名前は、作った人の表示名から既定の名前になる（issue-58）。
+pub fn blank_room_name_becomes_owner_default_test() {
+  let deps = server()
+  let #(a, _) = send(deps, client(deps), SetName("p", "hana"))
+  let #(_, replies) = send(deps, a, CreateRoom("tilt-maze", None, Some("   ")))
+  let assert [RoomJoined(room_name:, ..)] = replies
+  room_name |> should.equal(Some("hanaのルーム"))
+}
+
 /// ルーム一覧には人数・定員・状態だけが載り、探索時間は含まれない（ADR 0024）。
 pub fn room_list_hides_exploration_time_test() {
   let deps = server()
-  let #(_a, room_id) = create_veryare(deps, client(deps))
+  let #(_, replies) =
+    send(deps, client(deps), CreateRoom("veryare", None, Some("たのしい部屋")))
+  let assert [RoomJoined(room_id:, ..)] = replies
 
   let #(_, replies) = send(deps, client(deps), ListRooms("veryare"))
   let assert [RoomList(game_type: "veryare", rooms:)] = replies
@@ -252,6 +284,7 @@ pub fn room_list_hides_exploration_time_test() {
       player_count: 1,
       capacity: 5,
       status: Waiting,
+      name: Some("たのしい部屋"),
     ),
   ])
 
@@ -276,21 +309,24 @@ pub fn sixth_player_is_rejected_as_room_full_test() {
 pub fn fourth_veryare_room_is_rejected_test() {
   let deps = server()
   list.each([1, 2, 3], fn(_) { create_veryare(deps, client(deps)) })
-  let #(_, replies) = send(deps, client(deps), CreateRoom("veryare", None))
+  let #(_, replies) =
+    send(deps, client(deps), CreateRoom("veryare", None, None))
   let assert [ErrorMessage(code: "room-limit", ..)] = replies
 
-  let #(_, replies) = send(deps, client(deps), CreateRoom("tilt-maze", None))
+  let #(_, replies) =
+    send(deps, client(deps), CreateRoom("tilt-maze", None, None))
   let assert [RoomJoined(game_type: "tilt-maze", ..)] = replies
 }
 
 /// 知らないゲーム・選択肢にない設定は断る。
 pub fn unknown_game_and_invalid_settings_are_rejected_test() {
   let deps = server()
-  let #(_, replies) = send(deps, client(deps), CreateRoom("unknown", None))
+  let #(_, replies) =
+    send(deps, client(deps), CreateRoom("unknown", None, None))
   let assert [ErrorMessage(code: "unknown-game", ..)] = replies
 
   let #(_, replies) =
-    send(deps, client(deps), CreateRoom("veryare", settings(50)))
+    send(deps, client(deps), CreateRoom("veryare", settings(50), None))
   let assert [ErrorMessage(code: "invalid-settings", ..)] = replies
 }
 
@@ -305,14 +341,15 @@ pub fn joining_missing_room_is_rejected_test() {
 pub fn one_connection_is_in_one_room_at_a_time_test() {
   let deps = server()
   let #(a, _) = create_veryare(deps, client(deps))
-  let #(_, replies) = send(deps, a, CreateRoom("tilt-maze", None))
+  let #(_, replies) = send(deps, a, CreateRoom("tilt-maze", None, None))
   let assert [ErrorMessage(code: "already-in-room", ..)] = replies
 }
 
 /// Tilt Maze は最小人数（2人）がそろった時点で始まり、全員に game-started が届く。
 pub fn tilt_maze_starts_when_minimum_is_reached_test() {
   let deps = server()
-  let #(a, replies) = send(deps, client(deps), CreateRoom("tilt-maze", None))
+  let #(a, replies) =
+    send(deps, client(deps), CreateRoom("tilt-maze", None, None))
   let assert [RoomJoined(room_id:, ..)] = replies
   drain(a) |> should.equal([])
 

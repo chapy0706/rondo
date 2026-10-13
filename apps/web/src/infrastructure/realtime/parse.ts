@@ -30,6 +30,12 @@ function isNumber(value: unknown): value is number {
 	return typeof value === "number" && Number.isFinite(value);
 }
 
+/** 省略できる文字列。省略は undefined、文字列以外は不正（null）。 */
+function optionalString(value: unknown): string | undefined | null {
+	if (value === undefined) return undefined;
+	return isString(value) ? value : null;
+}
+
 function isRoomStatus(value: unknown): value is RoomStatus {
 	return value === "waiting" || value === "playing";
 }
@@ -55,7 +61,11 @@ function toRoomSummary(value: unknown): RoomSummary | null {
 	if (!isString(roomId) || !isString(gameType)) return null;
 	if (!isNumber(playerCount) || !isNumber(capacity)) return null;
 	if (!isRoomStatus(status)) return null;
-	return { roomId, gameType, playerCount, capacity, status };
+	// ルーム名は省略できる（名前を持たない古いサーバー / issue-58）。
+	const name = optionalString(value.name);
+	if (name === null) return null;
+	const summary = { roomId, gameType, playerCount, capacity, status };
+	return name === undefined ? summary : { ...summary, name };
 }
 
 function toPlayerInfo(value: unknown): PlayerInfo | null {
@@ -121,7 +131,10 @@ export function parseServerMessage(value: unknown): ServerMessage | null {
 			}
 			const players = toArray(value.players, toPlayerInfo);
 			if (players === null) return null;
-			return { type, gameType, roomId, you, players };
+			const roomName = optionalString(value.roomName);
+			if (roomName === null) return null;
+			const joined = { type, gameType, roomId, you, players };
+			return roomName === undefined ? joined : { ...joined, roomName };
 		}
 		case "player-joined": {
 			const { roomId } = value;

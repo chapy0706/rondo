@@ -265,8 +265,9 @@ fn resume_on(
   process.send(socket, SessionMessage(session.player_id, session.resume_token))
   case session.room {
     Some(joined) -> {
+      let snapshot = room_actor.snapshot(joined.room)
       let players =
-        room_actor.snapshot(joined.room).players
+        snapshot.players
         |> list.map(fn(player) {
           let PlayerId(id) = player.id
           PlayerInfo(player_id: id, name: player.name)
@@ -278,6 +279,7 @@ fn resume_on(
           room_id: joined.room_id,
           you: session.player_id,
           players:,
+          room_name: Some(snapshot.name),
         ),
       )
       // 入室後の案内とゲームの今の状態（ステージの通知など）を、ルームに送り直してもらう

@@ -18,6 +18,12 @@ export const clientMessageSamples = [
 		gameType: "veryare",
 		settings: { explorationSeconds: 60 },
 	},
+	{
+		type: "create-room",
+		gameType: "veryare",
+		settings: { explorationSeconds: 60 },
+		roomName: "たのしい部屋",
+	},
 	{ type: "join-room", gameType: "veryare", roomId: "room-1" },
 	{ type: "leave-room", roomId: "room-1" },
 	{ type: "reconnect", roomId: "room-1", resumeToken: "secret-token" },
@@ -52,6 +58,28 @@ export const serverMessageSamples = [
 		],
 	},
 	{
+		type: "room-list",
+		gameType: "veryare",
+		rooms: [
+			{
+				roomId: "room-3",
+				gameType: "veryare",
+				playerCount: 1,
+				capacity: 5,
+				status: "waiting",
+				name: "たのしい部屋",
+			},
+			{
+				roomId: "room-4",
+				gameType: "veryare",
+				playerCount: 3,
+				capacity: 5,
+				status: "playing",
+				name: "user1のルーム",
+			},
+		],
+	},
+	{
 		type: "room-joined",
 		gameType: "veryare",
 		roomId: "room-1",
@@ -60,6 +88,14 @@ export const serverMessageSamples = [
 			{ playerId: "p-1", name: "user1" },
 			{ playerId: "p-2", name: "user2" },
 		],
+	},
+	{
+		type: "room-joined",
+		gameType: "veryare",
+		roomId: "room-3",
+		you: "p-1",
+		players: [{ playerId: "p-1", name: "user1" }],
+		roomName: "たのしい部屋",
 	},
 	{
 		type: "player-joined",

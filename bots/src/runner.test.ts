@@ -2,6 +2,7 @@ import type { ClientMessage, ServerMessage } from "@rondo/contracts";
 import { describe, expect, it } from "vitest";
 import hirayaFixture from "../../packages/contracts/src/fixtures/veryare-hiraya-stage.json";
 import stageFixture from "../../packages/contracts/src/fixtures/veryare-stage.json";
+import { normalizeRoomName } from "../../packages/contracts/src/roomName.ts";
 import type { SocketLike } from "./client.ts";
 import { runScenario, seeded } from "./runner.ts";
 import { type Scenario, details } from "./scenario.ts";
@@ -45,6 +46,10 @@ class FakeServer {
 	readonly players = new Map<FakeSocket, string>();
 	readonly names = new Map<string, string>();
 	readonly inRoom = new Set<FakeSocket>();
+	/** 作成時に付けたルーム名（issue-58）。null は名前を持たない古いサーバーのまね。 */
+	roomName: string | null = null;
+	/** true なら、ルーム名を付けない（古いサーバーのまね）。 */
+	unnamed = false;
 	onEvent: (
 		server: FakeServer,
 		player: string,
@@ -71,6 +76,12 @@ class FakeServer {
 				break;
 			case "create-room":
 			case "join-room":
+				if (message.type === "create-room" && !this.unnamed) {
+					this.roomName = normalizeRoomName(
+						message.roomName,
+						this.names.get(player) ?? "",
+					);
+				}
 				this.inRoom.add(socket);
 				socket.deliver({
 					type: "room-joined",
@@ -78,6 +89,23 @@ class FakeServer {
 					roomId: "room-1",
 					you: player,
 					players: [],
+					...(this.roomName === null ? {} : { roomName: this.roomName }),
+				});
+				break;
+			case "list-rooms":
+				socket.deliver({
+					type: "room-list",
+					gameType: "veryare",
+					rooms: [
+						{
+							roomId: "room-1",
+							gameType: "veryare",
+							playerCount: this.inRoom.size,
+							capacity: 5,
+							status: "waiting",
+							...(this.roomName === null ? {} : { name: this.roomName }),
+						},
+					],
 				});
 				break;
 			case "leave-room":
@@ -822,6 +850,38 @@ describe("runScenario - 平屋のステージ（issue-44）", () => {
 			gameType: "veryare",
 			settings: { stage: 1 },
 		});
+	});
+
+	it("ルーム名を create-room で送り、作成の返事と一覧に整えた名前が載ることを確かめる（issue-58）", async () => {
+		const server = new FakeServer();
+		server.onEvent = oniLeavesScript;
+		const result = await run(server, {
+			...scenario,
+			roomName: " <b>部屋</b> ",
+		});
+		expect(result.problems).toEqual([]);
+		const created = server.log.find(
+			({ message }) => message.type === "create-room",
+		);
+		expect(created?.message).toEqual({
+			type: "create-room",
+			gameType: "veryare",
+			roomName: " <b>部屋</b> ",
+		});
+		expect(server.log.map(({ message }) => message.type)).toContain(
+			"list-rooms",
+		);
+	});
+
+	it("ルーム名が載っていなければ、問題に出す", async () => {
+		const server = new FakeServer();
+		server.unnamed = true;
+		server.onEvent = oniLeavesScript;
+		const result = await run(server, { ...scenario, roomName: "部屋" });
+		expect(result.problems).toEqual([
+			"作成の返事のルーム名が「なし」（期待は「部屋」）",
+			"一覧のルーム名が「なし」（期待は「部屋」）",
+		]);
 	});
 
 	it("設定の無いシナリオは、settings を送らない", async () => {

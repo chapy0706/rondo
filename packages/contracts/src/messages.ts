@@ -37,6 +37,11 @@ export interface RoomSummary {
 	readonly playerCount: number;
 	readonly capacity: number;
 	readonly status: RoomStatus;
+	/**
+	 * ルーム名（issue-58）。サーバーが整えた 1〜20 文字。表示は文字として出し、HTML として
+	 * 解釈しない。名前を持たない古いサーバーでは省略される。
+	 */
+	readonly name?: string;
 }
 
 /**
@@ -61,6 +66,11 @@ export type ClientMessage =
 			 * サーバーはゲームごとに検証する（境界での unknown 検証）。
 			 */
 			readonly settings?: Readonly<Record<string, number>>;
+			/**
+			 * ルーム名（issue-58）。省略・空白だけなら、サーバーが作った人の表示名から既定の名前を
+			 * 付ける。整える規則はサーバーが正（roomName.ts はその写し）。
+			 */
+			readonly roomName?: string;
 	  }
 	| {
 			readonly type: "join-room";
@@ -112,6 +122,8 @@ export type ServerMessage =
 			readonly roomId: RoomId;
 			readonly you: PlayerId;
 			readonly players: readonly PlayerInfo[];
+			/** 参加したルームの名前（issue-58）。名前を持たない古いサーバーでは省略される。 */
+			readonly roomName?: string;
 	  }
 	| {
 			readonly type: "player-joined";

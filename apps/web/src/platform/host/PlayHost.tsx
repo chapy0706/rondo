@@ -51,12 +51,15 @@ import {
 	getRealtimeSession,
 	useSessionState,
 } from "../session/useRealtimeSession";
+import { RoomNameLabel } from "./RoomNameLabel";
 import { resultView } from "./resultView";
 
 interface RealtimeSession {
 	readonly realtime: RealtimeHost | null;
 	readonly result: RealtimeResult | null;
 	readonly you: PlayerId | null;
+	/** 参加中のルームの名前（issue-58）。名前を持たない古いサーバーでは null。 */
+	readonly roomName: string | null;
 	/** 部屋に入れなかったとき（参加・復帰の失敗）の文言。 */
 	readonly error: string | null;
 	/** つながらなかった（返事が届かない・つなぎ直しをすべて失敗した / issue-47）。 */
@@ -128,6 +131,7 @@ function useRealtimeSession(gameType: string | null): RealtimeSession {
 		realtime,
 		result: room === null ? null : state.result,
 		you,
+		roomName: room?.roomName ?? null,
 		error: room === null && !waiting && !failed ? state.error : null,
 		failed,
 		retry,
@@ -147,7 +151,7 @@ export function PlayHost({ manifest }: { manifest: GameManifest }) {
 
 	const isRealtime = manifest.kind === "realtime";
 	// ルームへの接続は起動してから始める（起動画面で待つ間に部屋を作らない）。
-	const { realtime, result, you, error, failed, retry, leave } =
+	const { realtime, result, you, roomName, error, failed, retry, leave } =
 		useRealtimeSession(isRealtime && launched ? manifest.id : null);
 
 	const reportResult = useCallback((value: PlayResult) => {
@@ -241,13 +245,16 @@ export function PlayHost({ manifest }: { manifest: GameManifest }) {
 				)}
 
 				{isRealtime && realtime !== null && result === null && (
-					<button
-						type="button"
-						onClick={leaveRoom}
-						className="rounded-xl bg-slate-700 px-4 py-3 font-medium text-white transition-transform active:scale-[0.98]"
-					>
-						退出する
-					</button>
+					<div className="flex flex-col items-center gap-2">
+						{roomName !== null && <RoomNameLabel name={roomName} />}
+						<button
+							type="button"
+							onClick={leaveRoom}
+							className="rounded-xl bg-slate-700 px-4 py-3 font-medium text-white transition-transform active:scale-[0.98]"
+						>
+							退出する
+						</button>
+					</div>
 				)}
 
 				{isRealtime ? (

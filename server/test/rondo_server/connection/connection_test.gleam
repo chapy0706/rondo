@@ -123,7 +123,7 @@ fn touch_area(room_id: String) -> ClientMessage {
 /// A がルームを作り、B が参加した状態にする。
 fn room_with_two(deps) -> #(Client, Client, String) {
   let a = connect(deps)
-  let a = send(deps, a, CreateRoom("veryare", None))
+  let a = send(deps, a, CreateRoom("veryare", None, None))
   let room_id = joined_room(drain(a))
   let b = connect(deps)
   let b = send(deps, b, JoinRoom("veryare", room_id))
@@ -144,7 +144,7 @@ fn reopen(deps, old: Client) -> Client {
 pub fn create_join_and_phase_notices_reach_both_test() {
   let deps = server()
   let a = connect(deps)
-  let a = send(deps, a, CreateRoom("veryare", None))
+  let a = send(deps, a, CreateRoom("veryare", None, None))
   let room_id = joined_room(drain(a))
 
   let b = connect(deps)
@@ -376,7 +376,7 @@ fn is_stage_notice(m: ServerMessage) -> Bool {
 pub fn stage_notice_reaches_creator_and_joiner_test() {
   let deps = server()
   let a = connect(deps)
-  let a = send(deps, a, CreateRoom("veryare", None))
+  let a = send(deps, a, CreateRoom("veryare", None, None))
   let from_a = drain(a)
   let room_id = joined_room(from_a)
   list.any(from_a, is_stage_notice) |> should.be_true
@@ -436,7 +436,7 @@ pub fn killed_socket_process_still_enters_grace_test() {
   let deps = server()
   // A はふつうのソケットでルームを作る。
   let a = connect(deps)
-  let a = send(deps, a, CreateRoom("veryare", None))
+  let a = send(deps, a, CreateRoom("veryare", None, None))
   let room_id = joined_room(drain(a))
   // B は、落とせる別プロセスのソケットで参加する。
   let #(b, b_pid, _relay) = connect_killable(deps)

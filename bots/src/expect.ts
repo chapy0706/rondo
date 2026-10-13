@@ -148,3 +148,33 @@ export function formatTable(results: readonly ScenarioResult[]): string {
 		...rows,
 	].join("\n");
 }
+
+/**
+ * ルーム名の確かめ（issue-58）。作成の返事（room-joined）と、一覧（room-list）の、このルームの
+ * 名前が expected か。違えば問題を返す。
+ */
+export function checkRoomName(
+	expected: string,
+	roomId: string,
+	created: ServerMessage,
+	listing: ServerMessage,
+): string[] {
+	const problems: string[] = [];
+	const joinedName =
+		created.type === "room-joined" ? created.roomName : undefined;
+	if (joinedName !== expected) {
+		problems.push(
+			`作成の返事のルーム名が「${joinedName ?? "なし"}」（期待は「${expected}」）`,
+		);
+	}
+	const listed =
+		listing.type === "room-list"
+			? listing.rooms.find((room) => room.roomId === roomId)
+			: undefined;
+	if (listed?.name !== expected) {
+		problems.push(
+			`一覧のルーム名が「${listed?.name ?? "なし"}」（期待は「${expected}」）`,
+		);
+	}
+	return problems;
+}

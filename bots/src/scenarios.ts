@@ -149,6 +149,9 @@ export const scenarios: readonly Scenario[] = [
 		// 鬼が準備移動の間に退出する。隠れ側の勝ちで、退出した鬼も結果に残る。
 		name: "鬼の離脱で隠れ側の勝ち",
 		bots: ["bot-a", "bot-b", "bot-c"],
+		// 名前つきで作り、整えた名前が一覧に載ることも確かめる（issue-58）。HTML の記号は
+		// そのまま、前後の空白は落ちる。
+		roomName: "\u3000<b>ボット</b>&部屋  ",
 		steps: [
 			{ on: "joined", bot: "bot-a", action: { type: "touch-area" } },
 			{ on: { phase: "preparation" }, bot: "bot-a", action: { type: "leave" } },

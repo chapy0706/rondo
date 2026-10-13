@@ -59,3 +59,50 @@ describe("parseServerMessage - ping（ハートビート / issue-41）", () => {
 		expect(parseServerMessage({ type: "ping" })).toEqual({ type: "ping" });
 	});
 });
+
+describe("parseServerMessage - ルーム名（issue-58）", () => {
+	const summary = {
+		roomId: "room-1",
+		gameType: "veryare",
+		playerCount: 1,
+		capacity: 5,
+		status: "waiting",
+	};
+	const joined = {
+		type: "room-joined",
+		gameType: "veryare",
+		roomId: "room-1",
+		you: "p-1",
+		players: [{ playerId: "p-1", name: "user1" }],
+	};
+
+	it("一覧の名前と、参加の返事の名前を通す", () => {
+		const list = {
+			type: "room-list",
+			gameType: "veryare",
+			rooms: [{ ...summary, name: "<b>部屋</b>" }],
+		};
+		expect(parseServerMessage(list)).toEqual(list);
+		expect(parseServerMessage({ ...joined, roomName: "部屋" })).toEqual({
+			...joined,
+			roomName: "部屋",
+		});
+	});
+
+	it("名前なしの古い形も読める", () => {
+		const list = { type: "room-list", gameType: "veryare", rooms: [summary] };
+		expect(parseServerMessage(list)).toEqual(list);
+		expect(parseServerMessage(joined)).toEqual(joined);
+	});
+
+	it("名前が文字列でなければ捨てる", () => {
+		expect(
+			parseServerMessage({
+				type: "room-list",
+				gameType: "veryare",
+				rooms: [{ ...summary, name: 1 }],
+			}),
+		).toBeNull();
+		expect(parseServerMessage({ ...joined, roomName: null })).toBeNull();
+	});
+});

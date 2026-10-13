@@ -44,6 +44,9 @@ pub type RoomSpec {
     id: RoomId,
     /// ゲーム種別。マニフェストの id と対応し、電文の gameType になる（ADR 0007）。
     game_type: String,
+    /// ルーム名（issue-58）。作成の入口（connection/session）が room/room_name で整えた
+    /// 名前を入れる。ゲームの組み立て関数（catalog / veryare.spec 等）は空のまま返す。
+    name: String,
     min_players: Int,
     max_players: Int,
     authority: Option(AuthorityFactory),
@@ -100,6 +103,8 @@ pub type RoomState {
     host: Option(PlayerId),
     /// ゲーム種別。
     game_type: String,
+    /// ルーム名（issue-58）。
+    name: String,
     /// 今参加できるか。開始前か、ゲームが参加を受け付けている間（veryare の鬼選出中）。
     /// ルーム一覧の waiting / playing に使う。定員は別に見る。
     joinable: Bool,
@@ -554,6 +559,7 @@ fn to_state(state: State) -> RoomState {
     result: state.result,
     host: state.host,
     game_type: state.spec.game_type,
+    name: state.spec.name,
     joinable: case state.status, state.driver {
       Open, _ -> True
       Playing, Some(current) -> driver.accepts_join(current)

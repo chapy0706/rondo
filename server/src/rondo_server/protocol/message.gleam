@@ -35,6 +35,8 @@ pub type RoomSummary {
     player_count: Int,
     capacity: Int,
     status: RoomStatus,
+    /// ルーム名（issue-58）。このサーバーは常に Some で送る。古い形の電文では省略される。
+    name: Option(String),
   )
 }
 
@@ -70,7 +72,12 @@ pub type ClientMessage {
   SetName(player_id: String, name: String)
   ListRooms(game_type: String)
   /// settings はマニフェストの roomOptions で選んだ値。検証はゲームが行う。
-  CreateRoom(game_type: String, settings: Option(Dynamic))
+  /// room_name は省略できる。整える規則は room/room_name（issue-58）。
+  CreateRoom(
+    game_type: String,
+    settings: Option(Dynamic),
+    room_name: Option(String),
+  )
   JoinRoom(game_type: String, room_id: String)
   LeaveRoom(room_id: String)
   /// 再接続猶予のうちに同じプレイヤーとして復帰する。resume_token は本人にだけ届いた秘密の値。
@@ -88,6 +95,8 @@ pub type ServerMessage {
     room_id: String,
     you: String,
     players: List(PlayerInfo),
+    /// 参加したルームの名前（issue-58）。このサーバーは常に Some で送る。
+    room_name: Option(String),
   )
   PlayerJoined(room_id: String, player: PlayerInfo)
   PlayerLeft(room_id: String, player_id: String)
@@ -156,13 +165,19 @@ fn server_json(message: ServerMessage) -> Json {
         #("gameType", json.string(game_type)),
         #("rooms", json.array(rooms, room_summary_json)),
       ])
-    RoomJoined(game_type, room_id, you, players) ->
-      typed(kind, [
-        #("gameType", json.string(game_type)),
-        #("roomId", json.string(room_id)),
-        #("you", json.string(you)),
-        #("players", json.array(players, player_info_json)),
-      ])
+    RoomJoined(game_type, room_id, you, players, room_name) ->
+      typed(
+        kind,
+        list.flatten([
+          [
+            #("gameType", json.string(game_type)),
+            #("roomId", json.string(room_id)),
+            #("you", json.string(you)),
+            #("players", json.array(players, player_info_json)),
+          ],
+          optional_string("roomName", room_name),
+        ]),
+      )
     PlayerJoined(room_id, player) ->
       typed(kind, [
         #("roomId", json.string(room_id)),
@@ -220,7 +235,7 @@ fn client_json(message: ClientMessage) -> Json {
       ])
     ListRooms(game_type) ->
       typed("list-rooms", [#("gameType", json.string(game_type))])
-    CreateRoom(game_type, settings) ->
+    CreateRoom(game_type, settings, room_name) ->
       typed(
         "create-room",
         list.flatten([
@@ -229,6 +244,7 @@ fn client_json(message: ClientMessage) -> Json {
             Some(value) -> [#("settings", json_of_dynamic(value))]
             None -> []
           },
+          optional_string("roomName", room_name),
         ]),
       )
     JoinRoom(game_type, room_id) ->
@@ -254,19 +270,35 @@ fn client_json(message: ClientMessage) -> Json {
 }
 
 fn room_summary_json(room: RoomSummary) -> Json {
-  json.object([
-    #("roomId", json.string(room.room_id)),
-    #("gameType", json.string(room.game_type)),
-    #("playerCount", json.int(room.player_count)),
-    #("capacity", json.int(room.capacity)),
-    #(
-      "status",
-      json.string(case room.status {
-        Waiting -> "waiting"
-        Playing -> "playing"
-      }),
-    ),
-  ])
+  json.object(
+    list.flatten([
+      [
+        #("roomId", json.string(room.room_id)),
+        #("gameType", json.string(room.game_type)),
+        #("playerCount", json.int(room.player_count)),
+        #("capacity", json.int(room.capacity)),
+        #(
+          "status",
+          json.string(case room.status {
+            Waiting -> "waiting"
+            Playing -> "playing"
+          }),
+        ),
+      ],
+      optional_string("name", room.name),
+    ]),
+  )
+}
+
+/// 省略できる文字列の項目。None なら項目ごと出さない。
+fn optional_string(
+  key: String,
+  value: Option(String),
+) -> List(#(String, Json)) {
+  case value {
+    Some(text) -> [#(key, json.string(text))]
+    None -> []
+  }
 }
 
 fn player_info_json(player: PlayerInfo) -> Json {
@@ -401,7 +433,12 @@ fn client_decoder() -> Decoder(ClientMessage) {
         None,
         decode.map(decode.dynamic, Some),
       )
-      decode.success(CreateRoom(game_type:, settings:))
+      use room_name <- decode.optional_field(
+        "roomName",
+        None,
+        decode.map(decode.string, Some),
+      )
+      decode.success(CreateRoom(game_type:, settings:, room_name:))
     }
     "join-room" -> {
       use game_type <- decode.field("gameType", decode.string)
@@ -441,7 +478,18 @@ fn server_decoder() -> Decoder(ServerMessage) {
       use room_id <- decode.field("roomId", decode.string)
       use you <- decode.field("you", decode.string)
       use players <- decode.field("players", decode.list(player_info_decoder()))
-      decode.success(RoomJoined(game_type:, room_id:, you:, players:))
+      use room_name <- decode.optional_field(
+        "roomName",
+        None,
+        decode.map(decode.string, Some),
+      )
+      decode.success(RoomJoined(
+        game_type:,
+        room_id:,
+        you:,
+        players:,
+        room_name:,
+      ))
     }
     "player-joined" -> {
       use room_id <- decode.field("roomId", decode.string)
@@ -498,12 +546,18 @@ fn room_summary_decoder() -> Decoder(RoomSummary) {
   use player_count <- decode.field("playerCount", decode.int)
   use capacity <- decode.field("capacity", decode.int)
   use status <- decode.field("status", room_status_decoder())
+  use name <- decode.optional_field(
+    "name",
+    None,
+    decode.map(decode.string, Some),
+  )
   decode.success(RoomSummary(
     room_id:,
     game_type:,
     player_count:,
     capacity:,
     status:,
+    name:,
   ))
 }
 

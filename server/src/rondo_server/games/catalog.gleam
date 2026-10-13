@@ -49,6 +49,7 @@ pub fn spec_for(
         RoomSpec(
           id:,
           game_type: "tilt-maze",
+          name: "",
           min_players: 2,
           max_players: 4,
           authority: Some(tilt_maze.create),

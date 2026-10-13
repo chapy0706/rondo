@@ -106,18 +106,23 @@ export class RealtimeSession {
 		this.adapter.send(message);
 	}
 
-	/** ルームを作る。このゲームの作成・参加を待っている間は、重ねて送らない。 */
+	/**
+	 * ルームを作る。このゲームの作成・参加を待っている間は、重ねて送らない。
+	 * roomName を省略すると、サーバーが既定の名前を付ける（issue-58）。
+	 */
 	create(
 		gameType: GameType,
 		settings?: Readonly<Record<string, number>>,
+		roomName?: string,
 	): void {
 		if (this.current.pending?.gameType === gameType) return;
 		this.request("create", gameType);
-		this.send(
-			settings === undefined
-				? { type: "create-room", gameType }
-				: { type: "create-room", gameType, settings },
-		);
+		this.send({
+			type: "create-room",
+			gameType,
+			...(settings === undefined ? {} : { settings }),
+			...(roomName === undefined ? {} : { roomName }),
+		});
 	}
 
 	join(gameType: GameType, roomId: RoomId): void {

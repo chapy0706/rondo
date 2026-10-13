@@ -92,13 +92,18 @@ pub fn malformed_client_messages_are_rejected_test() {
   )
 }
 
-/// create-room の settings は省略できる。
+/// create-room の settings と roomName は省略できる（名前なしの古い形 / issue-58）。
 pub fn create_room_settings_are_optional_test() {
-  let assert Ok(message.CreateRoom(game_type: "tilt-maze", settings:)) =
+  let assert Ok(message.CreateRoom(
+    game_type: "tilt-maze",
+    settings:,
+    room_name:,
+  )) =
     message.decode_client(
       "{\"type\":\"create-room\",\"gameType\":\"tilt-maze\"}",
     )
   settings |> should.be_none
+  room_name |> should.be_none
 }
 
 // --- ゲーム固有の payload（Dynamic）と JSON ------------------------------------------

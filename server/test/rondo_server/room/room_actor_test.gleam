@@ -11,6 +11,7 @@ fn spec(min: Int, max: Int) -> RoomSpec {
   RoomSpec(
     id: RoomId("r"),
     game_type: "test",
+    name: "test",
     min_players: min,
     max_players: max,
     authority: None,

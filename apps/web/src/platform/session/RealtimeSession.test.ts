@@ -84,6 +84,25 @@ describe("RealtimeSession - 画面をまたいで1本の接続とルームを持
 		]);
 	});
 
+	it("作成のときにルーム名を渡せる（issue-58）", () => {
+		session.create("veryare", undefined, "たのしい部屋");
+		expect(adapter.sent).toEqual([
+			{ type: "create-room", gameType: "veryare", roomName: "たのしい部屋" },
+		]);
+	});
+
+	it("room-joined のルーム名を、参加中のルームとして持つ（issue-58）", () => {
+		adapter.deliver({
+			type: "room-joined",
+			gameType: "veryare",
+			roomId: "room-1",
+			you: "p-b",
+			players: [{ playerId: "p-b", name: "user2" }],
+			roomName: "たのしい部屋",
+		});
+		expect(session.state.room?.roomName).toBe("たのしい部屋");
+	});
+
 	it("退出で leave-room を送り、ルームを忘れる", () => {
 		adapter.deliver(joined("room-1"));
 		session.leave();

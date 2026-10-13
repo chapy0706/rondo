@@ -28,6 +28,7 @@ fn other_spec(n: Int) -> RoomSpec {
   RoomSpec(
     id: RoomId("t" <> int.to_string(n)),
     game_type: "tilt-maze",
+    name: "test",
     min_players: 2,
     max_players: 4,
     authority: None,

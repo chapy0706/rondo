@@ -7,14 +7,22 @@
  * 表示と操作だけを受け持つ。既定ではモックが動くため、サーバーなしでも一覧・参加・
  * 作成を確かめられる。参加できたら、そのゲームの画面へ移る（issue-40）。
  * 開いた時点で、そのゲームの素材の先読みを始める（何を読むかはゲームの側 / issue-46）。
+ * 一覧にはルーム名・人数・状態を出し、識別子は出さない。ルーム名は作るときに決められる
+ * （issue-58）。名前は来場者の自由な入力なので、React の標準の表示（文字として出す）のままにする。
  */
 
-import type { GameType, RoomOption } from "@rondo/contracts";
+import {
+	type GameType,
+	ROOM_NAME_MAX_LENGTH,
+	type RoomOption,
+} from "@rondo/contracts";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useEffect, useState } from "react";
 import { prefetchForLobby } from "../../games/registry";
 import { ConnectionFailed } from "../session/ConnectionFailed";
+import { RoomListItem } from "./RoomListItem";
+import { roomNameHint } from "./roomName";
 import { choiceLabel, chooseOption, initialSettings } from "./roomOptions";
 import { useRealtimeLobby } from "./useRealtimeLobby";
 
@@ -39,6 +47,8 @@ export function Lobby({
 		refresh,
 	} = useRealtimeLobby(gameType);
 	const [settings, setSettings] = useState(() => initialSettings(roomOptions));
+	const [roomName, setRoomName] = useState("");
+	const nameHint = roomNameHint(roomName);
 	// ロビーを開いた時点で、そのゲームの素材の先読みを始める（issue-46）。ロビーを離れても止めない。
 	useEffect(() => {
 		prefetchForLobby(gameType);
@@ -87,25 +97,31 @@ export function Lobby({
 								const full = room.playerCount >= room.capacity;
 								return (
 									<li key={room.roomId}>
-										<button
-											type="button"
-											onClick={() => joinRoom(room.roomId)}
+										<RoomListItem
+											room={room}
+											onJoin={() => joinRoom(room.roomId)}
 											disabled={waiting || full || room.status === "playing"}
-											className="flex w-full items-center justify-between rounded-2xl bg-slate-800 px-4 py-3 text-left transition-transform active:scale-[0.98] disabled:opacity-50"
-										>
-											<span className="font-medium text-white">
-												{room.roomId}
-											</span>
-											<span className="text-slate-400 text-sm">
-												{room.playerCount}/{room.capacity}
-												{room.status === "playing" && " ・進行中"}
-											</span>
-										</button>
+										/>
 									</li>
 								);
 							})}
 						</ul>
 					)}
+
+					<label className="flex flex-col gap-2 text-slate-300 text-sm">
+						ルーム名
+						<input
+							type="text"
+							value={roomName}
+							onChange={(event) => setRoomName(event.target.value)}
+							placeholder="空欄なら「（あなたの名前）のルーム」"
+							aria-describedby="room-name-hint"
+							className="min-h-11 rounded-xl bg-slate-800 px-3 text-base text-white placeholder:text-slate-500"
+						/>
+						<span id="room-name-hint" className="text-slate-500 text-xs">
+							{nameHint ?? `${ROOM_NAME_MAX_LENGTH} 文字まで`}
+						</span>
+					</label>
 
 					{roomOptions.map((option) => (
 						<label
@@ -134,7 +150,10 @@ export function Lobby({
 					<button
 						type="button"
 						onClick={() =>
-							createRoom(roomOptions.length > 0 ? settings : undefined)
+							createRoom(
+								roomOptions.length > 0 ? settings : undefined,
+								roomName,
+							)
 						}
 						disabled={waiting}
 						className="rounded-xl bg-indigo-600 px-4 py-3 font-semibold text-white transition-transform active:scale-[0.98] disabled:opacity-50"
