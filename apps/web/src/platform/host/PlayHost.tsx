@@ -105,12 +105,18 @@ function useRealtimeSession(gameType: string | null): RealtimeSession {
 		gameType !== null && state.room?.gameType === gameType ? state.room : null;
 	const roomId = room?.roomId ?? null;
 	const you = room?.you ?? null;
+	const players = room?.players ?? null;
+	// 口は、ルームが変わったときだけ作る（参加者の変化では作り直さない）。
+	const port = useMemo(
+		() => (roomId === null ? null : getRealtimeSession().gamePort(roomId)),
+		[roomId],
+	);
 	const realtime = useMemo<RealtimeHost | null>(
 		() =>
-			roomId === null || you === null
+			port === null || roomId === null || you === null || players === null
 				? null
-				: { port: getRealtimeSession().gamePort(roomId), roomId, you },
-		[roomId, you],
+				: { port, roomId, you, players },
+		[port, roomId, you, players],
 	);
 
 	const leave = useCallback(() => {

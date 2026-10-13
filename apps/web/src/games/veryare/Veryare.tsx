@@ -57,6 +57,15 @@ import { browserStorage, loadCeiling, saveCeiling } from "./ceilingSetting";
 import { isHirayaStage } from "./hiraya";
 import { HIRAYA_DEV, roofToggleAllowed, veryareManifest } from "./manifest";
 import {
+	type Members,
+	NO_MEMBERS,
+	applyMembersNotice,
+	membersInPhase,
+	membersSummary,
+	parseMembersNotice,
+	sampleMembers,
+} from "./members";
+import {
 	PAD_DEAD_ZONE,
 	WALK_SPEED,
 	blinkLevel,
@@ -86,6 +95,16 @@ import {
 	undoStroke,
 } from "./paint";
 import { FLOOR_COLOR, UNPAINTED_COLOR } from "./palette";
+import {
+	NO_POSE_CHOICE,
+	WAITING_POSE_INTERVAL_MS,
+	avatarPoseOf,
+	canChangeWaitingPose,
+	chooseGamePose,
+	chooseWaitingPose,
+	enterSpace,
+	waitingPoseEvent,
+} from "./poseChoice";
 import {
 	DEFAULT_POSE,
 	RANDOM_POSE_POOL,
@@ -185,7 +204,7 @@ function outcomeText(outcome: Outcome, role: Role): string {
 }
 
 export default function Veryare() {
-	const { on, send, you } = useRealtimeGame(veryareManifest);
+	const { on, send, you, players } = useRealtimeGame(veryareManifest);
 	/** 通知の購読の中で、いまの自分の ID を読むための参照。 */
 	const youRef = useRef(you);
 	youRef.current = you;
@@ -271,8 +290,16 @@ export default function Veryare() {
 	/** 描いているペイント（issue-25）。 */
 	const [draft, setDraft] = useState<PaintDraft>(emptyDraft);
 	/** 自分のポーズ（issue-56）と、ポーズボタンを押したか（押していれば、確定のときに送る）。 */
-	const [pose, setPose] = useState<VeryareModelPose>(DEFAULT_POSE);
-	const [poseChosen, setPoseChosen] = useState(false);
+	/**
+	 * 選んだポーズ（issue-59）。待機ポーズとゲームの隠れ側のポーズは別の変数に持ち、ステージに移ったら
+	 * ゲーム用は null から始める（poseChoice.ts）。
+	 */
+	const [poseChoice, setPoseChoice] = useState(NO_POSE_CHOICE);
+	const pose: VeryareModelPose = poseChoice.game ?? DEFAULT_POSE;
+	const poseChosen = poseChoice.game !== null;
+	/** 待機ポーズのボタンを止めている間か（押してから WAITING_POSE_INTERVAL_MS）。 */
+	const [waitingPoseCooling, setWaitingPoseCooling] = useState(false);
+	const waitingPosePressedRef = useRef<number | null>(null);
 	/** 素材の体に差し替えたか（シーンが決める。ポーズボタンを出すかに使う）。 */
 	const [bodyPosable, setBodyPosable] = useState(false);
 	/** キャラクターの素材の差し替え口（issue-56）。対戦の画面を開いた時点で読み込みを始める。 */
@@ -315,6 +342,16 @@ export default function Veryare() {
 	const serverRef = useRef<Point>(WAITING_ROOM_SPAWN);
 	/** 届いた鬼の通知（受け取った時刻つき。ほかの人の画面で補間する / issue-46）。 */
 	const oniTrackRef = useRef<readonly OniSample[]>([]);
+	/**
+	 * 待機ルームのほかのメンバー（issue-59）。通知の購読と描画ループで読むので参照に持ち、画面の属性
+	 * （E2E）に出す人数と待機ポーズだけを state にする。
+	 */
+	const membersRef = useRef<Members>(NO_MEMBERS);
+	const [memberView, setMemberView] = useState(() =>
+		membersSummary(NO_MEMBERS),
+	);
+	/** 通知の購読の中で、いまのフェーズを読むための参照（遅れて届いた members を捨てる）。 */
+	const phaseRef = useRef<Phase>("oni-selection");
 
 	// サーバーの通知を購読する（全員宛てのフェーズ通知と、入室後の案内）。
 	useEffect(() => {
@@ -366,6 +403,19 @@ export default function Veryare() {
 			hidingRef.current = next.playerIds;
 			setHiding(next.playerIds);
 		});
+		// 待機ルームのメンバー（issue-59）。クライアントのフェーズが鬼選出でなければ捨てる。
+		const offMembers = on("members", (payload) => {
+			const list = parseMembersNotice(payload);
+			if (list === null) return;
+			const next = applyMembersNotice(membersRef.current, list, {
+				self: youRef.current,
+				at: performance.now(),
+				phase: phaseRef.current,
+			});
+			if (next === membersRef.current) return;
+			membersRef.current = next;
+			setMemberView(membersSummary(next));
+		});
 		const offStage = on("stage", (payload) => {
 			const next = parseStageNotice(payload);
 			if (next !== null) setGrid(next);
@@ -375,6 +425,7 @@ export default function Veryare() {
 			if (next !== null) setOpenDoors(next);
 		});
 		return () => {
+			offMembers();
 			offStage();
 			offDoors();
 			offPhase();
@@ -386,6 +437,19 @@ export default function Veryare() {
 	}, [on]);
 
 	const phase: Phase = notice?.phase ?? "oni-selection";
+	phaseRef.current = phase;
+	// 鬼選出を離れたら（ステージに移ったら）、ほかのメンバーの体を消す（issue-59）。
+	useEffect(() => {
+		const next = membersInPhase(membersRef.current, phase);
+		if (next === membersRef.current) return;
+		membersRef.current = next;
+		setMemberView(membersSummary(next));
+	}, [phase]);
+	/** 参加者の名前（頭上の名前に使う / issue-59）。 */
+	const names = useMemo(
+		() => new Map(players.map((player) => [player.playerId, player.name])),
+		[players],
+	);
 	const role = roleOf(notice?.oni ?? null, you);
 	const space = spaceOf(phase, role);
 	const spectator = isSpectator(phase, role, hiding, you);
@@ -433,6 +497,38 @@ export default function Veryare() {
 		you,
 	);
 	const painting = canPaintWhileWaiting(phase, role);
+	// 待機ルームのポーズボタン（issue-59）。素材の体のときだけ出す。押すたびに、いまと違うポーズへ
+	// ランダムに変え、waiting-pose を送る。サーバーの間と同じだけ、ボタンを止める。
+	const waitingPoseShown =
+		phase === "oni-selection" && space === "waiting-room" && bodyPosable;
+	const onWaitingPose = () => {
+		const at = performance.now();
+		if (
+			!canChangeWaitingPose({
+				phase,
+				space,
+				posable: bodyPosable,
+				now: at,
+				lastPressedAt: waitingPosePressedRef.current,
+			})
+		) {
+			return;
+		}
+		waitingPosePressedRef.current = at;
+		const next = pickNextPose(
+			poseChoice.waiting ?? DEFAULT_POSE,
+			RANDOM_POSE_POOL,
+			Math.random,
+		);
+		// 自分の体には、手元ですぐ反映する（サーバーからは、ほかの人にだけ届く）。
+		setPoseChoice((choice) => chooseWaitingPose(choice, next));
+		send(waitingPoseEvent(next));
+		setWaitingPoseCooling(true);
+		window.setTimeout(
+			() => setWaitingPoseCooling(false),
+			WAITING_POSE_INTERVAL_MS,
+		);
+	};
 	// 射撃（issue-27）。撃てるのは探索フェーズの鬼だけ。間隔は自分のタイマーで見せる。
 	const shootable = canShoot(phase, role, spectator);
 	const reloadMs = reloadRemainingMs(lastShotAt, now);
@@ -681,6 +777,8 @@ export default function Veryare() {
 		aim,
 		pose,
 		poseChosen,
+		avatarPose: avatarPoseOf(poseChoice, space),
+		names,
 		bodyPosable,
 		setBodyPosable,
 	});
@@ -714,6 +812,8 @@ export default function Veryare() {
 		aim,
 		pose,
 		poseChosen,
+		avatarPose: avatarPoseOf(poseChoice, space),
+		names,
 		bodyPosable,
 		setBodyPosable,
 	};
@@ -899,8 +999,15 @@ export default function Veryare() {
 				scene.setSelfOni(current.selfOni ? selfFacing : null);
 				// 自分の体の向きとポーズ（issue-56）。ポーズを変えたときは、シーンがなめらかに寄せる。
 				scene.setAvatarFacing(selfFacing);
-				// 選んだポーズ（押していなければ null）。静止の指定（ペイント以降・確定後）は、後半で入れる。
-				scene.setAvatarPose(current.poseChosen ? current.pose : null, false);
+				// 選んだポーズ（押していなければ null）。待機ルームでは待機ポーズ、ステージではゲーム用の
+				// ポーズ（issue-59）。静止の指定（ペイント以降・確定後）は、後半で入れる。
+				scene.setAvatarPose(current.avatarPose, false);
+				// 待機ルームのほかのメンバー（issue-59）。補間した位置で描く。
+				scene.setMembers(
+					current.space === "waiting-room"
+						? sampleMembers(membersRef.current, time, current.names)
+						: [],
+				);
 				const posable = scene.bodyPosable();
 				if (posable !== current.bodyPosable) current.setBodyPosable(posable);
 				scene.setAim(current.aim);
@@ -942,6 +1049,8 @@ export default function Veryare() {
 			space === "stage" && grid !== null ? grid.spawn : WAITING_ROOM_SPAWN;
 		positionRef.current = start;
 		serverRef.current = start;
+		// ステージに移ったら、ゲーム用の選んだポーズは null から始める（待機のポーズを引き継がない）。
+		setPoseChoice((choice) => enterSpace(choice, space));
 		const reduce = window.matchMedia(
 			"(prefers-reduced-motion: reduce)",
 		).matches;
@@ -1007,6 +1116,21 @@ export default function Veryare() {
 					</span>
 				</p>
 			) : null}
+			{waitingPoseShown ? (
+				<button
+					type="button"
+					data-testid="veryare-waiting-pose"
+					data-pose={poseChoice.waiting ?? ""}
+					disabled={waitingPoseCooling}
+					onClick={onWaitingPose}
+					className="min-h-11 rounded-xl bg-surface px-3 font-semibold text-fg text-sm ring-1 ring-line ring-inset disabled:opacity-50"
+				>
+					ポーズを変える
+					{poseChoice.waiting !== null
+						? `（いま: ${poseLabel(poseChoice.waiting)}）`
+						: ""}
+				</button>
+			) : null}
 
 			{spectator ? (
 				<p className="rounded-xl bg-surface px-3 py-2 text-fg text-sm">
@@ -1038,7 +1162,12 @@ export default function Veryare() {
 				</button>
 			) : null}
 
-			<div className="relative aspect-[3/4] w-full overflow-hidden rounded-2xl">
+			<div
+				className="relative aspect-[3/4] w-full overflow-hidden rounded-2xl"
+				data-testid="veryare-view"
+				data-visible-members={memberView.count}
+				data-member-poses={memberView.poses}
+			>
 				<canvas
 					ref={canvasRef}
 					className="block size-full"
@@ -1167,10 +1296,16 @@ export default function Veryare() {
 									chosen: poseChosen,
 									// いまと違うポーズを、プールからランダムに選ぶ（issue-56）。
 									onNext: () => {
-										setPose((current) =>
-											pickNextPose(current, RANDOM_POSE_POOL, Math.random),
+										setPoseChoice((choice) =>
+											chooseGamePose(
+												choice,
+												pickNextPose(
+													choice.game ?? DEFAULT_POSE,
+													RANDOM_POSE_POOL,
+													Math.random,
+												),
+											),
 										);
-										setPoseChosen(true);
 									},
 								},
 							}

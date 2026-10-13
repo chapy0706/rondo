@@ -503,12 +503,36 @@ pub fn move(game: Game(id), player: id, x: Float, z: Float) -> Game(id) {
 }
 
 /// 向きの報告。動ける間だけ受け付ける（観戦者へ送る鬼の向きに使う / issue-28）。
+/// 向きは -π〜π に巻き取ってから持つ（鬼の通知とメンバーの通知の両方に効く / issue-59）。
 pub fn turn(game: Game(id), player: id, facing: Float) -> Game(id) {
   case can_move(game, player) {
-    True -> Game(..game, facings: dict.insert(game.facings, player, facing))
+    True ->
+      Game(
+        ..game,
+        facings: dict.insert(game.facings, player, wrap_angle(facing)),
+      )
     False -> game
   }
 }
+
+/// 角度を (-π, π] に巻き取る（issue-59）。範囲内の値はそのまま返す。極端に大きな値でも、剰余
+/// （fmod）で求めるので、桁落ちせずに範囲に収まる。
+pub fn wrap_angle(angle: Float) -> Float {
+  case angle >. 0.0 -. pi && angle <=. pi {
+    True -> angle
+    False -> {
+      let turned = fmod(angle, 2.0 *. pi)
+      case turned >. pi, turned <=. 0.0 -. pi {
+        True, _ -> turned -. 2.0 *. pi
+        _, True -> turned +. 2.0 *. pi
+        _, _ -> turned
+      }
+    }
+  }
+}
+
+@external(erlang, "math", "fmod")
+fn fmod(x: Float, y: Float) -> Float
 
 // --- 待機ルームのメンバー（issue-59 / ADR 0044） ----------------------------------------
 

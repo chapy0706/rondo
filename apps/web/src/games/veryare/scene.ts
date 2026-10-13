@@ -2,7 +2,7 @@
  * veryare の 3D シーン（three.js）。
  *
  * 1つのシーンの中に、待機ルームとステージを別々のグループとして持ち、自分がいる空間の
- * グループだけを表示する（ADR 0024）。待機ルームは半径2mの円柱形の部屋で、中央に
+ * グループだけを表示する（ADR 0024）。待機ルームは半径 3.5 m（ADR 0044）の円柱形の部屋で、中央に
  * 同心円の鬼希望エリアを置く。エリアの色は赤（待機）/ 緑（開始）/ 青（鬼希望）。ステージは、ステージの通知から組む床・壁・襖の箱（stageBoxes.ts / issue-29c）。
  *
  * 平屋（issue-46）: 平屋の glb（屋内本体・屋外の飾り・屋根と天井）が待機ルームの間に読めていれば、
@@ -87,6 +87,11 @@ import {
 	isHirayaStage,
 	swingAngle,
 } from "./hiraya";
+import {
+	INITIAL_MEMBER_MOTION,
+	type MemberMotion,
+	stepMemberMotion,
+} from "./members";
 import {
 	type BodyAction,
 	INITIAL_MOTION,
@@ -218,6 +223,12 @@ export interface VeryareScene extends TestableScene {
 	/** 隠れ側（自分を除く）。color は "#rrggbb"。 */
 	setHiders(hiders: readonly SceneHider[]): void;
 	/**
+	 * 待機ルームのほかのメンバー（issue-59。自分を除く、最大 4 人）。位置と向きは補間済みのものを置き、
+	 * 動き（待機・歩く・走る・待機ポーズ）は、描画ごとの位置の変化から決める。頭上に名前を出す。
+	 * 一覧に無い人の体と名前は消す。待機ルームを表示しているときだけ見せる。
+	 */
+	setMembers(members: readonly SceneMember[]): void;
+	/**
 	 * 答え合わせの赤い点滅（ADR 0033 / issue-29d）。ids の隠れ側と、self なら自分の体を、
 	 * level（0〜1）の強さで赤く光らせる。ids が空で self が false なら、光らせない。
 	 */
@@ -248,6 +259,16 @@ export interface VeryareScene extends TestableScene {
 	resize(width: number, height: number): void;
 	render(): void;
 	dispose(): void;
+}
+
+/** 待機ルームのほかのメンバー1人（issue-59）。facing はサーバーの向き。 */
+export interface SceneMember {
+	readonly id: string;
+	readonly name: string;
+	readonly x: number;
+	readonly z: number;
+	readonly facing: number;
+	readonly pose: VeryareModelPose | null;
 }
 
 export interface SceneOni {
@@ -300,6 +321,13 @@ export interface SceneOptions {
 }
 
 const ONI_COLOR = 0xef4444;
+/** 待機ルームのほかのメンバーの体の色（素材の体では、色を付けない部分の下地 / issue-59）。 */
+const MEMBER_COLOR = 0x9fb4cf;
+/** 頭上の名前の高さ（足もとから）と、名前の板の大きさ（メートル）。 */
+const MEMBER_LABEL_HEIGHT = BODY_HEIGHT + 0.3;
+const MEMBER_LABEL_SIZE = { width: 1.2, height: 0.3 } as const;
+/** 名前の画像の大きさ（画素）。 */
+const MEMBER_LABEL_PIXELS = { width: 256, height: 64 } as const;
 /** 鬼の正面の印の高さ（体の高さの 3/4）。 */
 const ONI_NOSE_HEIGHT = BODY_HEIGHT * 0.75;
 /** 狙う点にいる隠れ側の光り方（黄色の発光）と、目印の色。 */
@@ -506,6 +534,12 @@ export function createScene(
 			figure.body = oniBody(figure.group);
 		}
 		hiderKey = "";
+		// 待機ルームのメンバーの体も作り直す（名前と動きの状態はそのまま）。
+		for (const figure of memberFigures.values()) {
+			figure.group.remove(figure.body.object);
+			figure.body.dispose();
+			figure.body = memberBody(figure.group);
+		}
 	};
 	// 隠れ側の描き込み面（作り直すときに捨てる）。
 	const hiderSurfaces: PaintSurface[] = [];
@@ -578,6 +612,68 @@ export function createScene(
 	let hiderKey = "";
 	/** 隠れ側の体（hiderGroup の子と同じ並び）。 */
 	const hiderInstances: BodyInstance[] = [];
+
+	// 待機ルームのほかのメンバー（issue-59）。体と頭上の名前を、メンバーごとのグループに持つ。
+	const memberGroup = new THREE.Group();
+	memberGroup.visible = false;
+	scene.add(memberGroup);
+	interface MemberFigure {
+		readonly group: THREE.Group;
+		body: BodyInstance;
+		label: THREE.Sprite;
+		name: string;
+		motion: MemberMotion;
+		target: SceneMember;
+	}
+	const memberFigures = new Map<string, MemberFigure>();
+	const memberBody = (group: THREE.Group): BodyInstance => {
+		const body = bodyKit.create(null, MEMBER_COLOR);
+		body.snap();
+		group.add(body.object);
+		return body;
+	};
+	/**
+	 * 頭上の名前（Sprite）。名前は文字として canvas に描く（HTML として解釈しない）。画像と材質は、
+	 * 作り直すとき・体を消すときに disposeLabel で解放する。
+	 */
+	const memberLabel = (name: string): THREE.Sprite => {
+		const canvas = document.createElement("canvas");
+		canvas.width = MEMBER_LABEL_PIXELS.width;
+		canvas.height = MEMBER_LABEL_PIXELS.height;
+		const context = canvas.getContext("2d");
+		if (context !== null) {
+			const { width, height } = MEMBER_LABEL_PIXELS;
+			context.fillStyle = "rgba(15, 23, 42, 0.7)";
+			context.beginPath();
+			context.roundRect(0, 0, width, height, height / 2);
+			context.fill();
+			context.fillStyle = "#ffffff";
+			context.font = "bold 32px sans-serif";
+			context.textAlign = "center";
+			context.textBaseline = "middle";
+			context.fillText(name, width / 2, height / 2, width - 24);
+		}
+		const texture = new THREE.CanvasTexture(canvas);
+		texture.colorSpace = THREE.SRGBColorSpace;
+		const sprite = new THREE.Sprite(
+			new THREE.SpriteMaterial({ map: texture, transparent: true }),
+		);
+		sprite.scale.set(MEMBER_LABEL_SIZE.width, MEMBER_LABEL_SIZE.height, 1);
+		sprite.position.y = MEMBER_LABEL_HEIGHT;
+		return sprite;
+	};
+	const disposeLabel = (sprite: THREE.Sprite) => {
+		sprite.material.map?.dispose();
+		sprite.material.dispose();
+	};
+	const removeMember = (id: string) => {
+		const figure = memberFigures.get(id);
+		if (figure === undefined) return;
+		memberGroup.remove(figure.group);
+		figure.body.dispose();
+		disposeLabel(figure.label);
+		memberFigures.delete(id);
+	};
 
 	// ニアクリップは小さくし、壁の余白をそれより大きくする（壁際で壁の中が映らない / cameraGuard.ts）。
 	const camera = new THREE.PerspectiveCamera(CAMERA_FOV, 1, CAMERA_NEAR, 100);
@@ -1062,6 +1158,39 @@ export function createScene(
 				hiderInstances.push(body);
 			}
 		},
+		setMembers(members) {
+			const ids = new Set(members.map((member) => member.id));
+			for (const id of [...memberFigures.keys()]) {
+				if (!ids.has(id)) removeMember(id);
+			}
+			for (const member of members) {
+				const figure = memberFigures.get(member.id);
+				if (figure === undefined) {
+					const group = new THREE.Group();
+					const label = memberLabel(member.name);
+					group.add(label);
+					memberGroup.add(group);
+					memberFigures.set(member.id, {
+						group,
+						body: memberBody(group),
+						label,
+						name: member.name,
+						motion: INITIAL_MEMBER_MOTION,
+						target: member,
+					});
+					continue;
+				}
+				// 名前が変わったら、名前の画像を作り直す（古い画像は解放する）。
+				if (figure.name !== member.name) {
+					figure.group.remove(figure.label);
+					disposeLabel(figure.label);
+					figure.label = memberLabel(member.name);
+					figure.group.add(figure.label);
+					figure.name = member.name;
+				}
+				figure.target = member;
+			}
+		},
 		setBlink(ids, self, level) {
 			const glow = (material: THREE.MeshStandardMaterial, on: boolean) => {
 				material.emissive.setHex(BLINK_COLOR);
@@ -1288,6 +1417,24 @@ export function createScene(
 			for (const child of hiderGroup.children) {
 				child.position.y = floorAt(child.position.x, child.position.z);
 			}
+			// 待機ルームのほかのメンバー（issue-59）。補間した位置に置き、位置の変化から動きを決める。
+			memberGroup.visible = lastSpace === "waiting-room";
+			if (memberGroup.visible) {
+				for (const figure of memberFigures.values()) {
+					const { x, z, facing, pose } = figure.target;
+					figure.group.position.set(x, floorAt(x, z), z);
+					figure.body.object.rotation.y = turnOf(facing);
+					const step = stepMemberMotion(figure.motion, { x, z }, dt, pose);
+					figure.motion = step.state;
+					const speeds = bodyKit.motionSpeeds;
+					const rate =
+						speeds === null || step.action.kind === "pose"
+							? 1
+							: playbackRate(step.action.kind, step.state.speed, speeds);
+					figure.body.setAction(step.action, rate);
+					figure.body.update(dt);
+				}
+			}
 			updateCameraReach(dt, jumped);
 			// カメラが自分の体に近いほど、自分の体を半透明にする（体の中を映さないように / issue-46）。
 			const opacity =
@@ -1317,6 +1464,7 @@ export function createScene(
 			});
 			avatar.dispose();
 			for (const body of hiderInstances.splice(0)) body.dispose();
+			for (const id of [...memberFigures.keys()]) removeMember(id);
 			avatarSurface.dispose();
 			for (const surface of hiderSurfaces.splice(0)) surface.dispose();
 			renderer.dispose();

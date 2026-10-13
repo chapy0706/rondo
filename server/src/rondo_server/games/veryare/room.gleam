@@ -650,7 +650,12 @@ fn move_decoder() -> decode.Decoder(#(Float, Float, Option(Float))) {
   use kind <- decode.field("type", decode.string)
   use x <- decode.field("x", number())
   use z <- decode.field("z", number())
-  use facing <- decode.optional_field("facing", None, decode.optional(number()))
+  // 向きは任意。数でない値（文字列・null など）は、向きだけを捨て、位置は受け付ける（issue-59）。
+  use facing <- decode.optional_field(
+    "facing",
+    None,
+    decode.one_of(decode.map(number(), Some), [decode.success(None)]),
+  )
   case kind {
     "move" -> decode.success(#(x, z, facing))
     _ -> decode.failure(#(0.0, 0.0, None), "move")

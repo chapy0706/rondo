@@ -9,6 +9,7 @@
 import type {
 	PlayResult,
 	PlayerId,
+	PlayerInfo,
 	RealTimePort,
 	RoomId,
 } from "@rondo/contracts";
@@ -22,6 +23,11 @@ export interface RealtimeHost {
 	readonly roomId: RoomId;
 	/** このルームでの自分のプレイヤー ID（room-joined の you）。役割の判定などに使う。 */
 	readonly you: PlayerId;
+	/**
+	 * ルームの参加者（room-joined の players に、参加・退出の知らせを反映したもの）。名前の表示に
+	 * 使う（issue-59）。読み取りだけ。
+	 */
+	readonly players: readonly PlayerInfo[];
 }
 
 /** 基盤がゲームに提供するホスト。 */

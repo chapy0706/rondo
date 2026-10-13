@@ -1,4 +1,4 @@
-import type { GameManifest, PlayerId } from "@rondo/contracts";
+import type { GameManifest, PlayerId, PlayerInfo } from "@rondo/contracts";
 import { useCallback, useEffect, useRef } from "react";
 import {
 	type GamePayload,
@@ -15,7 +15,11 @@ export interface RealtimeGameApi {
 	on: (type: string, handler: (payload: GamePayload) => void) => () => void;
 	/** このルームでの自分のプレイヤー ID。ルームに入る前は null。 */
 	you: PlayerId | null;
+	/** ルームの参加者（名前の表示用 / issue-59）。ルームに入る前は空。 */
+	players: readonly PlayerInfo[];
 }
+
+const NO_PLAYERS: readonly PlayerInfo[] = [];
 
 /**
  * リアルタイムゲーム用フック。
@@ -45,15 +49,17 @@ export function useRealtimeGame(manifest: GameManifest): RealtimeGameApi {
 		[realtime, gameType],
 	);
 
+	// 参加者が変わってもホストの値は作り直されるので、購読は口とルームが変わったときだけ張り直す。
+	const port = realtime?.port ?? null;
+	const roomId = realtime?.roomId ?? null;
 	useEffect(() => {
-		if (realtime === null) return;
-		const { port, roomId } = realtime;
+		if (port === null || roomId === null) return;
 		const handlers = handlersRef.current;
 		// 全員宛て（game-state）も限定配信（game-state-to）も同じ on に届く（ADR 0021）。
 		return port.subscribe((message) =>
 			dispatchGameState(message, gameType, roomId, handlers),
 		);
-	}, [realtime, gameType]);
+	}, [port, roomId, gameType]);
 
 	const on = useCallback(
 		(type: string, handler: (payload: GamePayload) => void) => {
@@ -71,5 +77,10 @@ export function useRealtimeGame(manifest: GameManifest): RealtimeGameApi {
 		[],
 	);
 
-	return { send, on, you: realtime?.you ?? null };
+	return {
+		send,
+		on,
+		you: realtime?.you ?? null,
+		players: realtime?.players ?? NO_PLAYERS,
+	};
 }

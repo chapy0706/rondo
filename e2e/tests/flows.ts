@@ -76,14 +76,30 @@ export async function playNew(tab: Tab): Promise<string> {
 	return tab.link.roomId() as string;
 }
 
-/** 選択画面の「ルームに参加する」から、ロビーで指定のルームに入る。 */
+/**
+ * 選択画面の「ルームに参加する」から、ロビーで指定のルームに入る。一覧には識別子を出さない
+ * （issue-58）ので、このタブに届いたルーム一覧（room-list）で識別子からルーム名を引き、その名前の
+ * ボタンを押す。
+ */
 export async function joinFromLobby(tab: Tab, roomId: string): Promise<void> {
 	await chooseVeryare(tab.page);
 	await tab.page.getByRole("link", { name: "ルームに参加する" }).click();
 	await expect(tab.page).toHaveURL(/\/lobby\/veryare$/);
-	await tab.page.getByRole("button", { name: new RegExp(roomId) }).click();
+	await expect.poll(() => roomNameIn(tab, roomId)).not.toBeNull();
+	const name = roomNameIn(tab, roomId) as string;
+	await tab.page.getByRole("button", { name }).click();
 	await expect(tab.page.getByTestId("veryare-area")).toBeVisible();
 	await expect.poll(() => tab.link.roomId()).toBe(roomId);
+}
+
+/** このタブに届いた最新のルーム一覧で、識別子 roomId のルームの名前。無ければ null。 */
+function roomNameIn(tab: Tab, roomId: string): string | null {
+	const list = tab.link.received("room-list").at(-1)?.message.rooms;
+	if (!Array.isArray(list)) return null;
+	const room = (list as { roomId?: unknown; name?: unknown }[]).find(
+		(r) => r.roomId === roomId,
+	);
+	return typeof room?.name === "string" ? room.name : null;
 }
 
 /** 鬼希望エリアの円の色（red / green / blue）を待つ。 */
@@ -211,4 +227,59 @@ export function strokesBeforeHiders(tab: Tab): boolean {
 	return before.some(({ message }) =>
 		JSON.stringify(message).includes('"strokes"'),
 	);
+}
+
+// --- 待機ルームのメンバー（issue-59） --------------------------------------------------------
+
+/** 描画の入れ物に出る、見えている他のメンバーの人数（data-visible-members）を待つ。 */
+export async function expectVisibleMembers(
+	tab: Tab,
+	count: number,
+	timeout?: number,
+): Promise<void> {
+	await expect(tab.page.getByTestId("veryare-view")).toHaveAttribute(
+		"data-visible-members",
+		String(count),
+		timeout === undefined ? {} : { timeout },
+	);
+}
+
+/** 描画の入れ物に出る、見えている他のメンバーの待機ポーズ（data-member-poses。通知の順）を待つ。 */
+export async function expectMemberPoses(
+	tab: Tab,
+	poses: string,
+): Promise<void> {
+	await expect(tab.page.getByTestId("veryare-view")).toHaveAttribute(
+		"data-member-poses",
+		poses,
+	);
+}
+
+/** このタブのプレイヤーの待機ポーズを変える（サーバーへの電文で代える。素材なしでボタンが出ないため）。 */
+export function changeWaitingPose(
+	tab: Tab,
+	roomId: string,
+	pose: string,
+): void {
+	tab.link.inject({
+		type: "game-event",
+		gameType: "veryare",
+		roomId,
+		payload: { type: "waiting-pose", pose },
+	});
+}
+
+/** このタブのプレイヤーを、待機ルームの (x, z) へ動かす（サーバーへの電文で代える）。 */
+export function moveInWaitingRoom(
+	tab: Tab,
+	roomId: string,
+	x: number,
+	z: number,
+): void {
+	tab.link.inject({
+		type: "game-event",
+		gameType: "veryare",
+		roomId,
+		payload: { type: "move", x, z },
+	});
 }

@@ -128,3 +128,17 @@ pub fn dynamic_payload_becomes_json_test() {
     "{\"type\":\"phase\",\"oni\":null,\"durationMs\":10000,\"ratio\":0.5,\"ok\":true,\"items\":[1,\"a\"]}",
   ))
 }
+
+/// JSON で書けない数（無限大・NaN に相当する値）は、電文を読む段階で電文ごと捨てる（issue-59）。
+/// 有限の大きな数（1e308）は読め、範囲への巻き取りはゲームが行う（veryare/facing_test）。
+pub fn non_finite_numbers_are_rejected_at_the_boundary_test() {
+  let event = fn(facing: String) {
+    "{\"type\":\"game-event\",\"gameType\":\"veryare\",\"roomId\":\"r\",\"payload\":{\"type\":\"move\",\"x\":1,\"z\":1,\"facing\":"
+    <> facing
+    <> "}}"
+  }
+  list.each(["1e400", "-1e400", "NaN", "Infinity", "-Infinity"], fn(facing) {
+    message.decode_client(event(facing)) |> should.be_error
+  })
+  message.decode_client(event("1e308")) |> should.be_ok
+}
