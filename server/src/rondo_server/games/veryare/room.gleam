@@ -23,6 +23,12 @@
 /// ステージの選び方（issue-44）: 作成時の設定 stage で、ランダム間取り（0、既定）か平屋（1）かを
 /// 選ぶ。ロビーに選択肢を出すのは issue-46。平屋と CPU の組み合わせは、見通しと CPU の一般化
 /// （issue-45）まで拒む。
+///
+/// 待機ルームのメンバー（issue-59 / ADR 0044）: 鬼選出の間だけ、待機ルームにいる人間の参加者の
+/// 位置・向き・待機ポーズを、1通にまとめて全員へ送る。変わったときに 150 ms のタイマーを張り、
+/// 起きたときに、最後に送った内容と違えば送る。張った後に step が進んでいたら送らず、まだ鬼選出
+/// なら張り直す。途中参加・再接続の人には、本人宛てで今の様子を送る。待機ポーズの変更
+/// （waiting-pose）は、受けた時刻を付けて状態機械に渡す（受け付けるかは状態機械が決める）。
 import gleam/dict
 import gleam/dynamic.{type Dynamic}
 import gleam/dynamic/decode
@@ -41,6 +47,7 @@ import rondo_server/games/veryare/hider_cpu.{
   type Placement, Crouching, Lying, Standing,
 }
 import rondo_server/games/veryare/hiraya
+import rondo_server/games/veryare/members
 import rondo_server/games/veryare/oni_cpu.{type Strength}
 import rondo_server/games/veryare/paint
 import rondo_server/games/veryare/palette
@@ -85,6 +92,13 @@ pub const stage_choices = [0, 1]
 
 /// 鬼 CPU が歩く間隔（ミリ秒）。
 const tick_ms = 500
+
+/// 待機ルームのメンバーの通知を送る間隔（ミリ秒 / issue-59・ADR 0044）。
+pub const members_interval_ms = 150
+
+/// メンバーの通知のタイマーの token の上限。フェーズのタイマー（step、0 以上）とも、鬼 CPU の tick
+/// （-1 - step）とも重ならないよう、これ以下の値を使う。
+const members_token_base = -1_000_000
 
 /// ルームに加える CPU。
 pub type CpuChoice {
@@ -331,16 +345,27 @@ fn wrap(state: Game(PlayerId), pick: fn(Int) -> Int) -> Driver(PlayerId) {
                 // 誰にも送らない（探索の開始の一括配信に載せる）。
                 Ok(paint.Confirm(strokes:, pose:)) ->
                   step(state, game.confirm(state, player, strokes, pose), pick)
-                Error(_) -> moved(state, player, payload, pick)
+                Error(_) ->
+                  case decode.run(payload, members.waiting_pose_decoder()) {
+                    // 待機ポーズの変更（issue-59）。受け付けるか（鬼選出中・人間・間）は状態機械が決める。
+                    Ok(chosen) ->
+                      step(
+                        state,
+                        game.set_waiting_pose(state, player, chosen, now_ms()),
+                        pick,
+                      )
+                    Error(_) -> moved(state, player, payload, pick)
+                  }
               }
           }
       }
     },
     on_leave: fn(player) { step(state, game.leave(state, player), pick) },
     on_wake: fn(token) {
-      case token == tick_token(state) {
-        True -> ticked(state, game.tick(state), pick)
-        False -> step(state, game.advance(state, token, pick), pick)
+      case token <= members_token_base, token == tick_token(state) {
+        True, _ -> members_woke(state, token, pick)
+        False, True -> ticked(state, game.tick(state), pick)
+        False, False -> step(state, game.advance(state, token, pick), pick)
       }
     },
     on_join: fn(player) {
@@ -360,7 +385,7 @@ fn wrap(state: Game(PlayerId), pick: fn(Int) -> Int) -> Driver(PlayerId) {
     [
       driver.Deliver([player], stage_payload(state)),
       driver.Deliver([player], stage_notice.doors_payload(state.open_doors)),
-      ..hiders_resend(state, player)
+      ..list.append(hiders_resend(state, player), members_resend(state, player))
     ]
   })
 }
@@ -401,6 +426,8 @@ fn step(
   after: Game(PlayerId),
   pick: fn(Int) -> Int,
 ) -> #(Driver(PlayerId), List(Effect(PlayerId))) {
+  // 待機ルームのメンバーが変わっていたら、通知のタイマーを張る（issue-59）。
+  let #(after, members_timer) = schedule_members(after)
   let effects = case after.step == before.step {
     False -> phase_effects(after)
     True ->
@@ -422,7 +449,69 @@ fn step(
         driver.Broadcast(stage_notice.doors_payload(after.open_doors)),
       ])
   }
-  #(wrap(after, pick), list.flatten([effects, hiding, finish(before, after)]))
+  #(
+    wrap(after, pick),
+    list.flatten([effects, hiding, finish(before, after), members_timer]),
+  )
+}
+
+// --- 待機ルームのメンバー（issue-59 / ADR 0044） ----------------------------------------
+
+fn members_token(state: Game(PlayerId)) -> Int {
+  members_token_base - state.step
+}
+
+/// 鬼選出の間で、最後に送った内容と違い、まだタイマーを張っていなければ張る。
+fn schedule_members(
+  state: Game(PlayerId),
+) -> #(Game(PlayerId), List(Effect(PlayerId))) {
+  case
+    state.phase,
+    state.members_scheduled,
+    game.waiting_members(state) == state.members_sent
+  {
+    OniSelection, False, False -> #(game.members_scheduled(state, True), [
+      driver.WakeAfter(members_interval_ms, members_token(state)),
+    ])
+    _, _, _ -> #(state, [])
+  }
+}
+
+/// メンバーの通知のタイマーが起きた。張った時と同じ step（同じフェーズ・カウントの前後が同じ）で、
+/// 最後に送った内容と違えば全員へ送る。step が進んでいたら送らず、まだ鬼選出で変わっていれば
+/// step を通して張り直す。
+fn members_woke(
+  state: Game(PlayerId),
+  token: Int,
+  pick: fn(Int) -> Int,
+) -> #(Driver(PlayerId), List(Effect(PlayerId))) {
+  let ready = game.members_scheduled(state, False)
+  let current = game.waiting_members(ready)
+  case
+    token == members_token(ready)
+    && ready.phase == OniSelection
+    && current != ready.members_sent
+  {
+    True -> {
+      let sent = game.members_were_sent(ready, current)
+      let #(next, effects) = step(sent, sent, pick)
+      #(next, [driver.Broadcast(members.payload(current)), ..effects])
+    }
+    False -> step(ready, ready, pick)
+  }
+}
+
+/// 途中参加・再接続の人へ、本人宛てで今のメンバーを送る（鬼選出の間だけ）。
+fn members_resend(
+  state: Game(PlayerId),
+  player: PlayerId,
+) -> List(Effect(PlayerId)) {
+  case state.phase {
+    OniSelection -> [
+      driver.Deliver([player], members.payload(game.waiting_members(state))),
+    ]
+    _ -> []
+  }
 }
 
 /// 終了（Ended）に入った瞬間に、結果を全員へ送る（issue-42）。終了経路はすべて

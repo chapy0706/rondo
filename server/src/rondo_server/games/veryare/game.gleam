@@ -31,6 +31,7 @@
 /// 人間の鬼の射撃（issue-27 / ADR 0022）は shoot で受ける。判定はここ（サーバー）が行い、
 /// 命中したら found を通る。勝敗の判定は増やさない。
 import gleam/dict.{type Dict}
+import gleam/float
 import gleam/int
 import gleam/list
 import gleam/option.{type Option, None, Some}
@@ -42,6 +43,7 @@ import rondo_server/games/veryare/oni_cpu.{type OniCpu, type Strength}
 import rondo_server/games/veryare/overlap
 import rondo_server/games/veryare/paint
 import rondo_server/games/veryare/palette
+import rondo_server/games/veryare/pose
 import rondo_server/games/veryare/sight
 import rondo_server/games/veryare/stage.{type Layout}
 
@@ -75,17 +77,25 @@ pub const min_players = 2
 /// 隠れ CPU の配置の種を引く範囲。
 const cpu_seed_range = 2_147_483_647
 
-/// 待機ルームの半径（メートル）。円柱形で、床は直径約4m（8畳相当）の円。
-pub const waiting_room_radius = 2.0
+/// 待機ルームの半径（メートル）。円柱形で、床は直径 7 m の円（ADR 0044。ADR 0024 の 2 m を
+/// 置き換える）。5 人が輪に立っても、互いの全身が見える間が取れる。
+pub const waiting_room_radius = 3.5
 
 /// 鬼希望エリア（待機ルームと同心円）の半径（メートル）。
 pub const oni_area_radius = 0.6
 
 /// 待機ルームで並ぶ輪の半径。鬼希望エリアの外に置き、立候補は自分で入った人だけにする。
-const waiting_ring_radius = 1.3
+/// 席の間は約 2.35 m、席からエリアの縁と壁までは、それぞれ約 1.4 m・1.5 m（ADR 0044）。
+const waiting_ring_radius = 2.0
 
 /// 待機ルームの輪の席の数（定員と同じ5席）。途中で入室しても既にいる人を動かさない。
 const waiting_ring_seats = 5
+
+/// 同じ人の待機ポーズの変更をあける間（ミリ秒 / issue-59）。クライアントのボタンも同じ間だけ止める。
+pub const waiting_pose_interval_ms = 300
+
+/// メンバーの通知に載せる向きの刻み（ラジアン / issue-59）。これ未満の揺れでは送らない。
+const facing_step = 0.05
 
 // --- 型 ------------------------------------------------------------------
 
@@ -125,6 +135,18 @@ pub type Space {
 /// 床の上の位置（x, z）。高さは持たない。
 pub type Position {
   Position(space: Space, x: Float, z: Float)
+}
+
+/// 待機ルームのメンバー1人（issue-59 / ADR 0044）。メンバーの通知に載せる値で、位置は小数第 2 位、
+/// 向きは 0.05 rad 単位に丸めてある（丸めた値で、変わったかを比べる）。pose は待機ポーズ。
+pub type WaitingMember(id) {
+  WaitingMember(
+    player: id,
+    x: Float,
+    z: Float,
+    facing: Option(Float),
+    pose: Option(String),
+  )
 }
 
 /// 各フェーズの長さ（ミリ秒）。探索だけがルームごとの設定値。
@@ -204,6 +226,15 @@ pub type Game(id) {
     /// 人間の隠れ側が確定したポーズ（issue-56。pose.gleam の一覧の識別子）。ペイントと同じ確定で、
     /// 同じ条件（最初の1回だけ）で受け付ける。一括配信に載せるためだけに使い、判定には使わない。
     poses: Dict(id, String),
+    /// 待機ポーズ（issue-59 / ADR 0044。pose.gleam の一覧の識別子）。鬼選出の間だけ持つ、同期する
+    /// 飾りの状態で、上の poses（隠れ側のポーズ）とは混ぜない。鬼選出が済んだら空にする。
+    waiting_poses: Dict(id, String),
+    /// 待機ポーズを最後に受け付けた時刻（ミリ秒。呼び出し側の時計）。変更の間をあけるのに使う。
+    waiting_pose_at: Dict(id, Int),
+    /// 最後に送ったメンバーの一覧（issue-59）。これと同じなら送らない。判定には使わない。
+    members_sent: List(WaitingMember(id)),
+    /// メンバーの通知を送るタイマーを張っているか（issue-59）。張っている間は重ねて張らない。
+    members_scheduled: Bool,
   )
 }
 
@@ -293,6 +324,10 @@ fn start_on(
     exploration_hiders: [],
     paints: dict.new(),
     poses: dict.new(),
+    waiting_poses: dict.new(),
+    waiting_pose_at: dict.new(),
+    members_sent: [],
+    members_scheduled: False,
   )
 }
 
@@ -475,6 +510,80 @@ pub fn turn(game: Game(id), player: id, facing: Float) -> Game(id) {
   }
 }
 
+// --- 待機ルームのメンバー（issue-59 / ADR 0044） ----------------------------------------
+
+/// 待機ポーズの変更。鬼選出の間だけ、人間の参加者の、一覧（pose.gleam）の識別子だけを受け付ける。
+/// 同じ人の変更は waiting_pose_interval_ms あける（now は呼び出し側の時計のミリ秒）。
+pub fn set_waiting_pose(
+  game: Game(id),
+  player: id,
+  value: String,
+  now: Int,
+) -> Game(id) {
+  let rested = case dict.get(game.waiting_pose_at, player) {
+    Ok(at) -> now - at >= waiting_pose_interval_ms
+    Error(Nil) -> True
+  }
+  case game.phase, is_waiting_human(game, player), pose.parse(value), rested {
+    OniSelection, True, Some(chosen), True ->
+      Game(
+        ..game,
+        waiting_poses: dict.insert(game.waiting_poses, player, chosen),
+        waiting_pose_at: dict.insert(game.waiting_pose_at, player, now),
+      )
+    _, _, _, _ -> game
+  }
+}
+
+/// 待機ルームのメンバー（参加順）。鬼選出の間だけ、待機ルームにいる人間の参加者を載せる。CPU と
+/// ステージの位置は載せない。位置は小数第 2 位、向きは 0.05 rad 単位に丸める。
+pub fn waiting_members(game: Game(id)) -> List(WaitingMember(id)) {
+  case game.phase {
+    OniSelection ->
+      list.filter_map(game.players, fn(id) {
+        case is_waiting_human(game, id), dict.get(game.positions, id) {
+          True, Ok(Position(WaitingRoom, x, z)) ->
+            Ok(WaitingMember(
+              player: id,
+              x: round_to(x, 0.01),
+              z: round_to(z, 0.01),
+              facing: dict.get(game.facings, id)
+                |> option.from_result
+                |> option.map(round_to(_, facing_step)),
+              pose: dict.get(game.waiting_poses, id) |> option.from_result,
+            ))
+          _, _ -> Error(Nil)
+        }
+      })
+    _ -> []
+  }
+}
+
+/// メンバーの通知を送ったことを控える（同じ内容を、次から送らない）。
+pub fn members_were_sent(
+  game: Game(id),
+  members: List(WaitingMember(id)),
+) -> Game(id) {
+  Game(..game, members_sent: members, members_scheduled: False)
+}
+
+/// メンバーの通知のタイマーを張ったか・外れたかを控える。
+pub fn members_scheduled(game: Game(id), scheduled: Bool) -> Game(id) {
+  Game(..game, members_scheduled: scheduled)
+}
+
+fn is_waiting_human(game: Game(id), player: id) -> Bool {
+  list.contains(game.players, player)
+  && !list.contains(game.cpus.hiders, player)
+  && game.cpus.oni != Some(player)
+}
+
+/// step の刻みに丸め、小数第 2 位にそろえる（刻みを掛けた後の、浮動小数の端数を落とす）。
+fn round_to(value: Float, step: Float) -> Float {
+  let stepped = int.to_float(float.round(value /. step)) *. step
+  int.to_float(float.round(stepped *. 100.0)) /. 100.0
+}
+
 /// 発見。探索フェーズ中の、まだ隠れている隠れ側だけが対象。
 pub fn found(game: Game(id), player: id) -> Game(id) {
   case game.phase, set.contains(game.still_hiding, player) {
@@ -609,6 +718,8 @@ pub fn leave(game: Game(id), player: id) -> Game(id) {
         players: list.filter(game.players, fn(id) { id != player }),
         positions: dict.delete(game.positions, player),
         candidates: set.delete(game.candidates, player),
+        waiting_poses: dict.delete(game.waiting_poses, player),
+        waiting_pose_at: dict.delete(game.waiting_pose_at, player),
       )
     _, Some(oni) if oni == player -> reveal(game, HidersWin)
     _, _ -> remove_hider(game, player)
@@ -883,6 +994,23 @@ fn next(game: Game(id), phase: Phase) -> Game(id) {
   }
   Game(..game, phase:, step: game.step + 1, open_doors:)
   |> record_exploration_hiders
+  |> clear_waiting
+}
+
+/// 鬼選出を離れたら、待機の状態（待機ポーズ・メンバーの通知の控え）を空にする（issue-59）。
+/// 待機ポーズを、隠れ側のポーズ（poses）に引き継がない。
+fn clear_waiting(game: Game(id)) -> Game(id) {
+  case game.phase {
+    OniSelection -> game
+    _ ->
+      Game(
+        ..game,
+        waiting_poses: dict.new(),
+        waiting_pose_at: dict.new(),
+        members_sent: [],
+        members_scheduled: False,
+      )
+  }
 }
 
 /// 探索の開始なら、その時点のまだ隠れている隠れ側を残す（issue-29d）。ほかのフェーズでは、そのまま。

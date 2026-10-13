@@ -127,6 +127,9 @@ fn room_with_two(deps) -> #(Client, Client, String) {
   let room_id = joined_room(drain(a))
   let b = connect(deps)
   let b = send(deps, b, JoinRoom("veryare", room_id))
+  // 参加でメンバーが変わり、150 ms 後に待機ルームのメンバーの通知が届く（issue-59）。それまで待って
+  // 読み切り、以後の確かめに混ざらないようにする。
+  process.sleep(200)
   let _ = drain(a)
   let _ = drain(b)
   #(a, b, room_id)

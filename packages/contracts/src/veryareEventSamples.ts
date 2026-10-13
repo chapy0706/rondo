@@ -9,10 +9,12 @@
 
 import type {
 	VeryareDoorsNotice,
+	VeryareMembersNotice,
 	VeryareOpenDoorEvent,
 	VeryarePaintEvent,
 	VeryareShootEvent,
 	VeryareStageNotice,
+	VeryareWaitingPoseEvent,
 } from "./veryare";
 
 export const shootEventSamples = [
@@ -166,3 +168,24 @@ export const paintEventSamples = [
 		},
 	},
 ] as const satisfies readonly VeryarePaintEvent[];
+
+/**
+ * 待機ルームのメンバーの通知の見本（issue-59）。fixtures/veryare-members.json の membersNotice.valid と
+ * 一致させる。Gleam 側は同じ JSON を読む（server/test/rondo_server/games/veryare/members_fixture_test.gleam）。
+ */
+export const membersNoticeSamples = [
+	{ type: "members", members: [] },
+	{
+		type: "members",
+		members: [
+			{ playerId: "p-1", x: 2, z: 0, facing: 1.55, pose: "femaleDance" },
+			{ playerId: "p-2", x: -1.25, z: 0.5, facing: null, pose: null },
+		],
+	},
+] satisfies VeryareMembersNotice[];
+
+/** 待機ポーズの変更の見本（issue-59）。fixtures/veryare-members.json の waitingPose.valid と一致させる。 */
+export const waitingPoseEventSamples = [
+	{ type: "waiting-pose", pose: "femaleDance" },
+	{ type: "waiting-pose", pose: "idle" },
+] satisfies VeryareWaitingPoseEvent[];

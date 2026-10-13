@@ -45,8 +45,11 @@ export interface Point {
 	readonly z: number;
 }
 
-/** 待機ルームの半径（m）。円柱形で、床は直径約4m（8畳相当）。 */
-export const WAITING_ROOM_RADIUS = 2;
+/**
+ * 待機ルームの半径（m）。円柱形で、床は直径 7 m（ADR 0044。ADR 0024 の 2 m を置き換える）。
+ * サーバーの game.gleam の waiting_room_radius と同じ値（共有の見本 veryare-movement.json で確かめる）。
+ */
+export const WAITING_ROOM_RADIUS = 3.5;
 /** 鬼希望エリア（待機ルーム中央の円）の半径（m）。 */
 export const ONI_AREA_RADIUS = 0.6;
 
@@ -291,7 +294,7 @@ export function canPaintWhileWaiting(phase: Phase, role: Role): boolean {
 }
 
 /** 待機ルームに入ったときの初期位置。鬼希望エリアの外に立つ。ステージは、ステージの通知の玄関。 */
-export const WAITING_ROOM_SPAWN: Point = { x: 0, z: 1.3 };
+export const WAITING_ROOM_SPAWN: Point = { x: 0, z: 2.0 };
 
 /** サーバーへの移動の報告（room.gleam の move_decoder が受ける形）。 */
 export interface MoveReport {

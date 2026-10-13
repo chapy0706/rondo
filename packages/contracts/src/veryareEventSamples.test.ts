@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import fixture from "./fixtures/veryare-events.json";
+import membersFixture from "./fixtures/veryare-members.json";
 import movement from "./fixtures/veryare-movement.json";
 import paintFixture from "./fixtures/veryare-paint.json";
 import posesFixture from "./fixtures/veryare-poses.json";
@@ -12,10 +13,12 @@ import {
 } from "./veryare";
 import {
 	doorsNoticeSamples,
+	membersNoticeSamples,
 	openDoorEventSamples,
 	paintEventSamples,
 	shootEventSamples,
 	stageNoticeSamples,
+	waitingPoseEventSamples,
 } from "./veryareEventSamples";
 
 describe("veryare のイベントの見本（TS の型・JSON・Gleam の対応 / ADR 0009）", () => {
@@ -135,5 +138,35 @@ describe("veryare のポーズの見本（issue-56 / ADR 0009）", () => {
 					e.paint.strokes.some((s) => !known.has(s.part)),
 			),
 		).toBe(true);
+	});
+});
+
+describe("待機ルームのメンバーの通知と待機ポーズの見本（issue-59 / ADR 0009）", () => {
+	it("メンバーの通知の JSON の見本（valid）は、TS の型で書いた見本と一致する", () => {
+		expect(membersFixture.membersNotice.valid).toEqual(
+			JSON.parse(JSON.stringify(membersNoticeSamples)),
+		);
+	});
+
+	it("待機ポーズの変更の JSON の見本（valid）は、TS の型で書いた見本と一致する", () => {
+		expect(membersFixture.waitingPose.valid).toEqual(
+			JSON.parse(JSON.stringify(waitingPoseEventSamples)),
+		);
+	});
+
+	it("拒むべき待機ポーズ（invalid）は、TS の型にも合わない（一覧に無い・形が違う）", () => {
+		const poses: readonly string[] = VERYARE_MODEL_POSES;
+		for (const sample of membersFixture.waitingPose.invalid) {
+			const value = sample as Record<string, unknown>;
+			const fits =
+				value.type === "waiting-pose" &&
+				typeof value.pose === "string" &&
+				poses.includes(value.pose);
+			expect(fits).toBe(false);
+		}
+	});
+
+	it("拒むべきメンバーの通知（invalid）がある（Gleam の decoder がすべて拒むことを確かめる）", () => {
+		expect(membersFixture.membersNotice.invalid.length).toBeGreaterThan(0);
 	});
 });

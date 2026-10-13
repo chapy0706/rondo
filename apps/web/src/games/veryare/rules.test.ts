@@ -204,12 +204,12 @@ describe("canPaintWhileWaiting - 鬼の待機中ペイント", () => {
 	});
 });
 
-describe("clampToWaitingRoom - 待機ルームは半径2mの円", () => {
+describe("clampToWaitingRoom - 待機ルームは半径 3.5 m の円（ADR 0044）", () => {
 	it("円の外は、円周に丸める。内側はそのまま", () => {
 		const p = clampToWaitingRoom({ x: 6, z: 0 });
 		expect(p.x).toBeCloseTo(WAITING_ROOM_RADIUS);
 		expect(p.z).toBeCloseTo(0);
-		const q = clampToWaitingRoom({ x: 3, z: 3 });
+		const q = clampToWaitingRoom({ x: 4, z: 4 });
 		expect(Math.hypot(q.x, q.z)).toBeCloseTo(WAITING_ROOM_RADIUS);
 		expect(clampToWaitingRoom({ x: 1, z: -1 })).toEqual({ x: 1, z: -1 });
 	});

@@ -230,6 +230,8 @@ pub fn targeted_delivery_reaches_only_the_target_socket_test() {
   let deps = server()
   let #(a, room_id) = create_veryare(deps, client(deps))
   let #(b, _) = send(deps, client(deps), JoinRoom("veryare", room_id))
+  // 参加でメンバーが変わり、150 ms 後に待機ルームのメンバーの通知が届く（issue-59）。読み切る。
+  process.sleep(200)
   let _ = drain(a)
   let _ = drain(b)
 

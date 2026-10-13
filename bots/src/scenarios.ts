@@ -160,6 +160,46 @@ export const scenarios: readonly Scenario[] = [
 		rankings: [hider("bot-b", true), hider("bot-c", true), oni("bot-a", false)],
 	},
 	{
+		// 待機ルームの同期（issue-59 / ADR 0044）。B と C が待機ルームで動き、B が待機ポーズを変える。
+		// 全員に同じ位置とポーズが届くことを確かめてから、A が立候補して鬼になり、準備移動で退出する。
+		// 鬼選出の後には、待機の通知がどのボットにも届かないことも確かめる。
+		name: "待機ルームのメンバーの同期",
+		bots: ["bot-a", "bot-b", "bot-c"],
+		waitingSync: true,
+		steps: [
+			{ on: "joined", bot: "bot-b", action: { type: "move", x: 1.5, z: 1 } },
+			{ on: "joined", bot: "bot-c", action: { type: "move", x: -1, z: -2 } },
+			{
+				on: "joined",
+				bot: "bot-b",
+				action: { type: "waiting-pose", pose: "femaleDance" },
+				delayMs: 50,
+			},
+			{
+				on: "joined",
+				bot: "bot-a",
+				action: {
+					type: "expect-members",
+					check: "待機の同期",
+					members: [
+						{ bot: "bot-b", x: 1.5, z: 1, pose: "femaleDance" },
+						{ bot: "bot-c", x: -1, z: -2, pose: null },
+					],
+				},
+				delayMs: 800,
+			},
+			{
+				on: "joined",
+				bot: "bot-a",
+				action: { type: "touch-area" },
+				delayMs: 1000,
+			},
+			{ on: { phase: "preparation" }, bot: "bot-a", action: { type: "leave" } },
+		],
+		receivers: ["bot-b", "bot-c"],
+		rankings: [hider("bot-b", true), hider("bot-c", true), oni("bot-a", false)],
+	},
+	{
 		// 2人でカウントが始まった後に1人が抜け、鬼選出の時点で1人になる。
 		name: "人数が足りず不成立",
 		bots: ["bot-a", "bot-b"],

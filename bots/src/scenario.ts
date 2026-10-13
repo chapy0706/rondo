@@ -13,6 +13,8 @@
  *   無ければ送らない（サーバーの既定）
  * - roomName: ルーム作成時の名前（create-room の roomName / issue-58）。あれば、作成の返事と、
  *   一覧（list-rooms）に、整えた名前が載ることを確かめる。無ければ送らない（既定の名前）
+ * - waitingSync: 待機ルームの同期（issue-59）の確かめをするか。鬼選出の後に、どのボットにも待機の
+ *   通知（members）が届かないことを確かめる
  */
 
 import type { VeryareModelPose } from "@rondo/contracts";
@@ -105,6 +107,22 @@ export type Action =
 			readonly type: "expect-doors";
 			readonly check: string;
 			readonly open: number;
+	  }
+	/** 待機ポーズを変える（issue-59。契約の VeryareWaitingPoseEvent）。 */
+	| { readonly type: "waiting-pose"; readonly pose: VeryareModelPose }
+	/**
+	 * 確かめ（issue-59）: ルームの全ボットの、最新の待機ルームのメンバーの通知に、members の各ボットが
+	 * 同じ位置・待機ポーズで載っているか。全員の最新が同じ内容か。違えば、check の名前を添えて問題にする。
+	 */
+	| {
+			readonly type: "expect-members";
+			readonly check: string;
+			readonly members: readonly {
+				readonly bot: string;
+				readonly x: number;
+				readonly z: number;
+				readonly pose: VeryareModelPose | null;
+			}[];
 	  };
 
 /** 手順を動かす時点。 */
@@ -139,6 +157,7 @@ export interface Scenario {
 	readonly targeted?: boolean;
 	readonly settings?: Readonly<Record<string, number>>;
 	readonly roomName?: string;
+	readonly waitingSync?: boolean;
 }
 
 /** 隠れ側・鬼の details（サーバーの games/veryare/result.gleam の写し方）。 */

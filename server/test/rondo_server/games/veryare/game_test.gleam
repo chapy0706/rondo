@@ -268,18 +268,18 @@ pub fn oni_moves_to_stage_when_exploration_starts_test() {
   position(exploring, "a").space |> should.equal(Stage)
 }
 
-/// 待機ルームは半径2mの円。外へ出ようとすると円の縁に丸める。
+/// 待機ルームは半径 3.5 m の円（ADR 0044）。外へ出ようとすると円の縁に丸める。
 pub fn movement_is_clamped_to_circular_waiting_room_test() {
-  game.waiting_room_radius |> should.equal(2.0)
+  game.waiting_room_radius |> should.equal(3.5)
   let p = start() |> game.move("a", 9.0, 0.0) |> position("a")
   p.space |> should.equal(WaitingRoom)
-  { float.absolute_value(p.x -. 2.0) <. 0.0001 } |> should.be_true
+  { float.absolute_value(p.x -. 3.5) <. 0.0001 } |> should.be_true
   { float.absolute_value(p.z) <. 0.0001 } |> should.be_true
 
   // 斜めでも中心からの距離は半径以内
   let q = start() |> game.move("a", 3.0, 3.0) |> position("a")
   let distance = q.x *. q.x +. q.z *. q.z
-  { distance <. 4.0001 } |> should.be_true
+  { distance <. 12.2501 } |> should.be_true
 }
 
 /// 円の内側なら、そのままの位置に動ける。

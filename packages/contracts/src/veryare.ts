@@ -245,3 +245,36 @@ export interface VeryareOpenDoorEvent {
 	readonly type: "open-door";
 	readonly door: VeryareEdge;
 }
+
+/**
+ * 待機ルームのメンバー1人（issue-59 / ADR 0044）。位置はサーバーが円に丸めた後の値（小数第 2 位）、
+ * 向きは 0.05 rad 単位に丸めた値。向きをまだ報告していなければ null。pose は待機ポーズ（ゲームの
+ * 隠れ側のポーズとは別）で、選んでいなければ null。名前は載せない（参加者の一覧から引く）。
+ */
+export interface VeryareWaitingMember {
+	readonly playerId: PlayerId;
+	readonly x: number;
+	readonly z: number;
+	readonly facing: number | null;
+	readonly pose: VeryareModelPose | null;
+}
+
+/**
+ * 待機ルームのメンバーの通知（issue-59 / ADR 0044）。鬼選出の間だけ、待機ルームにいる人間の参加者
+ * 全員をまとめて、全員へ送る（CPU は載せない）。変わったときだけ、150 ms の間隔で送る。途中参加・
+ * 再接続の人には、本人宛てで今の様子を送る。ステージに移ったら送らない。ステージの位置は載らない。
+ */
+export interface VeryareMembersNotice {
+	readonly type: "members";
+	readonly members: readonly VeryareWaitingMember[];
+}
+
+/**
+ * 待機ポーズの変更（issue-59）。game-event の payload として送る。サーバーは、鬼選出の間だけ、
+ * VERYARE_MODEL_POSES の識別子だけを受け付け、同じ人の変更は 0.3 秒あける。変わった待機ポーズは、
+ * メンバーの通知で全員に届く。
+ */
+export interface VeryareWaitingPoseEvent {
+	readonly type: "waiting-pose";
+	readonly pose: VeryareModelPose;
+}

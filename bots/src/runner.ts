@@ -17,6 +17,7 @@ import type {
 	VeryarePaint,
 	VeryarePaintEvent,
 	VeryareShootEvent,
+	VeryareWaitingPoseEvent,
 } from "@rondo/contracts";
 // ボットは Node の型除去で直接動くため、契約の入口（index.ts）は型としてだけ使い、
 // 実行時に要る規則はファイルを直接読む（issue-58）。
@@ -25,6 +26,8 @@ import { Bot, type CreateSocket } from "./client.ts";
 import {
 	type ScenarioResult,
 	checkGameEnded,
+	checkMembers,
+	checkMembersStopped,
 	checkRoomName,
 	checkTargeted,
 } from "./expect.ts";
@@ -103,6 +106,7 @@ export async function runScenario(
 			plan: undefined,
 			at: new Map(),
 			problems: [],
+			bots,
 		};
 		if (scenario.roomName !== undefined) {
 			// 参加する前の一覧で、整えた名前（規則は契約の normalizeRoomName）が載っているか。
@@ -192,6 +196,17 @@ export async function runScenario(
 				problems.push(`退出した ${name} に game-ended が届いた`);
 			}
 		}
+		// 鬼選出の後に、待機の通知が届いていないこと（issue-59）。
+		if (scenario.waitingSync === true) {
+			for (const [name, bot] of bots) {
+				problems.push(
+					...checkMembersStopped(
+						name,
+						bot.received.map((r) => r.message),
+					),
+				);
+			}
+		}
 		if (scenario.targeted === true) {
 			problems.push(
 				...checkTargeted(
@@ -228,6 +243,8 @@ interface Context {
 	readonly at: Map<string, Cell>;
 	/** 確かめで見つかった問題。 */
 	readonly problems: string[];
+	/** ルームの全ボット（待機ルームの同期の確かめで、全員の受け取りを見る / issue-59）。 */
+	readonly bots: ReadonlyMap<string, Bot>;
 }
 
 function act(
@@ -241,6 +258,30 @@ function act(
 		case "touch-area":
 			move(bot, roomId, 0, 0);
 			break;
+		case "waiting-pose": {
+			const payload: VeryareWaitingPoseEvent = {
+				type: "waiting-pose",
+				pose: action.pose,
+			};
+			bot.send({ type: "game-event", gameType: GAME_TYPE, roomId, payload });
+			break;
+		}
+		case "expect-members": {
+			const expected = action.members.map((m) => ({
+				playerId: idOf(m.bot) ?? m.bot,
+				x: m.x,
+				z: m.z,
+				pose: m.pose,
+			}));
+			const logs = new Map(
+				[...context.bots].map(
+					([name, each]) =>
+						[name, each.received.map((r) => r.message)] as const,
+				),
+			);
+			context.problems.push(...checkMembers(action.check, expected, logs));
+			break;
+		}
 		case "move":
 			move(bot, roomId, action.x, action.z);
 			break;

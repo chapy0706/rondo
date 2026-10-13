@@ -3,10 +3,11 @@ import { scenarios } from "./scenarios.ts";
 import { BOTS_PHASE_DIVISOR, SERVER_DEFAULTS, scaled } from "./timing.ts";
 
 describe("scenarios - 宣言の整合（書き間違いを、サーバーなしで見つける）", () => {
-	it("issue-49 の4つと、issue-27 の全員発見、issue-29b の壁越し・襖越し、issue-25 のペイント、issue-44 の平屋、issue-45 の平屋の射撃、issue-56 のポーズがそろっている", () => {
+	it("issue-49 の4つと、issue-27 の全員発見、issue-29b の壁越し・襖越し、issue-25 のペイント、issue-44 の平屋、issue-45 の平屋の射撃、issue-56 のポーズ、issue-59 の待機の同期がそろっている", () => {
 		expect(scenarios.map((s) => s.name)).toEqual([
 			"時間切れで隠れ側の勝ち",
 			"鬼の離脱で隠れ側の勝ち",
+			"待機ルームのメンバーの同期",
 			"人数が足りず不成立",
 			"被りによる全員失格で鬼の勝ち",
 			"全員発見で鬼の勝ち",
@@ -24,6 +25,12 @@ describe("scenarios - 宣言の整合（書き間違いを、サーバーなし�
 			const bots = new Set(scenario.bots);
 			expect(bots.size).toBe(scenario.bots.length);
 			for (const step of scenario.steps) expect(bots).toContain(step.bot);
+			for (const step of scenario.steps) {
+				if (step.action.type !== "expect-members") continue;
+				for (const member of step.action.members) {
+					expect(bots).toContain(member.bot);
+				}
+			}
 			for (const bot of scenario.receivers) expect(bots).toContain(bot);
 			for (const row of scenario.rankings) expect(bots).toContain(row.bot);
 			// 結果の行は、1位から順に並べて書く。

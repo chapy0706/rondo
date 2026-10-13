@@ -1,6 +1,12 @@
 import type { RealtimeResult, ServerMessage } from "@rondo/contracts";
 import { describe, expect, it } from "vitest";
-import { checkGameEnded, checkTargeted, formatTable } from "./expect.ts";
+import {
+	checkGameEnded,
+	checkMembers,
+	checkMembersStopped,
+	checkTargeted,
+	formatTable,
+} from "./expect.ts";
 import type { Scenario } from "./scenario.ts";
 import { details } from "./scenario.ts";
 
@@ -200,5 +206,83 @@ describe("formatTable - 結果の表", () => {
 				"| 不成立 | 失敗 | 0.9秒 | a / b |",
 			].join("\n"),
 		);
+	});
+});
+
+describe("待機ルームのメンバーの確かめ（issue-59）", () => {
+	const members = (
+		list: readonly {
+			playerId: string;
+			x: number;
+			z: number;
+			pose: string | null;
+		}[],
+	): ServerMessage => ({
+		type: "game-state",
+		gameType: "veryare",
+		roomId: "room-1",
+		payload: {
+			type: "members",
+			members: list.map((m) => ({ ...m, facing: null })),
+		},
+	});
+	const phase = (name: string): ServerMessage => ({
+		type: "game-state",
+		gameType: "veryare",
+		roomId: "room-1",
+		payload: { type: "phase", phase: name },
+	});
+	const b = { playerId: "p-b", x: 1.5, z: 1, pose: "femaleDance" };
+	const expected = [{ playerId: "p-b", x: 1.5, z: 1, pose: "femaleDance" }];
+
+	it("全員の最新のメンバーの通知が同じで、期待する位置とポーズなら、問題なし", () => {
+		const log = [members([{ ...b, x: 0, pose: null }]), members([b])];
+		expect(
+			checkMembers(
+				"同期",
+				expected,
+				new Map([
+					["bot-a", log],
+					["bot-b", [members([b])]],
+				]),
+			),
+		).toEqual([]);
+	});
+
+	it("届いていない・位置やポーズが違う・人によって違うなら、確かめの名前を添えて問題にする", () => {
+		const problems = checkMembers(
+			"同期",
+			expected,
+			new Map([
+				["bot-a", [members([{ ...b, x: 1.6 }])]],
+				["bot-b", [members([{ ...b, pose: null }])]],
+				["bot-c", []],
+			]),
+		);
+		expect(problems).toEqual([
+			"同期: bot-a に届いた p-b は (1.6, 1)・femaleDance（期待は (1.5, 1)・femaleDance）",
+			"同期: bot-b に届いた p-b は (1.5, 1)・null（期待は (1.5, 1)・femaleDance）",
+			"同期: bot-c にメンバーの通知が届いていない",
+			"同期: 最新のメンバーの通知が、ボットによって違う",
+		]);
+	});
+
+	it("鬼選出の後（フェーズが変わった後）に届いた待機の通知は、問題にする", () => {
+		expect(
+			checkMembersStopped("bot-a", [
+				members([b]),
+				phase("oni-selection"),
+				members([b]),
+				phase("preparation"),
+				phase("painting"),
+			]),
+		).toEqual([]);
+		expect(
+			checkMembersStopped("bot-a", [
+				phase("preparation"),
+				members([b]),
+				members([b]),
+			]),
+		).toEqual(["bot-a に、鬼選出の後で待機の通知が 2 通届いた"]);
 	});
 });

@@ -1,0 +1,96 @@
+{
+	"membersNotice": {
+		"valid": [
+			{
+				"type": "members",
+				"members": []
+			},
+			{
+				"type": "members",
+				"members": [
+					{
+						"playerId": "p-1",
+						"x": 2,
+						"z": 0,
+						"facing": 1.55,
+						"pose": "femaleDance"
+					},
+					{
+						"playerId": "p-2",
+						"x": -1.25,
+						"z": 0.5,
+						"facing": null,
+						"pose": null
+					}
+				]
+			}
+		],
+		"invalid": [
+			{
+				"type": "members"
+			},
+			{
+				"type": "members",
+				"members": [
+					{
+						"playerId": "p-1",
+						"x": "2",
+						"z": 0,
+						"facing": null,
+						"pose": null
+					}
+				]
+			},
+			{
+				"type": "members",
+				"members": [
+					{
+						"playerId": "p-1",
+						"x": 2,
+						"z": 0,
+						"facing": null,
+						"pose": "standing"
+					}
+				]
+			},
+			{
+				"type": "hiders",
+				"members": []
+			}
+		]
+	},
+	"waitingPose": {
+		"valid": [
+			{
+				"type": "waiting-pose",
+				"pose": "femaleDance"
+			},
+			{
+				"type": "waiting-pose",
+				"pose": "idle"
+			}
+		],
+		"invalid": [
+			{
+				"type": "waiting-pose",
+				"pose": "standing"
+			},
+			{
+				"type": "waiting-pose",
+				"pose": "unknown"
+			},
+			{
+				"type": "waiting-pose"
+			},
+			{
+				"type": "waiting-pose",
+				"pose": null
+			},
+			{
+				"type": "paint",
+				"paint": null,
+				"pose": "idle"
+			}
+		]
+	}
+}

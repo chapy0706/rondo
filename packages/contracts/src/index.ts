@@ -62,6 +62,9 @@ export type {
 	VeryareOpenDoorEvent,
 	VeryareStageDoor,
 	VeryareStageNotice,
+	VeryareMembersNotice,
+	VeryareWaitingMember,
+	VeryareWaitingPoseEvent,
 } from "./veryare";
 export {
 	VERYARE_CPU_POSES,

@@ -178,3 +178,101 @@ export function checkRoomName(
 	}
 	return problems;
 }
+
+/** 期待する待機ルームのメンバー（issue-59）。playerId はサーバーが発行した識別子。 */
+export interface ExpectedMember {
+	readonly playerId: string;
+	readonly x: number;
+	readonly z: number;
+	readonly pose: string | null;
+}
+
+interface WaitingMemberLike {
+	readonly playerId: string;
+	readonly x: number;
+	readonly z: number;
+	readonly pose: string | null;
+}
+
+/** 電文が待機ルームのメンバーの通知なら、そのメンバーの一覧。 */
+function membersOf(
+	message: ServerMessage,
+): readonly WaitingMemberLike[] | null {
+	if (message.type !== "game-state" && message.type !== "game-state-to") {
+		return null;
+	}
+	const payload = message.payload as { type?: unknown; members?: unknown };
+	if (payload.type !== "members" || !Array.isArray(payload.members)) {
+		return null;
+	}
+	return payload.members as WaitingMemberLike[];
+}
+
+function isPhaseOtherThanSelection(message: ServerMessage): boolean {
+	if (message.type !== "game-state") return false;
+	const payload = message.payload as { type?: unknown; phase?: unknown };
+	return payload.type === "phase" && payload.phase !== "oni-selection";
+}
+
+/** 位置の比べ方（サーバーが小数第 2 位に丸めるので、その半分まで許す）。 */
+const POSITION_TOLERANCE = 0.005;
+
+/**
+ * 待機ルームのメンバーの確かめ（issue-59）。ボットごとの受け取った電文（logs）の、最新のメンバーの
+ * 通知に、期待するメンバーが同じ位置・ポーズで載っているか。全員の最新が同じ内容か。
+ */
+export function checkMembers(
+	check: string,
+	expected: readonly ExpectedMember[],
+	logs: ReadonlyMap<string, readonly ServerMessage[]>,
+): string[] {
+	const problems: string[] = [];
+	const latest: string[] = [];
+	for (const [name, messages] of logs) {
+		const notices = messages
+			.map(membersOf)
+			.filter((m): m is readonly WaitingMemberLike[] => m !== null);
+		const last = notices.at(-1);
+		if (last === undefined) {
+			problems.push(`${check}: ${name} にメンバーの通知が届いていない`);
+			continue;
+		}
+		latest.push(JSON.stringify(last));
+		for (const want of expected) {
+			const got = last.find((m) => m.playerId === want.playerId);
+			const same =
+				got !== undefined &&
+				Math.abs(got.x - want.x) <= POSITION_TOLERANCE &&
+				Math.abs(got.z - want.z) <= POSITION_TOLERANCE &&
+				got.pose === want.pose;
+			if (!same) {
+				const seen =
+					got === undefined
+						? "なし"
+						: `(${got.x}, ${got.z})・${got.pose ?? "null"}`;
+				problems.push(
+					`${check}: ${name} に届いた ${want.playerId} は ${seen}（期待は (${want.x}, ${want.z})・${want.pose ?? "null"}）`,
+				);
+			}
+		}
+	}
+	if (new Set(latest).size > 1) {
+		problems.push(`${check}: 最新のメンバーの通知が、ボットによって違う`);
+	}
+	return problems;
+}
+
+/**
+ * 鬼選出の後（鬼選出以外のフェーズの通知の後）に、待機の通知が届いていないか（issue-59）。
+ */
+export function checkMembersStopped(
+	name: string,
+	messages: readonly ServerMessage[],
+): string[] {
+	const start = messages.findIndex(isPhaseOtherThanSelection);
+	if (start < 0) return [];
+	const late = messages.slice(start).filter((m) => membersOf(m) !== null);
+	return late.length === 0
+		? []
+		: [`${name} に、鬼選出の後で待機の通知が ${late.length} 通届いた`];
+}
