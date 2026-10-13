@@ -50,11 +50,20 @@ export const test = base.extend<{ openTab: () => Promise<Tab> }>({
 	},
 });
 
-/** 選択画面で veryare を選ぶ（中央へ寄せると、入口のボタンが出る）。 */
-async function chooseVeryare(page: Page): Promise<void> {
+/**
+ * 選択画面で veryare を選ぶ（中央へ寄せると、入口のボタンが出る）。veryare は棚の先頭で、開いた
+ * ときから選択中のことがある（issue-46 で先頭へ移した）。選択中のカードを押すとゲームが起動して
+ * しまうので、選択中でないときだけカードを押して中央へ寄せる。
+ */
+export async function chooseVeryare(page: Page): Promise<void> {
 	await page.goto("/select");
-	const card = page.getByRole("link", { name: VERYARE_TITLE, exact: true });
-	await card.click();
+	const title = page.locator('[aria-live="polite"] p').first();
+	await expect(title).not.toBeEmpty();
+	if ((await title.textContent()) !== VERYARE_TITLE) {
+		const card = page.getByRole("link", { name: VERYARE_TITLE, exact: true });
+		await card.click();
+	}
+	await expect(title).toHaveText(VERYARE_TITLE);
 	await expect(page.getByRole("link", { name: "新しく遊ぶ" })).toBeVisible();
 }
 

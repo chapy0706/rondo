@@ -46,12 +46,46 @@ make e2e/result   # シナリオ5（鬼選出から結果画面まで。約2分�
 - 通信の遮断は、そのタブの WebSocket の経路で行う。サーバー側の接続を切り、ページ側は開いたまま黙らせる（応答のない回線と同じ見え方）。ブラウザ全体のオフラインの切り替えは、開いている WebSocket に効かないことがあるため使わない
 - 待ち時間は秒数ではなく、画面の状態（`data-testid` と `data-color`）を待つ
 
+## 拡張の E2E（issue-52）
+
+スマホの端末設定・WebKit・素材の失敗・テスト用の口・タッチ・見た目の比較。`make e2e` とは別に動かす（Makefile には入れていない）。
+
+```bash
+# 初回だけ（ネットワークを使う）
+pnpm --filter @rondo/e2e exec playwright install chromium webkit
+
+# make dev-all を止めてから（web を別のポート 3102 と、別の環境変数で起動するため）
+pnpm --filter @rondo/e2e e2e:extended
+pnpm --filter @rondo/e2e e2e:extended --project mobile-webkit   # 端末設定を1つに絞る
+```
+
+- 設定: `e2e/playwright.extended.config.ts`。web は、テスト用の口（`NEXT_PUBLIC_RONDO_TEST_HOOKS=1`）を有効にし、素材の基準 URL を実在しないホスト（`http://assets.e2e.invalid`）にして起動する。素材のリクエストは、テストごとに `page.route` で差し替える（`e2e/tests/extended/assetRoutes.ts`）
+- 端末設定: `desktop`（Desktop Chrome）、`mobile-chrome`（Pixel 7。縦画面・タッチ）、`mobile-webkit`（iPhone 13。WebKit）。WebKit は Safari と同じエンジンだが、実機の iPhone の代わりではない（実機の確認は `docs/visual-checks.md`）
+- 流すもの: issue-48 の主要シナリオ（`smoke.e2e.ts`）と、`e2e/tests/extended/` の E2E
+
+| E2E | 確かめること |
+| --- | --- |
+| 素材の失敗（4種） | 体の glb が 404・壊れた glb・応答しない（15 秒で中止）、manifest が無い。原因が記録され（`[assets] ...`）、体は仮のカプセルのまま、2人目が入ると円が緑になる（画面が止まらない） |
+| 素材の正常 | 小さな骨つきの体（テストの中で組み立てる glb。本素材は使わない）に、待機ルームの間に差し替わる |
+| テスト用の口 | フェーズ・自分の位置・視点の向き・開いている襖の数・見えている隠れ側の数・体が素材かを、数値で読める（画面の data 属性と一致する） |
+| テスト用の口が無い | `make e2e`（口なしで起動）で、`window.__rondoTest` が無い（`e2e/tests/hooks-absent.e2e.ts`） |
+| 2本の指のタッチ | 移動パッドと視点パッドを同時に倒すと、位置と視点の向きが変わり、離すと止まる。Chromium の CDP（`Input.dispatchTouchEvent`）で送るので、`mobile-chrome` だけで流す。WebKit には複数の指のタッチを送る手段が無い |
+| 見た目の比較 | 選択画面・ロビー（ルームの一覧は、撮るときだけ畳む）・つながらないときの失敗の表示を、基準画像と比べる。結果画面は `make e2e/result` のシナリオ5で比べる（名前は隠す） |
+
+見た目の比較:
+
+- 許容の範囲: 画素の 1% まで（`maxDiffPixelRatio: 0.01`）。アニメーションは止めて撮る。毎回変わる所は、ルームの一覧は撮るときだけ畳み、結果画面の名前は覆って隠す。開発サーバーの道具のボタンは、撮るときの CSS（`e2e/tests/screenshot.css`）で消す
+- 基準画像: `e2e/tests/extended/visual.e2e.ts-snapshots/` と `e2e/tests/result.e2e.ts-snapshots/`。端末設定と OS ごとに別の画像になる（いまの基準は macOS で作った。別の OS で流すときは、その OS で作り直す）。素材の映る画面（平屋、キャラクター）の基準画像は入れない
+- 画面を変えたとき: `--update-snapshots` で作り直し、差分（`e2e/playwright-report/`）を目で確かめてからコミットする
+
+目視でしか確かめられない項目の一覧は `docs/visual-checks.md`。
+
 ## 手作業で確かめる項目（自動化していないもの）
 
 - 本番（Cloudflare 経由）で、無操作の待機ルームが2〜3分維持される（手順は issue-41 の報告）
 - スマホの実機（画面ロック、アプリの切り替え、着信）での切断と復帰（ADR 0013）
 - 実際の回線の断（Wi-Fi を切る、機内モード）で、約50秒後に再接続または「つながりません」に移る（ブラウザの無通信の検知）
-- ジョイスティックでの移動と、中央の円に自分で入ったときの立候補
+- 中央の円に自分で入ったときの立候補（2本の指のパッドの操作は、拡張の E2E の Chromium で確かめる。実機は `docs/visual-checks.md`）
 - 見た目（3D の描画、円の色、結果画面のレイアウト、スマホの縦画面）
 - リロードでの復帰（sessionStorage の復帰先。E2E は1つのページの中の切断だけを扱う）
 - 返事の前に画面を離れたときの取り残し（ルームの人数が戻ること / issue-47）

@@ -6,6 +6,7 @@
 
 import { expect } from "@playwright/test";
 import {
+	chooseVeryare,
 	expectArea,
 	joinFromLobby,
 	playNew,
@@ -110,8 +111,7 @@ test("シナリオ4: 接続の失敗（遮断したまま新しく遊ぶ → 約
 }) => {
 	const a = await openTab();
 	await a.link.goOffline();
-	await a.page.goto("/select");
-	await a.page.getByRole("link", { name: "veryare", exact: true }).click();
+	await chooseVeryare(a.page);
 	await a.page.getByRole("link", { name: "新しく遊ぶ" }).click();
 	const started = Date.now();
 

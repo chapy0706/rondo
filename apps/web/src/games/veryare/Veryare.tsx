@@ -749,19 +749,6 @@ export default function Veryare() {
 					: {}),
 			});
 			sceneRef.current = scene;
-			// テスト用の口（テスト用の環境変数があるときだけ / testHooks.ts）。条件は、この場で環境変数を
-			// 比べる（ビルド時に false に置き換わり、口の読み込みごと本番の配るファイルから消える）。
-			if (process.env.NEXT_PUBLIC_RONDO_TEST_HOOKS === "1") {
-				void import("./testHooks").then(({ installVeryareTestHook }) => {
-					if (disposed) return;
-					removeTestHook = installVeryareTestHook(
-						true,
-						window as unknown as Record<string, unknown>,
-						() => sceneRef.current,
-					);
-				});
-			}
-
 			const fit = () => scene.resize(canvas.clientWidth, canvas.clientHeight);
 			fit();
 			observer = new ResizeObserver(fit);
@@ -774,6 +761,25 @@ export default function Veryare() {
 			let followRate = 0;
 			/** 視点パッドを最後に触った時刻（ミリ秒）。触っていなければ、ずっと前。 */
 			let lookTouchedAt = Number.NEGATIVE_INFINITY;
+			// テスト用の口（テスト用の環境変数があるときだけ / testHooks.ts）。条件は、この場で環境変数を
+			// 比べる（ビルド時に false に置き換わり、口の読み込みごと本番の配るファイルから消える）。
+			// ゲームの状態は、描画ループと同じ値（手元の位置、視点の向き）を読むだけで、書き換えない。
+			if (process.env.NEXT_PUBLIC_RONDO_TEST_HOOKS === "1") {
+				void import("./testHooks").then(({ installVeryareTestHook }) => {
+					if (disposed) return;
+					removeTestHook = installVeryareTestHook(
+						true,
+						window as unknown as Record<string, unknown>,
+						() => sceneRef.current,
+						() => ({
+							phase: latest.current.phase,
+							position: positionRef.current,
+							yaw,
+							openDoors: latest.current.openDoors.size,
+						}),
+					);
+				});
+			}
 			const reduceMotion = window.matchMedia(
 				"(prefers-reduced-motion: reduce)",
 			);

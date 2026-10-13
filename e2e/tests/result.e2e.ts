@@ -78,6 +78,10 @@ test("シナリオ5: 鬼選出から結果画面まで @result", async ({ openTa
 	await expect(screen).toContainText("2位");
 	await expect(screen).toContainText("隠れる側");
 	await expect(screen).toContainText("逃げ切り");
+	// 見た目の比較（issue-52）。名前は毎回変わるので隠す。許容は playwright.config.ts の範囲。
+	await expect(screen).toHaveScreenshot("result.png", {
+		mask: [screen.locator("li span.text-white")],
+	});
 	// 結果画面から、ロビーへ戻れる。
 	await b.page.getByRole("button", { name: "退出する" }).click();
 	await expect(b.page).toHaveURL(/\/lobby\/veryare$/);

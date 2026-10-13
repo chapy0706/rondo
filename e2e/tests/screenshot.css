@@ -1,0 +1,5 @@
+/* 見た目の比較で撮るときだけ当てる（issue-52）。開発サーバーの道具のボタン（Next.js の Dev Tools）は、
+   開発中だけ出て中身が変わるので、隠す。 */
+nextjs-portal {
+	display: none !important;
+}
