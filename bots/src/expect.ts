@@ -79,12 +79,35 @@ function rowMatches(expected: ExpectedRow, actual: RankingEntry): boolean {
 	);
 }
 
+/**
+ * 見逃しポイントといいね（issue-32）。値は隠れた場所と鬼の動きで変わるので、期待には書かず、隠れ側の
+ * 行に 0 以上の整数として載っていることだけを確かめる。
+ */
+const SCORE_KEYS = ["見逃し", "いいね"] as const;
+
+function isCount(value: string | number | undefined): boolean {
+	return value !== undefined && /^\d+$/.test(String(value));
+}
+
+/**
+ * 期待に書いたキーがすべて同じ値で、それ以外のキーは見逃し・いいねだけ。隠れ側の行には、見逃し・
+ * いいねが 0 以上の整数で載っている。
+ */
 function sameDetails(
-	a: Readonly<Record<string, string | number>>,
-	b: Readonly<Record<string, string | number>>,
+	expected: Readonly<Record<string, string | number>>,
+	actual: Readonly<Record<string, string | number>>,
 ): boolean {
-	const keys = new Set([...Object.keys(a), ...Object.keys(b)]);
-	return [...keys].every((key) => a[key] === b[key]);
+	const listed = Object.keys(expected).every(
+		(key) => expected[key] === actual[key],
+	);
+	const extra = Object.keys(actual).filter(
+		(key) =>
+			!(key in expected) && !(SCORE_KEYS as readonly string[]).includes(key),
+	);
+	const counts =
+		expected.役割 !== "隠れる側" ||
+		SCORE_KEYS.every((key) => key in expected || isCount(actual[key]));
+	return listed && extra.length === 0 && counts;
 }
 
 function formatDetails(d: Readonly<Record<string, string | number>>): string {

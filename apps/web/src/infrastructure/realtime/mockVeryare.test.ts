@@ -184,7 +184,13 @@ describe("veryareScript - 終了の通知（issue-42）", () => {
 				bot.name,
 				1,
 				1,
-				{ 役割: "隠れる側", 結果: "勝ち", 状態: "逃げ切り" },
+				{
+					役割: "隠れる側",
+					結果: "勝ち",
+					状態: "逃げ切り",
+					見逃し: "0",
+					いいね: "0",
+				},
 			]),
 			["me", "user1", 2, 0, { 役割: "鬼", 結果: "負け" }],
 		]);
@@ -199,6 +205,8 @@ describe("veryareScript - 終了の通知（issue-42）", () => {
 			役割: "隠れる側",
 			結果: "勝ち",
 			状態: "発見・失格・離脱",
+			見逃し: "0",
+			いいね: "0",
 		});
 		const oni = message.result.rankings.at(-1);
 		expect(oni?.playerId).toBe(MOCK_BOTS[0]?.playerId);

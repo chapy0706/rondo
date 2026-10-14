@@ -33,7 +33,11 @@ const result: RealtimeResult = {
 			playerId: "p-b",
 			name: "bot-b",
 			rank: 1,
-			result: { score: 1, details: details.hiderWon },
+			// 見逃し・いいね（issue-32）は値が変わるので、期待には書かない。
+			result: {
+				score: 1,
+				details: { ...details.hiderWon, 見逃し: "12", いいね: "1" },
+			},
 		},
 		{
 			playerId: "p-a",
@@ -58,6 +62,38 @@ describe("checkGameEnded - game-ended の検査", () => {
 			["bot-b", ended()],
 		]);
 		expect(checkGameEnded(scenario, ids, got)).toEqual([]);
+	});
+
+	it("隠れ側の行に、見逃し・いいねが 0 以上の整数で無い・ほかの余計なキーがあれば、食い違いとして挙げる", () => {
+		const withDetails = (d: Record<string, string>): RealtimeResult => ({
+			order: "higher-is-better",
+			rankings: [
+				{
+					playerId: "p-b",
+					name: "bot-b",
+					rank: 1,
+					result: { score: 1, details: d },
+				},
+				{
+					playerId: "p-a",
+					name: "bot-a",
+					rank: 2,
+					result: { score: 0, details: details.oniLost },
+				},
+			],
+		});
+		for (const d of [
+			{ ...details.hiderWon },
+			{ ...details.hiderWon, 見逃し: "-1", いいね: "0" },
+			{ ...details.hiderWon, 見逃し: "3", いいね: "x" },
+			{ ...details.hiderWon, 見逃し: "3", いいね: "0", 余計: "1" },
+		]) {
+			const got = new Map([
+				["bot-a", ended(withDetails(d))],
+				["bot-b", ended(withDetails(d))],
+			]);
+			expect(checkGameEnded(scenario, ids, got)).toHaveLength(1);
+		}
 	});
 
 	it("届いていないボットを挙げる", () => {

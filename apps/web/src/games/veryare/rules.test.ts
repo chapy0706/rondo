@@ -441,3 +441,29 @@ describe("射撃（issue-27）- 鬼の画面の判断", () => {
 		expect(foundByShot("p-2", null, ["p-3"])).toBe(false);
 	});
 });
+
+describe("viewOf - 答え合わせの隠れ場所の視点（issue-32 / ADR 0036）", () => {
+	const base = {
+		phase: "reveal" as const,
+		role: "hider" as const,
+		spectator: false,
+		choseOni: false,
+		oniKnown: true,
+		you: "b",
+	};
+
+	it("答え合わせで隠れ場所を選んでいれば、その隠れ側を中心にした視点", () => {
+		expect(viewOf({ ...base, revealTarget: "c" })).toEqual({ hider: "c" });
+		expect(viewOf({ ...base, role: "oni", revealTarget: "c" })).toEqual({
+			hider: "c",
+		});
+	});
+
+	it("自分の隠れ場所・選んでいない・答え合わせの外では、これまでどおり", () => {
+		expect(viewOf({ ...base, revealTarget: "b" })).toBe("self");
+		expect(viewOf({ ...base, revealTarget: null })).toBe("self");
+		expect(viewOf({ ...base, phase: "exploration", revealTarget: "c" })).toBe(
+			"self",
+		);
+	});
+});

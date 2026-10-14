@@ -6,7 +6,9 @@
 /// どうかは「状態」で区別する。不成立は全員 1 位・score 0 とする。
 ///
 /// 答え合わせタイム（ADR 0033）で全員の位置は公開済みなので、誰が逃げ切ったかは全員へ
-/// 送ってよい（ADR 0021）。見逃しポイント・いいね（ADR 0036）は issue-32 で足す。
+/// 送ってよい（ADR 0021）。隠れ側の行には、見逃しポイントといいね（ADR 0036 / issue-32）も載せる。
+/// どちらも勝敗（順位・score）には使わない。
+import gleam/int
 import gleam/list
 import gleam/option.{Some}
 import gleam/set
@@ -43,6 +45,8 @@ fn standings(game: Game(id), outcome: Outcome) -> List(Standing(id)) {
           }
           row(id, outcome == HidersWin, [#("役割", "隠れる側")], [
             #("状態", status),
+            #("見逃し", int.to_string(game.missed_points_of(game, id))),
+            #("いいね", int.to_string(game.likes_of(game, id))),
           ])
         })
       case oni_won {

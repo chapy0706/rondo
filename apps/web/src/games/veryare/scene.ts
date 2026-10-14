@@ -248,6 +248,11 @@ export interface VeryareScene extends TestableScene {
 	/** 画面の中央（照準）に重なっている隠れ側の ID。重なっていなければ null（issue-27）。 */
 	pickHider(): string | null;
 	/**
+	 * 鬼の視界に入っている隠れ側（issue-32 / ADR 0036）。体の低い所か高い所が、カメラの視界の中に
+	 * あり、壁と閉じた襖の箱（狙いの当たりと同じ）に遮られていなければ、見えているとする。
+	 */
+	sightedHiders(): string[];
+	/**
 	 * 鬼の狙い（タップ）。画面の点（-1〜1）からカメラを通る線を引き、最初に当たったもの（隠れ側の体、
 	 * 壁、床）の位置と、それが体なら隠れ側の ID。何にも当たらなければ null。
 	 */
@@ -695,13 +700,28 @@ export function createScene(
 	const cameraFull = fullReach(cameraSet);
 	let cameraReachNow = cameraFull;
 	/** 前の描画のカメラの中心（替わったら、寄せずに合わせる）。 */
-	let cameraCenterKind: "self" | "oni" | null = null;
+	let cameraCenterKind: string | null = null;
 
 	const cameraCenter = () => {
+		// 答え合わせで選んだ隠れ側の隠れ場所（issue-32）。体が無ければ、自分の視点。
+		if (typeof view === "object") {
+			const id = view.hider;
+			const target = hiderGroup.children.find(
+				(child) => child.userData.playerId === id,
+			);
+			if (target !== undefined) {
+				return {
+					kind: `hider:${id}`,
+					x: target.position.x,
+					z: target.position.z,
+					feet: target.position.y,
+				};
+			}
+		}
 		const onOni = view === "oni" && oni.visible;
 		const body = onOni ? oni.position : avatar.object.position;
 		return {
-			kind: onOni ? ("oni" as const) : ("self" as const),
+			kind: onOni ? "oni" : "self",
 			x: body.x,
 			z: body.z,
 			feet: onOni ? oniFeet : avatarFeet,
@@ -1311,6 +1331,43 @@ export function createScene(
 				if (typeof id === "string") return id;
 			}
 			return null;
+		},
+		sightedHiders() {
+			placeCamera();
+			camera.updateMatrixWorld();
+			const origin = camera.position.clone();
+			const raycaster = new THREE.Raycaster();
+			const seen: string[] = [];
+			for (const body of bodiesOf()) {
+				// しゃがむ・寝るポーズでも当たるよう、低い所（体の高さの 15%）と、高い所（50%）を見る。
+				const visible = [0.15, 0.5].some((ratio) => {
+					const point = new THREE.Vector3(
+						body.x,
+						body.feet + BODY_HEIGHT * ratio,
+						body.z,
+					);
+					const ndc = point.clone().project(camera);
+					if (
+						ndc.z < -1 ||
+						ndc.z > 1 ||
+						Math.abs(ndc.x) > 1 ||
+						Math.abs(ndc.y) > 1
+					) {
+						return false;
+					}
+					const toward = point.clone().sub(origin);
+					const distance = toward.length();
+					if (distance === 0) return true;
+					raycaster.set(origin, toward.normalize());
+					raycaster.far = distance;
+					const [wall] = spaces.stage.visible
+						? raycaster.intersectObjects(boxGroup.children, false)
+						: [];
+					return wall === undefined || wall.distance >= distance - 0.05;
+				});
+				if (visible) seen.push(body.id);
+			}
+			return seen;
 		},
 		pickAim(x, y) {
 			placeCamera();

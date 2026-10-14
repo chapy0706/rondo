@@ -29,6 +29,11 @@
 /// 起きたときに、最後に送った内容と違えば送る。張った後に step が進んでいたら送らず、まだ鬼選出
 /// なら張り直す。途中参加・再接続の人には、本人宛てで今の様子を送る。待機ポーズの変更
 /// （waiting-pose）は、受けた時刻を付けて状態機械に渡す（受け付けるかは状態機械が決める）。
+///
+/// 見逃しポイントといいね（issue-32 / ADR 0036）: 探索の開始に 0.5 秒ごとのタイマーを張り、起きる
+/// たびに、まだ隠れている隠れ側へ見逃しポイントを足す（試合中は誰にも送らず、結果の行にだけ載せる）。
+/// 人間の鬼の視界の報告（sight）は、状態機械に渡す。答え合わせの間のいいね（like）で数が変わったら、
+/// いいねの数を全員へ送る。勝敗には使わない。
 import gleam/dict
 import gleam/dynamic.{type Dynamic}
 import gleam/dynamic/decode
@@ -48,6 +53,7 @@ import rondo_server/games/veryare/hider_cpu.{
 }
 import rondo_server/games/veryare/hiraya
 import rondo_server/games/veryare/members
+import rondo_server/games/veryare/missed_events
 import rondo_server/games/veryare/oni_cpu.{type Strength}
 import rondo_server/games/veryare/paint
 import rondo_server/games/veryare/palette
@@ -99,6 +105,10 @@ pub const members_interval_ms = 150
 /// メンバーの通知のタイマーの token の上限。フェーズのタイマー（step、0 以上）とも、鬼 CPU の tick
 /// （-1 - step）とも重ならないよう、これ以下の値を使う。
 const members_token_base = -1_000_000
+
+/// 見逃しポイントのタイマーの token の上限（issue-32）。メンバーの通知の token（-1_000_000 - step）
+/// とも重ならないよう、これ以下の値を使う。
+const missed_token_base = -2_000_000
 
 /// ルームに加える CPU。
 pub type CpuChoice {
@@ -354,7 +364,7 @@ fn wrap(state: Game(PlayerId), pick: fn(Int) -> Int) -> Driver(PlayerId) {
                         game.set_waiting_pose(state, player, chosen, now_ms()),
                         pick,
                       )
-                    Error(_) -> moved(state, player, payload, pick)
+                    Error(_) -> missed_event(state, player, payload, pick)
                   }
               }
           }
@@ -362,10 +372,16 @@ fn wrap(state: Game(PlayerId), pick: fn(Int) -> Int) -> Driver(PlayerId) {
     },
     on_leave: fn(player) { step(state, game.leave(state, player), pick) },
     on_wake: fn(token) {
-      case token <= members_token_base, token == tick_token(state) {
-        True, _ -> members_woke(state, token, pick)
-        False, True -> ticked(state, game.tick(state), pick)
-        False, False -> step(state, game.advance(state, token, pick), pick)
+      case
+        token <= missed_token_base,
+        token <= members_token_base,
+        token == tick_token(state)
+      {
+        True, _, _ -> missed_woke(state, token, pick)
+        False, True, _ -> members_woke(state, token, pick)
+        False, False, True -> ticked(state, game.tick(state), pick)
+        False, False, False ->
+          step(state, game.advance(state, token, pick), pick)
       }
     },
     on_join: fn(player) {
@@ -385,7 +401,11 @@ fn wrap(state: Game(PlayerId), pick: fn(Int) -> Int) -> Driver(PlayerId) {
     [
       driver.Deliver([player], stage_payload(state)),
       driver.Deliver([player], stage_notice.doors_payload(state.open_doors)),
-      ..list.append(hiders_resend(state, player), members_resend(state, player))
+      ..list.flatten([
+        hiders_resend(state, player),
+        members_resend(state, player),
+        likes_resend(state, player),
+      ])
     ]
   })
 }
@@ -441,6 +461,11 @@ fn step(
     True -> []
     False -> [driver.Broadcast(hiding_payload(after))]
   }
+  // いいねが変わったら、いいねの数を全員へ送る（issue-32）。
+  let hiding = case after.likes == before.likes {
+    True -> hiding
+    False -> list.append(hiding, [driver.Broadcast(likes_payload(after))])
+  }
   // 開いている襖が変わったら（開ける報告・鬼 CPU・フェーズの切り替え）、全員へ送る（issue-29b）。
   let hiding = case after.open_doors == before.open_doors {
     True -> hiding
@@ -453,6 +478,75 @@ fn step(
     wrap(after, pick),
     list.flatten([effects, hiding, finish(before, after), members_timer]),
   )
+}
+
+// --- 見逃しポイントといいね（issue-32 / ADR 0036） ------------------------------------------
+
+fn missed_token(state: Game(PlayerId)) -> Int {
+  missed_token_base - state.step
+}
+
+/// 見逃しポイントのタイマーが起きた。探索中で、張った時と同じ step なら足して、張り直す。
+fn missed_woke(
+  state: Game(PlayerId),
+  token: Int,
+  pick: fn(Int) -> Int,
+) -> #(Driver(PlayerId), List(Effect(PlayerId))) {
+  case token == missed_token(state) && state.phase == Exploration {
+    True -> {
+      let #(next, effects) = step(state, game.award_missed(state), pick)
+      #(
+        next,
+        list.append(effects, [
+          driver.WakeAfter(game.missed_tick_ms, missed_token(state)),
+        ]),
+      )
+    }
+    False -> #(wrap(state, pick), [])
+  }
+}
+
+/// 視界の報告（sight）といいね（like）。どちらでもなければ、移動の報告として読む。
+fn missed_event(
+  state: Game(PlayerId),
+  player: PlayerId,
+  payload: Dynamic,
+  pick: fn(Int) -> Int,
+) -> #(Driver(PlayerId), List(Effect(PlayerId))) {
+  case decode.run(payload, missed_events.sight_decoder()) {
+    Ok(ids) ->
+      step(
+        state,
+        game.report_sight(state, player, list.map(ids, PlayerId)),
+        pick,
+      )
+    Error(_) ->
+      case decode.run(payload, missed_events.like_decoder()) {
+        Ok(target) ->
+          step(state, game.like(state, player, PlayerId(target)), pick)
+        Error(_) -> moved(state, player, payload, pick)
+      }
+  }
+}
+
+/// いいねの数（探索の開始の時点で隠れていた隠れ側ごと。0 を含む）。
+fn likes_payload(state: Game(PlayerId)) -> Dynamic {
+  state.exploration_hiders
+  |> list.map(fn(id) { #(id, game.likes_of(state, id)) })
+  |> missed_events.likes_payload
+}
+
+/// 答え合わせ・終了の後に入り直した人へ、いいねがあれば、本人宛てで今の数を送る。
+fn likes_resend(
+  state: Game(PlayerId),
+  player: PlayerId,
+) -> List(Effect(PlayerId)) {
+  case state.phase, dict.is_empty(state.likes) {
+    Reveal(_), False | Ended(_), False -> [
+      driver.Deliver([player], likes_payload(state)),
+    ]
+    _, _ -> []
+  }
 }
 
 // --- 待機ルームのメンバー（issue-59 / ADR 0044） ----------------------------------------
@@ -619,6 +713,11 @@ fn phase_effects(state: Game(PlayerId)) -> List(Effect(PlayerId)) {
     Exploration -> [driver.Broadcast(hiders_payload(state))]
     _ -> []
   }
+  // 探索の開始から、0.5 秒ごとに見逃しポイントを足す（issue-32）。
+  let missed = case state.phase {
+    Exploration -> [driver.WakeAfter(game.missed_tick_ms, missed_token(state))]
+    _ -> []
+  }
   // 鬼 CPU がいれば、探索の開始から 0.5秒ごとに歩かせる。
   let walking = case game.oni_cpu_active(state) {
     True -> [driver.WakeAfter(tick_ms, tick_token(state))]
@@ -628,7 +727,7 @@ fn phase_effects(state: Game(PlayerId)) -> List(Effect(PlayerId)) {
     Some(ms) -> [driver.WakeAfter(ms, state.step)]
     None -> []
   }
-  list.flatten([[notice], snapshot, timer, walking])
+  list.flatten([[notice], snapshot, timer, walking, missed])
 }
 
 // --- 電文 ----------------------------------------------------------------

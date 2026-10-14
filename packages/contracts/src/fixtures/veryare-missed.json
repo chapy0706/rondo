@@ -1,0 +1,103 @@
+{
+	"sight": {
+		"valid": [
+			{
+				"type": "sight",
+				"playerIds": []
+			},
+			{
+				"type": "sight",
+				"playerIds": ["p-2", "p-3"]
+			}
+		],
+		"invalid": [
+			{
+				"type": "sight"
+			},
+			{
+				"type": "sight",
+				"playerIds": "p-2"
+			},
+			{
+				"type": "sight",
+				"playerIds": [1]
+			},
+			{
+				"type": "like",
+				"playerIds": []
+			}
+		]
+	},
+	"like": {
+		"valid": [
+			{
+				"type": "like",
+				"target": "p-2"
+			}
+		],
+		"invalid": [
+			{
+				"type": "like"
+			},
+			{
+				"type": "like",
+				"target": null
+			},
+			{
+				"type": "like",
+				"target": 2
+			},
+			{
+				"type": "sight",
+				"target": "p-2"
+			}
+		]
+	},
+	"likesNotice": {
+		"valid": [
+			{
+				"type": "likes",
+				"likes": []
+			},
+			{
+				"type": "likes",
+				"likes": [
+					{
+						"playerId": "p-2",
+						"count": 2
+					},
+					{
+						"playerId": "p-3",
+						"count": 0
+					}
+				]
+			}
+		],
+		"invalid": [
+			{
+				"type": "likes"
+			},
+			{
+				"type": "likes",
+				"likes": [
+					{
+						"playerId": "p-2",
+						"count": "2"
+					}
+				]
+			},
+			{
+				"type": "likes",
+				"likes": [
+					{
+						"count": 1
+					}
+				]
+			},
+			{
+				"type": "hiding",
+				"likes": []
+			}
+		]
+	}
+}

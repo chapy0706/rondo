@@ -39,6 +39,7 @@ import gleam/set.{type Set}
 import rondo_server/games/veryare/grid.{type Edge, type Grid}
 import rondo_server/games/veryare/hider_cpu.{type Placement}
 import rondo_server/games/veryare/hiraya
+import rondo_server/games/veryare/missed
 import rondo_server/games/veryare/oni_cpu.{type OniCpu, type Strength}
 import rondo_server/games/veryare/overlap
 import rondo_server/games/veryare/paint
@@ -235,6 +236,16 @@ pub type Game(id) {
     members_sent: List(WaitingMember(id)),
     /// メンバーの通知を送るタイマーを張っているか（issue-59）。張っている間は重ねて張らない。
     members_scheduled: Bool,
+    /// 見逃しポイント（issue-32 / ADR 0036）。探索中、0.5 秒ごとに、まだ隠れている隠れ側へ足す。
+    /// 見つかった後は足さず、それまでのポイントは残す。勝敗には使わない。
+    missed_points: Dict(id, Int),
+    /// 見逃しポイントの計算のパラメータ（実際に遊んで調整する前提）。
+    missed_params: missed.Params,
+    /// 人間の鬼が最後に報告した、視界に入っている隠れ側（壁越しを除く / 鬼のクライアントの判定）。
+    /// 報告のたびに置き換える。鬼 CPU のときは使わず、鬼 CPU の視界（seen）を使う。
+    sighted: Set(id),
+    /// いいね（issue-32）。隠れ側 → 送った人。1人が同じ隠れ側に送れるのは1回まで。勝敗には使わない。
+    likes: Dict(id, Set(id)),
   )
 }
 
@@ -328,6 +339,10 @@ fn start_on(
     waiting_pose_at: dict.new(),
     members_sent: [],
     members_scheduled: False,
+    missed_points: dict.new(),
+    missed_params: missed.default,
+    sighted: set.new(),
+    likes: dict.new(),
   )
 }
 
@@ -606,6 +621,110 @@ fn is_waiting_human(game: Game(id), player: id) -> Bool {
 fn round_to(value: Float, step: Float) -> Float {
   let stepped = int.to_float(float.round(value /. step)) *. step
   int.to_float(float.round(stepped *. 100.0)) /. 100.0
+}
+
+// --- 見逃しポイントといいね（issue-32 / ADR 0036） ------------------------------------------
+
+/// 見逃しポイントを足す間隔（ミリ秒）。
+pub const missed_tick_ms = 500
+
+/// 人間の鬼の視界の報告。探索中の鬼だけが送れ、まだ隠れている人だけを残して、前の報告と置き換える。
+/// 鬼が CPU のときは無視する（鬼 CPU の視界を使う）。
+pub fn report_sight(game: Game(id), player: id, ids: List(id)) -> Game(id) {
+  case game.phase, game.oni, game.oni_cpu {
+    Exploration, Some(oni), None if oni == player ->
+      Game(
+        ..game,
+        sighted: ids
+          |> list.filter(fn(id) { set.contains(game.still_hiding, id) })
+          |> set.from_list,
+      )
+    _, _, _ -> game
+  }
+}
+
+/// 0.5 秒ぶんの見逃しポイントを、まだ隠れている隠れ側へ足す。距離は鬼の位置から測り、視界は人間の
+/// 鬼なら最後の報告、鬼 CPU なら鬼 CPU の視界。探索中でなければ何もしない。
+pub fn award_missed(game: Game(id)) -> Game(id) {
+  case game.phase, game.oni {
+    Exploration, Some(oni) ->
+      case dict.get(game.positions, oni) {
+        Ok(Position(Stage, ox, oz)) -> {
+          let in_sight = case game.oni_cpu {
+            Some(_) -> set.from_list(game.seen)
+            None -> game.sighted
+          }
+          let points =
+            game.players
+            |> list.filter(fn(id) { set.contains(game.still_hiding, id) })
+            |> list.fold(game.missed_points, fn(points, id) {
+              case dict.get(game.positions, id) {
+                Ok(Position(Stage, x, z)) -> {
+                  let distance =
+                    sqrt(
+                      { x -. ox } *. { x -. ox } +. { z -. oz } *. { z -. oz },
+                    )
+                  let gained =
+                    missed.award(
+                      game.missed_params,
+                      distance,
+                      set.contains(in_sight, id),
+                    )
+                  case gained > 0 {
+                    True ->
+                      dict.insert(
+                        points,
+                        id,
+                        missed_points_of(game, id) + gained,
+                      )
+                    False -> points
+                  }
+                }
+                _ -> points
+              }
+            })
+          Game(..game, missed_points: points)
+        }
+        _ -> game
+      }
+    _, _ -> game
+  }
+}
+
+/// その人の見逃しポイント（無ければ 0）。
+pub fn missed_points_of(game: Game(id), player: id) -> Int {
+  dict.get(game.missed_points, player) |> result_or(0)
+}
+
+/// いいね。答え合わせの間、人間の参加者が、探索の開始の時点で隠れていた隠れ側へ送れる。自分には
+/// 送れず、同じ隠れ側へは1回まで。
+pub fn like(game: Game(id), sender: id, target: id) -> Game(id) {
+  let senders = dict.get(game.likes, target) |> result_or(set.new())
+  case
+    game.phase,
+    is_waiting_human(game, sender),
+    list.contains(game.exploration_hiders, target),
+    sender != target && !set.contains(senders, sender)
+  {
+    Reveal(_), True, True, True ->
+      Game(
+        ..game,
+        likes: dict.insert(game.likes, target, set.insert(senders, sender)),
+      )
+    _, _, _, _ -> game
+  }
+}
+
+/// その隠れ側が受け取ったいいねの数。
+pub fn likes_of(game: Game(id), target: id) -> Int {
+  dict.get(game.likes, target) |> result_or(set.new()) |> set.size
+}
+
+fn result_or(value: Result(a, Nil), default: a) -> a {
+  case value {
+    Ok(inner) -> inner
+    Error(Nil) -> default
+  }
 }
 
 /// 発見。探索フェーズ中の、まだ隠れている隠れ側だけが対象。

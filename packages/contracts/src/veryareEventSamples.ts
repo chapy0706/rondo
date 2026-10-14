@@ -9,10 +9,13 @@
 
 import type {
 	VeryareDoorsNotice,
+	VeryareLikeEvent,
+	VeryareLikesNotice,
 	VeryareMembersNotice,
 	VeryareOpenDoorEvent,
 	VeryarePaintEvent,
 	VeryareShootEvent,
+	VeryareSightEvent,
 	VeryareStageNotice,
 	VeryareWaitingPoseEvent,
 } from "./veryare";
@@ -189,3 +192,27 @@ export const waitingPoseEventSamples = [
 	{ type: "waiting-pose", pose: "femaleDance" },
 	{ type: "waiting-pose", pose: "idle" },
 ] satisfies VeryareWaitingPoseEvent[];
+
+/**
+ * 見逃しポイントといいねの見本（issue-32）。fixtures/veryare-missed.json の各 valid と一致させる。
+ * Gleam 側は同じ JSON を読む（server/test/rondo_server/games/veryare/missed_fixture_test.gleam）。
+ */
+export const sightEventSamples = [
+	{ type: "sight", playerIds: [] },
+	{ type: "sight", playerIds: ["p-2", "p-3"] },
+] satisfies VeryareSightEvent[];
+
+export const likeEventSamples = [
+	{ type: "like", target: "p-2" },
+] satisfies VeryareLikeEvent[];
+
+export const likesNoticeSamples = [
+	{ type: "likes", likes: [] },
+	{
+		type: "likes",
+		likes: [
+			{ playerId: "p-2", count: 2 },
+			{ playerId: "p-3", count: 0 },
+		],
+	},
+] satisfies VeryareLikesNotice[];

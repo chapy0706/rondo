@@ -247,6 +247,37 @@ export interface VeryareOpenDoorEvent {
 }
 
 /**
+ * 鬼の視界の報告（issue-32 / ADR 0036）。探索フェーズの間、人間の鬼のクライアントが 0.5 秒ごとに、
+ * カメラの視界に遮るものなく入っている隠れ側（壁越しを除く）を、game-event の payload として送る。
+ * 圏内（距離）の判定と、見逃しポイントの加算はサーバーが行う（性善説 / ADR 0035）。
+ */
+export interface VeryareSightEvent {
+	readonly type: "sight";
+	readonly playerIds: readonly PlayerId[];
+}
+
+/**
+ * いいね（issue-32 / ADR 0036）。答え合わせの間、隠れていた隠れ側へ送る。game-event の payload。
+ * 1人が同じ隠れ側に送れるのは1回まで、自分自身には送れない（サーバーが決める）。
+ */
+export interface VeryareLikeEvent {
+	readonly type: "like";
+	readonly target: PlayerId;
+}
+
+/**
+ * いいねの数の通知（issue-32）。答え合わせの間、数が変わるたびに全員へ送る。探索の開始の時点で
+ * 隠れていた隠れ側ごとに、受け取った数（0 を含む）。途中参加・再接続の人には、本人宛てで送る。
+ */
+export interface VeryareLikesNotice {
+	readonly type: "likes";
+	readonly likes: readonly {
+		readonly playerId: PlayerId;
+		readonly count: number;
+	}[];
+}
+
+/**
  * 待機ルームのメンバー1人（issue-59 / ADR 0044）。位置はサーバーが円に丸めた後の値（小数第 2 位）、
  * 向きは 0.05 rad 単位に丸めた値。向きをまだ報告していなければ null。pose は待機ポーズ（ゲームの
  * 隠れ側のポーズとは別）で、選んでいなければ null。名前は載せない（参加者の一覧から引く）。

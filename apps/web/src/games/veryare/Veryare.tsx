@@ -55,6 +55,13 @@ import {
 import { cameraSettings } from "./camera";
 import { browserStorage, loadCeiling, saveCeiling } from "./ceilingSetting";
 import { isHirayaStage } from "./hiraya";
+import {
+	canLike,
+	likeEvent,
+	parseLikesNotice,
+	revealTargets,
+	stepRevealTarget,
+} from "./likes";
 import { HIRAYA_DEV, roofToggleAllowed, veryareManifest } from "./manifest";
 import {
 	type Members,
@@ -146,6 +153,7 @@ import {
 	missText,
 	shotLogMessage,
 } from "./shotHint";
+import { canReportSight, shouldReportSight, sightEvent } from "./sightReport";
 import {
 	type StageGrid,
 	doorToOpen,
@@ -350,6 +358,13 @@ export default function Veryare() {
 	const [memberView, setMemberView] = useState(() =>
 		membersSummary(NO_MEMBERS),
 	);
+	/** いいねの数（答え合わせの間に届く。隠れ側ごと / issue-32）と、自分が送った相手。 */
+	const [likes, setLikes] = useState<ReadonlyMap<string, number>>(
+		() => new Map(),
+	);
+	const [liked, setLiked] = useState<ReadonlySet<string>>(() => new Set());
+	/** 答え合わせで見ている隠れ場所（issue-32）。null は自分の視点。 */
+	const [revealTarget, setRevealTarget] = useState<string | null>(null);
 	/** 通知の購読の中で、いまのフェーズを読むための参照（遅れて届いた members を捨てる）。 */
 	const phaseRef = useRef<Phase>("oni-selection");
 
@@ -416,6 +431,11 @@ export default function Veryare() {
 			membersRef.current = next;
 			setMemberView(membersSummary(next));
 		});
+		// いいねの数（issue-32）。答え合わせの間、変わるたびに全員へ届く。
+		const offLikes = on("likes", (payload) => {
+			const next = parseLikesNotice(payload);
+			if (next !== null) setLikes(next);
+		});
 		const offStage = on("stage", (payload) => {
 			const next = parseStageNotice(payload);
 			if (next !== null) setGrid(next);
@@ -425,6 +445,7 @@ export default function Veryare() {
 			if (next !== null) setOpenDoors(next);
 		});
 		return () => {
+			offLikes();
 			offMembers();
 			offStage();
 			offDoors();
@@ -455,13 +476,21 @@ export default function Veryare() {
 	const spectator = isSpectator(phase, role, hiding, you);
 	const oniVisible =
 		(phase === "exploration" || phase === "reveal") && oniState !== null;
+	// 答え合わせの外では、隠れ場所の視点を外す（次の答え合わせは自分の視点から始める / issue-32）。
+	useEffect(() => {
+		if (phase !== "reveal") setRevealTarget(null);
+	}, [phase]);
 	const view = viewOf({
 		phase,
 		role,
 		spectator,
 		choseOni,
 		oniKnown: oniState !== null,
+		revealTarget,
+		you,
 	});
+	// 鬼の視界の報告（issue-32）。探索中の鬼だけが、0.5 秒ごとに送る。
+	const sightActive = canReportSight({ phase, role, spectator });
 	// 観戦者は移動できない（サーバー側でも、準備移動の後の隠れ側の移動は無視される）。
 	const movable = notice !== null && canMove(phase, role) && !spectator;
 	// ほかの人の画面の鬼は、描画のたびに補間する（oniTrack.ts）。鬼本人の画面では、通知の位置の
@@ -497,6 +526,15 @@ export default function Veryare() {
 		you,
 	);
 	const painting = canPaintWhileWaiting(phase, role);
+	// 答え合わせの隠れ場所の切り替えと、いいね（issue-32）。
+	const targets = revealTargets(hiders);
+	const nameOf = (id: string) => names.get(id) ?? "隠れ側";
+	const likeable = canLike({ phase, target: revealTarget, you, liked });
+	const onLike = () => {
+		if (!likeable || revealTarget === null) return;
+		send(likeEvent(revealTarget));
+		setLiked((current) => new Set([...current, revealTarget]));
+	};
 	// 待機ルームのポーズボタン（issue-59）。素材の体のときだけ出す。押すたびに、いまと違うポーズへ
 	// ランダムに変え、waiting-pose を送る。サーバーの間と同じだけ、ボタンを止める。
 	const waitingPoseShown =
@@ -774,6 +812,7 @@ export default function Veryare() {
 		modelShown,
 		setModelShown,
 		showPaintPanel,
+		sightActive,
 		aim,
 		pose,
 		poseChosen,
@@ -809,6 +848,7 @@ export default function Veryare() {
 		modelShown,
 		setModelShown,
 		showPaintPanel,
+		sightActive,
 		aim,
 		pose,
 		poseChosen,
@@ -889,6 +929,8 @@ export default function Veryare() {
 			let sentFacing: number | null = null;
 			/** 鬼本人の体の向き（動ける間の視点の向き。移動の報告と同じ値 / issue-46）。 */
 			let selfFacing = 0;
+			/** 最後に視界を報告した時刻（issue-32）。探索の外では null に戻す。 */
+			let lastSight: number | null = null;
 
 			const loop = (time: number) => {
 				const dt = Math.min((time - last) / 1000, 0.1);
@@ -1020,6 +1062,13 @@ export default function Veryare() {
 				);
 				scene.setCamera(yaw, pitch);
 				scene.render();
+				// 鬼の視界の報告（issue-32）。描いたばかりのカメラで、壁越しを除いて見えている隠れ側を送る。
+				if (!current.sightActive) {
+					lastSight = null;
+				} else if (shouldReportSight(time, lastSight)) {
+					current.send(sightEvent(scene.sightedHiders()));
+					lastSight = time;
+				}
 				frame = requestAnimationFrame(loop);
 			};
 			frame = requestAnimationFrame(loop);
@@ -1149,6 +1198,75 @@ export default function Veryare() {
 				>
 					{roofVisible ? "屋根を隠す" : "屋根を表示する"}
 				</button>
+			) : null}
+			{phase === "reveal" && targets.length > 0 ? (
+				<div
+					className="flex flex-col gap-2 rounded-xl bg-surface px-3 py-2 ring-1 ring-line ring-inset"
+					data-testid="veryare-reveal"
+					data-reveal-target={revealTarget ?? ""}
+				>
+					<p className="text-fg text-sm">
+						{revealTarget === null
+							? "自分の視点"
+							: `${nameOf(revealTarget)}${revealTarget === you ? "（自分）" : ""}の隠れ場所`}
+						{revealTarget !== null
+							? ` ・いいね ${likes.get(revealTarget) ?? 0}`
+							: ""}
+					</p>
+					<div className="flex gap-2">
+						<button
+							type="button"
+							onClick={() =>
+								setRevealTarget((current) =>
+									stepRevealTarget(targets, current, -1),
+								)
+							}
+							className="min-h-11 flex-1 rounded-xl bg-ink px-3 font-semibold text-fg text-sm ring-1 ring-line ring-inset"
+						>
+							前の隠れ場所
+						</button>
+						<button
+							type="button"
+							onClick={() =>
+								setRevealTarget((current) =>
+									stepRevealTarget(targets, current, 1),
+								)
+							}
+							className="min-h-11 flex-1 rounded-xl bg-ink px-3 font-semibold text-fg text-sm ring-1 ring-line ring-inset"
+						>
+							次の隠れ場所
+						</button>
+					</div>
+					<div className="flex gap-2">
+						{revealTarget !== null ? (
+							<button
+								type="button"
+								onClick={() => setRevealTarget(null)}
+								className="min-h-11 flex-1 rounded-xl bg-ink px-3 font-semibold text-fg text-sm ring-1 ring-line ring-inset"
+							>
+								自分の視点
+							</button>
+						) : null}
+						{revealTarget !== null && revealTarget !== you ? (
+							<button
+								type="button"
+								data-testid="veryare-like"
+								disabled={!likeable}
+								onClick={onLike}
+								className="min-h-11 flex-1 rounded-xl bg-accent px-3 font-semibold text-accent-fg text-sm disabled:opacity-50"
+							>
+								{revealTarget !== null && liked.has(revealTarget)
+									? "いいね済み"
+									: "いいね"}
+							</button>
+						) : null}
+					</div>
+					{role === "hider" && you !== null ? (
+						<p className="text-fg-muted text-xs" data-testid="veryare-my-likes">
+							あなたへのいいね {likes.get(you) ?? 0}
+						</p>
+					) : null}
+				</div>
 			) : null}
 			{phase === "exploration" && role === "hider" && !spectator ? (
 				<button

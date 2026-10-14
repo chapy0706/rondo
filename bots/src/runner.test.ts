@@ -146,7 +146,14 @@ class FakeServer {
 					playerId: row.player,
 					name: this.names.get(row.player) ?? row.player,
 					rank: row.rank,
-					result: { score: row.score, details: row.details },
+					// 本物のサーバーと同じく、隠れ側の行には見逃し・いいねを載せる（issue-32）。
+					result: {
+						score: row.score,
+						details:
+							row.details.役割 === "隠れる側"
+								? { ...row.details, 見逃し: "0", いいね: "0" }
+								: row.details,
+					},
 				})),
 			},
 		});

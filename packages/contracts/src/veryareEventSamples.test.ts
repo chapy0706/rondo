@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import fixture from "./fixtures/veryare-events.json";
 import membersFixture from "./fixtures/veryare-members.json";
+import missedFixture from "./fixtures/veryare-missed.json";
 import movement from "./fixtures/veryare-movement.json";
 import paintFixture from "./fixtures/veryare-paint.json";
 import posesFixture from "./fixtures/veryare-poses.json";
@@ -13,10 +14,13 @@ import {
 } from "./veryare";
 import {
 	doorsNoticeSamples,
+	likeEventSamples,
+	likesNoticeSamples,
 	membersNoticeSamples,
 	openDoorEventSamples,
 	paintEventSamples,
 	shootEventSamples,
+	sightEventSamples,
 	stageNoticeSamples,
 	waitingPoseEventSamples,
 } from "./veryareEventSamples";
@@ -168,5 +172,25 @@ describe("待機ルームのメンバーの通知と待機ポーズの見本（i
 
 	it("拒むべきメンバーの通知（invalid）がある（Gleam の decoder がすべて拒むことを確かめる）", () => {
 		expect(membersFixture.membersNotice.invalid.length).toBeGreaterThan(0);
+	});
+});
+
+describe("見逃しポイントといいねの見本（issue-32 / ADR 0009）", () => {
+	it("視界の報告・いいね・いいねの数の通知の JSON の見本（valid）は、TS の型で書いた見本と一致する", () => {
+		expect(missedFixture.sight.valid).toEqual(
+			JSON.parse(JSON.stringify(sightEventSamples)),
+		);
+		expect(missedFixture.like.valid).toEqual(
+			JSON.parse(JSON.stringify(likeEventSamples)),
+		);
+		expect(missedFixture.likesNotice.valid).toEqual(
+			JSON.parse(JSON.stringify(likesNoticeSamples)),
+		);
+	});
+
+	it("拒むべき見本（invalid）がある（Gleam の decoder がすべて拒むことを確かめる）", () => {
+		expect(missedFixture.sight.invalid.length).toBeGreaterThan(0);
+		expect(missedFixture.like.invalid.length).toBeGreaterThan(0);
+		expect(missedFixture.likesNotice.invalid.length).toBeGreaterThan(0);
 	});
 });

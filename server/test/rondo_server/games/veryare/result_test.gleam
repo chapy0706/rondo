@@ -1,6 +1,8 @@
 //// 勝敗を基盤の順位へ写す（issue-42）。勝ちを 1 位、負けを 2 位にし、同じ順位を共有する。
 //// 判定そのものは状態機械（game）の終了遷移のまま使い、ここでは写すだけ。
 
+import gleam/dict
+import gleam/list
 import gleeunit/should
 import rondo_server/games/veryare/game.{type Game}
 import rondo_server/games/veryare/result
@@ -44,6 +46,9 @@ fn hider(id: String, rank: Int, score: Int, outcome: String, status: String) {
     #("役割", "隠れる側"),
     #("結果", outcome),
     #("状態", status),
+    // 見逃しポイントといいね（issue-32）。この節の対戦では、どちらも 0。
+    #("見逃し", "0"),
+    #("いいね", "0"),
   ])
 }
 
@@ -121,4 +126,26 @@ pub fn not_enough_players_ranks_everyone_first_with_zero_test() {
   |> should.equal([
     Standing(player: "a", rank: 1, score: 0, details: [#("結果", "不成立")]),
   ])
+}
+
+/// 隠れ側の行には、見逃しポイントといいねの数が載る（issue-32）。順位と score は変わらない。
+pub fn hider_rows_carry_missed_points_and_likes_test() {
+  let explored = exploration()
+  let decorated =
+    game.Game(..explored, missed_points: dict.from_list([#("c", 42)]))
+  let ended =
+    decorated
+    |> expire
+    |> game.like("a", "c")
+    |> game.like("b", "c")
+    |> expire
+  let assert Ok(#(_, standings)) = result.of(ended)
+  let assert Ok(c) = list.find(standings, fn(row) { row.player == "c" })
+  list.key_find(c.details, "見逃し") |> should.equal(Ok("42"))
+  list.key_find(c.details, "いいね") |> should.equal(Ok("2"))
+  let assert Ok(#(_, plain)) = result.of(explored |> expire |> expire)
+  list.map(standings, fn(row) { #(row.player, row.rank, row.score) })
+  |> should.equal(
+    list.map(plain, fn(row) { #(row.player, row.rank, row.score) }),
+  )
 }

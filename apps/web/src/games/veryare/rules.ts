@@ -202,11 +202,16 @@ export function isSpectator(
 }
 
 /** 画面の視点。self は自分の TPS 視点、oni は鬼を中央に固定した周回カメラ（ADR 0034）。 */
-export type View = "self" | "oni";
+/**
+ * カメラの中心。self は自分、oni は鬼（ADR 0034）、hider は答え合わせで選んだ隠れ側の隠れ場所
+ * （issue-32 / ADR 0036）。
+ */
+export type View = "self" | "oni" | { readonly hider: string };
 
 /**
  * 視点を決める。探索中に鬼の状態が届いていれば、観戦者と、鬼 TPS 視点を選んだ隠れ側は
- * 鬼 TPS 視点になる。鬼自身は常に自分の視点。
+ * 鬼 TPS 視点になる。鬼自身は常に自分の視点。答え合わせの間に、自分以外の隠れ場所を選んで
+ * いれば（revealTarget）、その隠れ側を中心にした視点（issue-32）。
  */
 export function viewOf(options: {
 	readonly phase: Phase;
@@ -214,8 +219,14 @@ export function viewOf(options: {
 	readonly spectator: boolean;
 	readonly choseOni: boolean;
 	readonly oniKnown: boolean;
+	readonly revealTarget?: string | null;
+	readonly you?: string | null;
 }): View {
 	const { phase, role, spectator, choseOni, oniKnown } = options;
+	const target = options.revealTarget ?? null;
+	if (phase === "reveal" && target !== null && target !== options.you) {
+		return { hider: target };
+	}
 	if (phase !== "exploration" || role !== "hider" || !oniKnown) return "self";
 	return spectator || choseOni ? "oni" : "self";
 }
