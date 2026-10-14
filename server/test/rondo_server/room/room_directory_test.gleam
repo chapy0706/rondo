@@ -1,12 +1,16 @@
 import gleam/dict
+import gleam/dynamic
 import gleam/erlang/process
 import gleam/int
 import gleam/list
 import gleam/option.{None}
 import gleeunit/should
+import rondo_server/games/veryare/game
 import rondo_server/games/veryare/oni_cpu
 import rondo_server/games/veryare/room as veryare
-import rondo_server/room/room_actor.{type RoomSpec, RoomId, RoomSpec}
+import rondo_server/room/room_actor.{
+  type RoomSpec, Player, PlayerId, RoomId, RoomSpec,
+}
 import rondo_server/room/room_directory.{LimitReached}
 import rondo_server/room/room_supervisor
 
@@ -74,4 +78,66 @@ pub fn dissolved_room_frees_a_slot_test() {
 
   room_directory.active_count(dir, veryare.game_type) |> should.equal(2)
   let assert Ok(_) = room_directory.open(dir, veryare_spec(4))
+}
+
+// --- 終わったルーム（issue-51 の上限の試験で見つかった問題） --------------------------------
+
+/// 3つのうち1つのゲームが終わる（不成立）と、人が残っていても、4つ目を作れる。終わったルームは、
+/// 同時ルーム数に数えない。終わったルームは、ID で引けるまま（残っている人の退出などのため）。
+pub fn finished_room_does_not_count_toward_the_limit_test() {
+  let dir = directory()
+  let quick =
+    veryare.spec_with(
+      RoomId("quick"),
+      veryare.Settings(40, veryare.NoCpu, oni_cpu.Normal),
+      game.Durations(
+        oni_selection_ms: 30,
+        preparation_ms: 30,
+        painting_ms: 30,
+        exploration_ms: 30,
+        reveal_ms: 30,
+        reload_ms: 30,
+      ),
+      fn(_) { 0 },
+    )
+  let assert Ok(room) = room_directory.open(dir, quick)
+  list.each([2, 3], fn(n) {
+    let assert Ok(_) = room_directory.open(dir, veryare_spec(n))
+  })
+  let assert Error(LimitReached) = room_directory.open(dir, veryare_spec(4))
+
+  // 2人で始め、a が立候補し、b が抜ける → カウントの終わりに不成立で終わる（a は残る）。
+  let assert Ok(Nil) = room_actor.join(room, Player(PlayerId("a"), "a"))
+  let assert Ok(Nil) = room_actor.join(room, Player(PlayerId("b"), "b"))
+  let assert Ok(Nil) = room_actor.start_game(room)
+  room_actor.game_event(room, PlayerId("a"), touch())
+  room_actor.leave(room, PlayerId("b"))
+  wait_until_finished(room, 50)
+
+  room_directory.active_count(dir, veryare.game_type) |> should.equal(2)
+  let assert Ok(_) = room_directory.open(dir, veryare_spec(4))
+  room_directory.find(dir, "quick") |> should.be_ok
+}
+
+fn touch() {
+  dynamic.properties([
+    #(dynamic.string("type"), dynamic.string("move")),
+    #(dynamic.string("x"), dynamic.float(0.0)),
+    #(dynamic.string("z"), dynamic.float(0.0)),
+  ])
+}
+
+fn wait_until_finished(room, tries: Int) -> Nil {
+  case room_actor.snapshot(room).status, tries {
+    room_actor.Finished, _ -> {
+      // 台帳へ知らせが届くまで、少し待つ。
+      process.sleep(20)
+      Nil
+    }
+    _, 0 -> panic as "ルームが終わらない"
+    _, _ -> {
+      process.sleep(20)
+      wait_until_finished(room, tries - 1)
+    }
+  }
 }

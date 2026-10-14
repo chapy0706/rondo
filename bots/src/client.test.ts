@@ -6,14 +6,22 @@ type Listener = (event: { readonly data?: unknown }) => void;
 
 class FakeSocket implements SocketLike {
 	readonly sent: ClientMessage[] = [];
+	/** 生のまま送られたもの（壊れた電文・バイナリ / issue-51）。 */
+	readonly raw: (string | Uint8Array)[] = [];
 	private readonly listeners: Record<string, Listener[]> = {};
 	addEventListener(type: string, listener: Listener): void {
 		const list = this.listeners[type] ?? [];
 		list.push(listener);
 		this.listeners[type] = list;
 	}
-	send(data: string): void {
-		this.sent.push(JSON.parse(data) as ClientMessage);
+	send(data: string | Uint8Array): void {
+		this.raw.push(data);
+		if (typeof data !== "string") return;
+		try {
+			this.sent.push(JSON.parse(data) as ClientMessage);
+		} catch {
+			// 壊れた電文は sent に入れない（raw にだけ残す）。
+		}
 	}
 	close(): void {
 		this.emit("close", {});
@@ -92,5 +100,46 @@ describe("Bot - 待ちの上限", () => {
 		);
 		await vi.advanceTimersByTimeAsync(1000);
 		await assertion;
+	});
+});
+
+describe("Bot - 試験の口（issue-51）", () => {
+	it("session の復帰トークンを控える", async () => {
+		const { bot } = await connected();
+		expect(bot.resumeToken).toBe("t");
+	});
+
+	it("受け取った電文のバイト数（UTF-8）を数える。壊れた電文も数える", async () => {
+		const { bot, socket } = await connected();
+		const before = bot.bytesReceived;
+		socket.deliver('{"type":"ping"}');
+		socket.deliver("あ");
+		expect(bot.bytesReceived - before).toBe(15 + 3);
+	});
+
+	it("生の電文（壊れた JSON・バイナリ）を、そのまま送れる", async () => {
+		const { bot, socket } = await connected();
+		bot.sendRaw("{");
+		bot.sendRaw(new Uint8Array([1, 2, 3]));
+		expect(socket.raw.slice(-2)).toEqual(["{", new Uint8Array([1, 2, 3])]);
+	});
+
+	it("再接続: 新しい接続で session を受けてから、ルームと復帰トークンで reconnect を送る（名前は送らない）", async () => {
+		const socket = new FakeSocket();
+		const pending = Bot.reconnect(
+			"ws://test/ws",
+			"bot-a",
+			() => socket,
+			"room-1",
+			"secret",
+			1000,
+		);
+		socket.emit("open", {});
+		socket.deliver({ type: "session", playerId: "p-9", resumeToken: "t2" });
+		const bot = await pending;
+		expect(socket.sent).toEqual([
+			{ type: "reconnect", roomId: "room-1", resumeToken: "secret" },
+		]);
+		expect(bot.name).toBe("bot-a");
 	});
 });

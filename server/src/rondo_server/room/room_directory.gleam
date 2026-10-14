@@ -3,6 +3,8 @@
 /// ルームの生成は room_supervisor に任せ、ここは「作ってよいか」の判断と数の管理だけを
 /// 持つ。上限は種別ごとの設定として受け取り、設定のない種別（Tilt Maze 等）は無制限の
 /// まま影響しない。ルームの終了（解散・異常終了）はプロセスの監視で検知して数を減らす。
+/// ゲームが終わったルーム（Finished。結果画面の人が残っている間）は、ルームからの知らせで
+/// 印を付け、同時ルーム数に数えない（issue-51。参加できず、一覧にも出ないため）。ID では引ける。
 /// 実接続（issue-31）のために、ルーム ID からルームを引く find と、種別ごとの列挙も持つ。
 import gleam/dict.{type Dict}
 import gleam/erlang/process.{type Pid, type Subject}
@@ -31,11 +33,19 @@ pub opaque type Message {
   )
   Rooms(game_type: String, reply: Subject(List(Subject(room_actor.Message))))
   RoomDown(process.Down)
+  /// ルームのゲームが終わった（room_actor.notify_when_finished の知らせ / issue-51）。
+  RoomFinished(room_id: String)
 }
 
 /// 生きているルーム1つ分の記録。
 type Entry {
-  Entry(game_type: String, room_id: String, room: Subject(room_actor.Message))
+  Entry(
+    game_type: String,
+    room_id: String,
+    room: Subject(room_actor.Message),
+    /// ゲームが終わったか。終わったルームは、同時ルーム数に数えない。
+    finished: Bool,
+  )
 }
 
 type State {
@@ -45,6 +55,8 @@ type State {
     limits: Dict(String, Int),
     /// 生きているルームのプロセスと、その種別・ID・送り先。
     active: Dict(Pid, Entry),
+    /// ルームから、ゲームが終わった知らせ（ルーム ID）を受け取る口。
+    finished: Subject(String),
   )
 }
 
@@ -54,11 +66,13 @@ pub fn start(
   limits: Dict(String, Int),
 ) -> actor.StartResult(Subject(Message)) {
   actor.new_with_initialiser(1000, fn(self) {
+    let finished = process.new_subject()
     let selector =
       process.new_selector()
       |> process.select(self)
+      |> process.select_map(finished, RoomFinished)
       |> process.select_monitors(RoomDown)
-    State(supervisor:, limits:, active: dict.new())
+    State(supervisor:, limits:, active: dict.new(), finished:)
     |> actor.initialised
     |> actor.selecting(selector)
     |> actor.returning(self)
@@ -92,7 +106,7 @@ pub fn rooms(
   process.call(directory, 1000, Rooms(game_type, _))
 }
 
-/// その種別の、いま生きているルーム数。
+/// その種別の、いま数えているルーム数（生きていて、ゲームが終わっていないもの）。
 pub fn active_count(directory: Subject(Message), game_type: String) -> Int {
   process.call(directory, 1000, ActiveCount(game_type, _))
 }
@@ -137,6 +151,19 @@ fn handle(state: State, message: Message) -> actor.Next(State, Message) {
       actor.continue(State(..state, active: dict.delete(state.active, pid)))
 
     RoomDown(process.PortDown(..)) -> actor.continue(state)
+
+    RoomFinished(room_id) ->
+      actor.continue(
+        State(
+          ..state,
+          active: dict.map_values(state.active, fn(_pid, entry) {
+            case entry.room_id == room_id {
+              True -> Entry(..entry, finished: True)
+              False -> entry
+            }
+          }),
+        ),
+      )
   }
 }
 
@@ -156,7 +183,14 @@ fn open_room(
           let _ = process.monitor(started.pid)
           let room_actor.RoomId(room_id) = spec.id
           let entry =
-            Entry(game_type: spec.game_type, room_id:, room: started.data)
+            Entry(
+              game_type: spec.game_type,
+              room_id:,
+              room: started.data,
+              finished: False,
+            )
+          // ゲームが終わったら、知らせてもらう（終わったルームは数えない）。
+          room_actor.notify_when_finished(started.data, state.finished)
           let active = dict.insert(state.active, started.pid, entry)
           #(State(..state, active:), Ok(started.data))
         }
@@ -168,5 +202,5 @@ fn open_room(
 fn count(state: State, game_type: String) -> Int {
   state.active
   |> dict.values
-  |> list.count(fn(entry) { entry.game_type == game_type })
+  |> list.count(fn(entry) { entry.game_type == game_type && !entry.finished })
 }

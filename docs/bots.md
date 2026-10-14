@@ -73,6 +73,10 @@ make bots ARGS="--only 不成立"    # シナリオ名の一部で絞る
 - `action` は `touch-area`（立候補）、`move`、`leave`（退出）、`stay`（何もしない）、`hide`（隠れ側として、`index` 番目の散らばる場所へ動く。隠れ側ごとに違う番号にする）、`go`（`pickDoorShot` で選んだマス `c`・`s`・`r`・`w` へ、`doors`（`"open"` か `"closed"`）の扱いで道を探して歩く）、`open-door`（選んだ襖を開ける報告）、`expect-hiding`（確かめ。`check` の名前、`target` のボット、`hiding` で、まだ隠れているはずか・見つかっているはずかを書く。落ちると、結果の表の「問題」に `check` の名前が出る）、`shoot`（鬼として撃つ。`target` はボットの名前か `null`）、`paint`（隠れ側として、`color` の点を1つ描いたストローク1本でペイントを確定する）、`expect-paint`（確かめ。探索の開始に届いた一括配信で、`target` のペイントが `color` のストロークか。落ちると `check` の名前が出る）。`delayMs` で、引き金から動くまで待てる足すときは `bots/src/scenario.ts` の `Action` と、`bots/src/runner.ts` の `act` に足す
 - 書き間違い（参加していないボットを指す、など）は、`bots/src/scenarios.test.ts` が `make verify` で見つける
 
+## 負荷・長時間・乱れた通信・不正な入力（issue-51）
+
+同じボットの仕組みで、上限・同時負荷・乱れた通信・不正な入力・長時間の放置を試す。動かし方と結果は `docs/load-tests.md`（`./tools/load.sh limits|load|chaos|garbage|soak`）。
+
 ## 失敗したとき
 
 - 表の「問題」に、どのボットに何が届かなかったか、どの行が違ったか（期待と実際）が出る

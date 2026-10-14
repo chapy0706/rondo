@@ -142,6 +142,9 @@ pub type Message {
   Resync(player: PlayerId)
   /// ルームを明示的に解散する。
   Dissolve
+  /// ゲームが終わった（Finished に移った）ときに、ルーム ID を知らせる先を登録する（issue-51）。
+  /// ルーム台帳が、終わったルームを同時ルーム数に数えないために使う。すでに終わっていれば、すぐ知らせる。
+  NotifyWhenFinished(watcher: Subject(String))
   /// ゲームが WakeAfter で頼んだタイマーの満了（内部用）。
   Wake(token: Int)
 }
@@ -166,6 +169,8 @@ type State {
     /// これまでに参加した人の表示名（CPU を含む）。離脱しても消さない。ゲーム終了の
     /// 結果に、途中で離脱した人の名前も載せるため（issue-42）。
     names: Dict(PlayerId, String),
+    /// ゲームが終わったときに、ルーム ID を知らせる先（issue-51 / ルーム台帳）。
+    finish_watchers: List(Subject(String)),
   )
 }
 
@@ -188,6 +193,7 @@ pub fn start(spec: RoomSpec) -> actor.StartResult(Subject(Message)) {
       names: spec.bots
         |> list.map(fn(bot) { #(bot.id, bot.name) })
         |> dict.from_list,
+      finish_watchers: [],
     )
     |> actor.initialised
     |> actor.returning(self)
@@ -205,6 +211,14 @@ pub fn join_and_subscribe(
   outbox: Subject(ServerMessage),
 ) -> Result(Nil, JoinError) {
   process.call(room, 1000, JoinAndSubscribe(player, outbox, _))
+}
+
+/// ゲームが終わったときに、ルーム ID を watcher へ知らせてもらう（issue-51）。
+pub fn notify_when_finished(
+  room: Subject(Message),
+  watcher: Subject(String),
+) -> Nil {
+  process.send(room, NotifyWhenFinished(watcher))
 }
 
 pub fn join(room: Subject(Message), player: Player) -> Result(Nil, JoinError) {
@@ -303,6 +317,15 @@ fn handle(state: State, message: Message) -> actor.Next(State, Message) {
     }
 
     Dissolve -> actor.stop()
+    NotifyWhenFinished(watcher) -> {
+      case state.status {
+        Finished -> process.send(watcher, room_id_of(state))
+        _ -> Nil
+      }
+      actor.continue(
+        State(..state, finish_watchers: [watcher, ..state.finish_watchers]),
+      )
+    }
   }
 }
 
@@ -423,7 +446,8 @@ fn handle_game_event(
     Playing, None, Some(current) -> {
       let updated = authority.record(current, player, payload)
       case authority.is_over(updated) {
-        True ->
+        True -> {
+          announce_finished(state)
           actor.continue(
             State(
               ..state,
@@ -432,6 +456,7 @@ fn handle_game_event(
               result: Some(authority.outcome(updated)),
             ),
           )
+        }
         False -> actor.continue(State(..state, authority: Some(updated)))
       }
     }
@@ -603,7 +628,18 @@ fn run_driver(
     True -> Finished
     False -> state.status
   }
+  case state.status != Finished && status == Finished {
+    True -> announce_finished(state)
+    False -> Nil
+  }
   actor.continue(State(..state, driver: Some(next), status:))
+}
+
+/// ゲームが終わった（Finished に移る）ことを、登録された先へ知らせる（issue-51）。
+fn announce_finished(state: State) -> Nil {
+  list.each(state.finish_watchers, fn(watcher) {
+    process.send(watcher, room_id_of(state))
+  })
 }
 
 fn apply(state: State, effect: Effect(PlayerId)) -> Nil {

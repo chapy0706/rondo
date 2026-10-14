@@ -82,6 +82,11 @@ const cpu_seed_range = 2_147_483_647
 /// 置き換える）。5 人が輪に立っても、互いの全身が見える間が取れる。
 pub const waiting_room_radius = 3.5
 
+/// 移動の報告で受け付ける座標の上限（メートル。絶対値 / issue-51）。どのステージ（平屋・骨格）よりも
+/// 十分に大きい。これを超える報告は無視する（極端な数で、円に丸める計算が桁あふれし、ルームが
+/// 落ちるのを防ぐ）。
+pub const max_coordinate = 1000.0
+
 /// 鬼希望エリア（待機ルームと同心円）の半径（メートル）。
 pub const oni_area_radius = 0.6
 
@@ -502,9 +507,13 @@ pub fn advance(game: Game(id), step: Int, pick: fn(Int) -> Int) -> Game(id) {
 /// 待機ルームは円に丸める。ステージは移動の規則（grid / ADR 0042）で、いまの位置から
 /// 報告された位置へ動かし、通れない境の手前で止めて滑らせる。準備移動の後の隠れ側、
 /// 答え合わせ・終了後は無視する。鬼選出中にエリアへ触れたら touch_area を通る。
+/// 座標の絶対値が max_coordinate を超える報告も無視する（issue-51）。
 pub fn move(game: Game(id), player: id, x: Float, z: Float) -> Game(id) {
-  case dict.get(game.positions, player), can_move(game, player) {
-    Ok(current), True -> {
+  let reasonable =
+    float.absolute_value(x) <=. max_coordinate
+    && float.absolute_value(z) <=. max_coordinate
+  case dict.get(game.positions, player), can_move(game, player), reasonable {
+    Ok(current), True, True -> {
       let next = moved_to(game, current, x, z)
       let game =
         Game(..game, positions: dict.insert(game.positions, player, next))
@@ -513,8 +522,13 @@ pub fn move(game: Game(id), player: id, x: Float, z: Float) -> Game(id) {
         _, _ -> game
       }
     }
-    _, _ -> game
+    _, _, _ -> game
   }
+}
+
+/// その人のいまの位置（テストと確かめに使う）。
+pub fn position_of_player(game: Game(id), player: id) -> Result(Position, Nil) {
+  dict.get(game.positions, player)
 }
 
 /// 向きの報告。動ける間だけ受け付ける（観戦者へ送る鬼の向きに使う / issue-28）。
