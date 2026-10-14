@@ -1,10 +1,12 @@
 ---
-status: open
+status: closed
 created_at: 2026-10-09
-closed_at:
+closed_at: 2026-10-14
 ---
 
 # issue-53: veryare の仕上げ（ポーズ、アニメーション、BGM、待機ルーム）
+
+置き換え: 内容は issue-56（ポーズ）・57（アニメーション）・59（待機ルーム）・63（BGM）に移した。
 
 ## 背景
 
