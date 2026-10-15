@@ -348,14 +348,22 @@ fn handle_join(
       process.send(reply, Ok(Nil))
       notify_joined(state, player)
       let assert Some(current) = state.driver
+      // 送信先を先に登録し（参加で起きる全員への通知が、本人にも届くように / issue-59）、入室を処理した
+      // 後の状態で、入室後の案内と、いま届けるべき状態を送る（入室の前の状態で送ると、参加で変わった
+      // ところが本人に届かないことがある）。
       let state =
         State(
           ..state,
           players: dict.insert(state.players, player.id, player),
           names: dict.insert(state.names, player.id, player.name),
         )
-        |> register(player.id, outbox)
-      run_driver(state, driver.join(current, player.id))
+        |> add_outbox(player.id, outbox)
+      let state = drive(state, driver.join(current, player.id))
+      case outbox {
+        Some(outbox) -> welcome(state, player.id, outbox)
+        None -> Nil
+      }
+      actor.continue(state)
     }
     Playing, True, _ if driver_accepts -> {
       process.send(reply, Error(AlreadyJoined))
@@ -462,6 +470,19 @@ fn handle_game_event(
     }
     // 開始前・終了後・権威なしは無視する。
     _, _, _ -> actor.continue(state)
+  }
+}
+
+/// 参加者の送信先を登録するだけ（案内は送らない）。
+fn add_outbox(
+  state: State,
+  player: PlayerId,
+  outbox: Option(Subject(ServerMessage)),
+) -> State {
+  case outbox {
+    Some(outbox) ->
+      State(..state, outboxes: dict.insert(state.outboxes, player, outbox))
+    None -> state
   }
 }
 
@@ -622,6 +643,14 @@ fn run_driver(
   state: State,
   step: #(Driver(PlayerId), List(Effect(PlayerId))),
 ) -> actor.Next(State, Message) {
+  actor.continue(drive(state, step))
+}
+
+/// ゲーム進行の箱を差し替え、指示を実行した後の状態。
+fn drive(
+  state: State,
+  step: #(Driver(PlayerId), List(Effect(PlayerId))),
+) -> State {
   let #(next, effects) = step
   list.each(effects, fn(effect) { apply(state, effect) })
   let status = case driver.is_over(next) {
@@ -632,7 +661,7 @@ fn run_driver(
     True -> announce_finished(state)
     False -> Nil
   }
-  actor.continue(State(..state, driver: Some(next), status:))
+  State(..state, driver: Some(next), status:)
 }
 
 /// ゲームが終わった（Finished に移る）ことを、登録された先へ知らせる（issue-51）。

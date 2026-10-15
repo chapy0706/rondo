@@ -300,15 +300,15 @@ pub fn non_participants_receive_nothing_test() {
   received_members(stranger) |> should.equal([])
 }
 
-/// 途中参加の人には、送信先の登録の時点で、本人宛てで今の様子が届く（ルームは登録の後に入室を
-/// 処理するので、まだ本人は載らない）。続けて、本人を含む全員宛ての通知が届く。
+/// 途中参加の人には、入室を処理した後に、本人宛てで今の様子（本人を含む）が届く（購読者に届ける状態 /
+/// join_snapshot_test）。続けて、本人を含む全員宛ての通知が届く。
 pub fn late_joiner_receives_current_members_test() {
   let room = open_room(["a", "b"])
   let outbox = process.new_subject()
   let assert Ok(Nil) =
     room_actor.join_and_subscribe(room, Player(PlayerId("c"), "c"), outbox)
   let assert [first, ..rest] = received_members(outbox)
-  list.map(first, fn(m) { m.player_id }) |> should.equal(["a", "b"])
+  list.map(first, fn(m) { m.player_id }) |> should.equal(["a", "b", "c"])
   let assert Ok(latest) = list.last(rest)
   list.map(latest, fn(m) { m.player_id }) |> should.equal(["a", "b", "c"])
 }

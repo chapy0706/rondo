@@ -6,6 +6,7 @@
 #   ./tools/load.sh chaos [--rounds 20]       # 乱れた通信（切断と復帰、猶予切れ、他人のトークン）
 #   ./tools/load.sh garbage                   # 不正な入力（壊れた JSON・未知の種別・バイナリ・大量送信）
 #   ./tools/load.sh soak [--minutes 60]       # 長時間の放置（待機ルームで、つなぎ続ける）
+#   ./tools/load.sh join [--only 鬼 CPU]      # 参加・復帰の組み合わせ表（途中参加の人に、いまの状態が届くか）
 #
 # - 開発用のサーバー（3000番）と別に、3300番で Gleam サーバーを起動し、終わったら止める
 #   （tools/bots.sh と同じ）。フェーズ時間は 1/20 に縮める（再接続猶予とハートビートは縮まない）
@@ -23,9 +24,9 @@ divisor="${RONDO_BOTS_PHASE_DIVISOR:-20}"
 
 kind="${1:-}"
 case "$kind" in
-	limits | load | chaos | garbage | soak) shift ;;
+	limits | load | chaos | garbage | soak | join) shift ;;
 	*)
-		echo "使い方: ./tools/load.sh limits|load|chaos|garbage|soak [引数]" >&2
+		echo "使い方: ./tools/load.sh limits|load|chaos|garbage|soak|join [引数]" >&2
 		exit 2
 		;;
 esac

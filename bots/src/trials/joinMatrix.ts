@@ -1,0 +1,204 @@
+/**
+ * 参加・復帰の組み合わせ表（途中参加の人に、いまの状態が届くか）の、純粋な部分。サーバーには
+ * つながない（join.ts が、この表を実際のサーバーで回す）。
+ *
+ * 不具合: ランダム間取りで CPU を加えたルームに 2 人目が入ると、フェーズの通知（エリアの色を含む）が
+ * 2 人目に届かず、移動パッドと鬼希望エリアの円が出なかった（サーバーの room.gleam の
+ * subscriber_snapshot で直した）。同じ種類の見落としを、組み合わせで見つける。
+ *
+ * 軸: CPU（なし・隠れ側 1 体・隠れ側 2 体・鬼 CPU）、参加の順番（作った人・2 人目・3 人目）、参加の
+ * 時機（待機・鬼選出のカウント中・準備移動・ペイント・探索・答え合わせ）。実際に起こりうる組み合わせ
+ * だけを並べる（カウントは 2 人以上でしか始まらない。鬼選出の後の参加は、サーバーが断る）。
+ */
+
+export type CpuSetup = "none" | "hider-1" | "hider-2" | "oni";
+export type Order = "creator" | "second" | "third";
+export type Moment =
+	| "waiting"
+	| "counting"
+	| "preparation"
+	| "painting"
+	| "exploration"
+	| "reveal";
+
+/** ルーム作成の設定の cpu の値（サーバーの room.gleam と揃える）。 */
+export const CPU_SETTING: Readonly<Record<CpuSetup, number>> = {
+	none: 0,
+	"hider-1": 1,
+	"hider-2": 2,
+	oni: 4,
+};
+
+const CPU_COUNT: Readonly<Record<CpuSetup, number>> = {
+	none: 0,
+	"hider-1": 1,
+	"hider-2": 2,
+	oni: 1,
+};
+
+const CPU_LABEL: Readonly<Record<CpuSetup, string>> = {
+	none: "CPU なし",
+	"hider-1": "隠れ側 CPU 1 体",
+	"hider-2": "隠れ側 CPU 2 体",
+	oni: "鬼 CPU",
+};
+
+const ORDER_LABEL: Readonly<Record<Order, string>> = {
+	creator: "作った人",
+	second: "2 人目",
+	third: "3 人目",
+};
+
+export const MOMENT_LABEL: Readonly<Record<Moment, string>> = {
+	waiting: "待機",
+	counting: "カウント中",
+	preparation: "準備移動",
+	painting: "ペイント",
+	exploration: "探索",
+	reveal: "答え合わせ",
+};
+
+/** サーバーのフェーズの名前（phase の通知の phase）。 */
+export const MOMENT_PHASE: Readonly<Record<Moment, string>> = {
+	waiting: "oni-selection",
+	counting: "oni-selection",
+	preparation: "preparation",
+	painting: "painting",
+	exploration: "exploration",
+	reveal: "reveal",
+};
+
+export interface JoinCase {
+	readonly name: string;
+	readonly cpu: CpuSetup;
+	readonly order: Order;
+	readonly moment: Moment;
+	/** 参加の直前のエリアの色（鬼選出の間だけ）。 */
+	readonly areaBefore: "waiting" | "ready" | "counting" | null;
+	/** same-state: 最初の参加者と同じ状態が届く。refused: サーバーが断る（game-already-started）。 */
+	readonly outcome: "same-state" | "refused";
+}
+
+const MOMENTS: readonly Moment[] = [
+	"waiting",
+	"counting",
+	"preparation",
+	"painting",
+	"exploration",
+	"reveal",
+];
+
+/** 実際に起こりうる組み合わせ。 */
+export function joinCases(): JoinCase[] {
+	const cases: JoinCase[] = [];
+	for (const cpu of ["none", "hider-1", "hider-2", "oni"] as const) {
+		cases.push({
+			name: `${CPU_LABEL[cpu]}・${ORDER_LABEL.creator}・${MOMENT_LABEL.waiting}`,
+			cpu,
+			order: "creator",
+			moment: "waiting",
+			areaBefore: null,
+			outcome: "same-state",
+		});
+		for (const order of ["second", "third"] as const) {
+			// 参加の直前にいる人数（人間と CPU。CPU も人数に数える）。
+			const before = (order === "second" ? 1 : 2) + CPU_COUNT[cpu];
+			for (const moment of MOMENTS) {
+				// カウントも、鬼選出の後も、2 人以上でなければ起こらない。
+				if (moment !== "waiting" && before < 2) continue;
+				const selecting = moment === "waiting" || moment === "counting";
+				cases.push({
+					name: `${CPU_LABEL[cpu]}・${ORDER_LABEL[order]}・${MOMENT_LABEL[moment]}`,
+					cpu,
+					order,
+					moment,
+					areaBefore:
+						moment === "counting"
+							? "counting"
+							: moment === "waiting"
+								? before >= 2
+									? "ready"
+									: "waiting"
+								: null,
+					outcome: selecting ? "same-state" : "refused",
+				});
+			}
+		}
+	}
+	return cases;
+}
+
+/** その時機（フェーズ）に、購読者へ届くべき状態の種類（名前の順）。 */
+export function expectedKinds(phase: string): string[] {
+	const always = ["doors", "phase", "room-info", "stage"];
+	const extra =
+		phase === "oni-selection"
+			? ["members"]
+			: phase === "exploration" || phase === "reveal"
+				? ["hiders", "hiding", "oni"]
+				: [];
+	return [...always, ...extra].sort();
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+	return typeof value === "object" && value !== null;
+}
+
+function typeOf(payload: unknown): string | null {
+	return isRecord(payload) && typeof payload.type === "string"
+		? payload.type
+		: null;
+}
+
+export interface PhaseView {
+	readonly phase: string;
+	readonly area: string | null;
+	readonly oni: string | null;
+}
+
+/** 最後に届いたフェーズの通知の、フェーズ・エリア・鬼。届いていなければ null。 */
+export function latestPhase(payloads: readonly unknown[]): PhaseView | null {
+	for (let i = payloads.length - 1; i >= 0; i--) {
+		const p = payloads[i];
+		if (isRecord(p) && p.type === "phase" && typeof p.phase === "string") {
+			return {
+				phase: p.phase,
+				area: typeof p.area === "string" ? p.area : null,
+				oni: typeof p.oni === "string" ? p.oni : null,
+			};
+		}
+	}
+	return null;
+}
+
+const show = (view: PhaseView | null): string =>
+	view === null
+		? "なし"
+		: `${view.phase}/${view.area ?? "-"}/${view.oni ?? "-"}`;
+
+/**
+ * 参加（か復帰）した人に届いた通知 arrived を、最初の参加者に届いた通知 reference と比べる。
+ * 届いた最後のフェーズの時機に、届くべき種類がそろい、フェーズの中身（フェーズ・エリア・鬼）が
+ * 最初の参加者の最後のものと同じか。問題の一覧を返す（無ければ空）。
+ */
+export function judgeArrival(input: {
+	readonly arrived: readonly unknown[];
+	readonly reference: readonly unknown[];
+}): string[] {
+	const problems: string[] = [];
+	const mine = latestPhase(input.arrived);
+	const theirs = latestPhase(input.reference);
+	const kinds = new Set(input.arrived.map(typeOf));
+	const expected = expectedKinds(
+		mine?.phase ?? theirs?.phase ?? "oni-selection",
+	);
+	const missing = expected.filter((kind) => !kinds.has(kind));
+	if (missing.length > 0)
+		problems.push(`届いていない種類: ${missing.join(", ")}`);
+	if (show(mine) !== show(theirs)) {
+		problems.push(
+			`フェーズの中身が違う: 届いた ${show(mine)}・最初の参加者 ${show(theirs)}`,
+		);
+	}
+	return problems;
+}

@@ -55,6 +55,13 @@ import {
 import { stepFacing } from "./bodyFacing";
 import { cameraSettings } from "./camera";
 import { browserStorage, loadCeiling, saveCeiling } from "./ceilingSetting";
+import {
+	type Control,
+	type ControlsView,
+	canMoveNow,
+	controlsFor,
+	sameNotice,
+} from "./controls";
 import { isHirayaStage } from "./hiraya";
 import {
 	canLike,
@@ -137,9 +144,6 @@ import {
 	type Space,
 	WAITING_ROOM_SPAWN,
 	areaLook,
-	canMove,
-	canPaintWhileWaiting,
-	canShoot,
 	facingOfYaw,
 	foundByShot,
 	isSpectator,
@@ -377,6 +381,8 @@ export default function Veryare() {
 	const [liked, setLiked] = useState<ReadonlySet<string>>(() => new Set());
 	/** 答え合わせで見ている隠れ場所（issue-32）。null は自分の視点。 */
 	const [revealTarget, setRevealTarget] = useState<string | null>(null);
+	/** 最後に受け取ったフェーズの通知（復帰の送り直しを見分ける）。 */
+	const noticeRef = useRef<PhaseNotice | null>(null);
 	/** 通知の購読の中で、いまのフェーズを読むための参照（遅れて届いた members を捨てる）。 */
 	const phaseRef = useRef<Phase>("oni-selection");
 
@@ -385,6 +391,9 @@ export default function Veryare() {
 		const offPhase = on("phase", (payload) => {
 			const next = parsePhaseNotice(payload);
 			if (next === null) return;
+			// 復帰の送り直し（中身が同じ通知）では、残り時間を始め直さない（controls.ts の sameNotice）。
+			if (sameNotice(noticeRef.current, next)) return;
+			noticeRef.current = next;
 			setNotice(next);
 			setPhaseStartedAt(performance.now());
 		});
@@ -504,7 +513,30 @@ export default function Veryare() {
 	// 鬼の視界の報告（issue-32）。探索中の鬼だけが、0.5 秒ごとに送る。
 	const sightActive = canReportSight({ phase, role, spectator });
 	// 観戦者は移動できない（サーバー側でも、準備移動の後の隠れ側の移動は無視される）。
-	const movable = notice !== null && canMove(phase, role) && !spectator;
+	const controlsView: ControlsView = { notice, hiding };
+	const movable = canMoveNow(controlsView, you);
+	// 襖を開けるボタン（issue-29c）。閉じた襖の境から 1.5 m 以内のとき、いちばん近い襖を
+	// 開ける報告を送る。表示は襖の通知を待って変える（クライアントは襖の状態を変えない）。
+	// 位置は描画ループの参照なので、残り時間の更新（250 ms ごと）に合わせて見直す。
+	const door =
+		grid === null
+			? null
+			: doorToOpen({
+					grid,
+					open: openDoors,
+					phase,
+					movable,
+					space,
+					position: positionRef.current,
+				});
+	// 出す操作部品（controls.ts）。部品の出し分けは、この一覧だけで決める（画面の属性 data-controls にも出す）。
+	const controls = controlsFor(controlsView, {
+		you,
+		posable: bodyPosable,
+		paintSubmitted,
+		nearDoor: door !== null,
+	});
+	const shown = (control: Control) => controls.includes(control);
 	// ほかの人の画面の鬼は、描画のたびに補間する（oniTrack.ts）。鬼本人の画面では、通知の位置の
 	// 鬼は描かず、自分の体を鬼の体にして、手元の位置と向きで動かす（issue-46）。
 	const othersOni = oniVisible && role !== "oni";
@@ -537,7 +569,7 @@ export default function Veryare() {
 		hiders === null ? null : hiders.map((h) => h.playerId),
 		you,
 	);
-	const painting = canPaintWhileWaiting(phase, role);
+	const painting = shown("waiting-paint");
 	// 答え合わせの隠れ場所の切り替えと、いいね（issue-32）。
 	const targets = revealTargets(hiders);
 	const nameOf = (id: string) => names.get(id) ?? "隠れ側";
@@ -549,8 +581,7 @@ export default function Veryare() {
 	};
 	// 待機ルームのポーズボタン（issue-59）。素材の体のときだけ出す。押すたびに、いまと違うポーズへ
 	// ランダムに変え、waiting-pose を送る。サーバーの間と同じだけ、ボタンを止める。
-	const waitingPoseShown =
-		phase === "oni-selection" && space === "waiting-room" && bodyPosable;
+	const waitingPoseShown = shown("waiting-pose");
 	const onWaitingPose = () => {
 		const at = performance.now();
 		if (
@@ -580,7 +611,7 @@ export default function Veryare() {
 		);
 	};
 	// 射撃（issue-27）。撃てるのは探索フェーズの鬼だけ。間隔は自分のタイマーで見せる。
-	const shootable = canShoot(phase, role, spectator);
+	const shootable = shown("shoot");
 	const reloadMs = reloadRemainingMs(lastShotAt, now);
 	const showFound = foundAt !== null && now - foundAt < FOUND_NOTICE_MS;
 	const showMiss = miss !== null && now - miss.at < MISS_NOTICE_MS;
@@ -657,20 +688,6 @@ export default function Veryare() {
 	const onAimCancel = (event: ReactPointerEvent<HTMLCanvasElement>) => {
 		tapsRef.current.cancel(event.pointerId);
 	};
-	// 襖を開けるボタン（issue-29c）。閉じた襖の境から 1.5 m 以内のとき、いちばん近い襖を
-	// 開ける報告を送る。表示は襖の通知を待って変える（クライアントは襖の状態を変えない）。
-	// 位置は描画ループの参照なので、残り時間の更新（250 ms ごと）に合わせて見直す。
-	const door =
-		grid === null
-			? null
-			: doorToOpen({
-					grid,
-					open: openDoors,
-					phase,
-					movable,
-					space,
-					position: positionRef.current,
-				});
 	const openDoor = () => {
 		if (door !== null) send(openDoorEvent(door));
 	};
@@ -697,7 +714,7 @@ export default function Veryare() {
 		submitted: paintSubmitted,
 		remainingMs,
 	});
-	const showPaintPanel = phase === "painting" && role === "hider" && !spectator;
+	const showPaintPanel = shown("paint");
 	// ゲーム用のポーズ（issue-57）。準備移動とペイントフェーズの隠れ側が、確定の電文を送る前まで選べる。
 	// 準備移動では画面のボタン、ペイントフェーズではペイントの板のボタン。押すたびに、選ぶポーズだけを
 	// 変え（体は、動いていれば歩く・走るのまま、止まると選んだポーズへ移る / motionState.ts）、
@@ -705,7 +722,7 @@ export default function Veryare() {
 	const gamePoseOpen =
 		bodyPosable &&
 		canChangePose({ phase, role, spectator, submitted: paintSubmitted });
-	const gamePoseShown = gamePoseOpen && phase === "preparation";
+	const gamePoseShown = shown("game-pose");
 	const poseNoticeShown = poseNoticeVisible(poseNoticeAt, now);
 	const onNextGamePose = () => {
 		if (!gamePoseOpen) return;
@@ -1180,6 +1197,8 @@ export default function Veryare() {
 			className="flex w-full flex-col gap-3"
 			data-testid="veryare"
 			data-phase={phase}
+			data-space={space}
+			data-controls={controls.join(" ")}
 			data-open-doors={openDoors.size}
 			data-blinking={blink.others.length + (blink.self ? 1 : 0)}
 		>
@@ -1203,7 +1222,7 @@ export default function Veryare() {
 					? ` ・隠れている ${hiding.length}人`
 					: ""}
 			</p>
-			{area !== null ? (
+			{area !== null && shown("area") ? (
 				<p
 					className="text-sm"
 					data-testid="veryare-area"
@@ -1535,11 +1554,21 @@ export default function Veryare() {
 						</div>
 						<span className="text-fg-muted text-xs">移動</span>
 					</div>
+				) : shown("pending") ? (
+					// フェーズの通知が届くまでは、黙って隠さず、待っていることを出す（届いたら、すぐ移動パッド）。
+					<output
+						data-testid="veryare-pending"
+						className="flex size-[120px] items-center justify-center text-center text-fg-muted text-xs"
+					>
+						接続中…
+						<br />
+						ゲームの状態を待っています
+					</output>
 				) : (
 					// 動けない間（観戦中を含む）は移動パッドを出さない。
 					<div aria-hidden="true" className="size-[120px]" />
 				)}
-				{door !== null ? (
+				{door !== null && shown("open-door") ? (
 					<button
 						type="button"
 						onClick={openDoor}

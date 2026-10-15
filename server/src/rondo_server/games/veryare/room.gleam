@@ -384,9 +384,7 @@ fn wrap(state: Game(PlayerId), pick: fn(Int) -> Int) -> Driver(PlayerId) {
           step(state, game.advance(state, token, pick), pick)
       }
     },
-    on_join: fn(player) {
-      joined(state, game.join(state, player), player, pick)
-    },
+    on_join: fn(player) { joined(state, game.join(state, player), pick) },
     accepts_join: fn() { game.accepts_join(state) },
     is_over: fn() {
       case state.phase {
@@ -395,19 +393,50 @@ fn wrap(state: Game(PlayerId), pick: fn(Int) -> Int) -> Driver(PlayerId) {
       }
     },
   )
-  // 途中参加・再接続の人には、本人宛てで、ステージの通知（issue-29a）と、今の襖の通知
-  // （issue-29b）を送る。
-  |> driver.on_subscribe(fn(player) {
+  // 送信先を登録した人（作った人・途中参加・再接続）には、本人宛てで、いま届けるべき状態を送る。
+  |> driver.on_subscribe(fn(player) { subscriber_snapshot(state, player) })
+}
+
+/// 購読者に、いま届けるべき状態（本人宛て）。参加（入室の後）・途中参加・復帰（resync）の、どの経路も
+/// これだけを使う（経路ごとに送る物を変えない。CPU ありのルームで、途中参加の人にフェーズが届かなかった
+/// 不具合の直し）。ルーム情報（探索時間）は、ルームの入室後の案内（room_actor の member_info）が、同じ
+/// 経路で送る。
+///
+/// | 状態 | 送るフェーズ |
+/// | ステージの通知・襖の状態 | いつも（ステージは作成と同時に決まる） |
+/// | フェーズ（エリアの色・鬼・長さ・結果） | いつも |
+/// | 待機ルームのメンバー | 鬼選出 |
+/// | 鬼の通知 | 探索・答え合わせ（鬼の位置が分かっているとき） |
+/// | 隠れ側の一括配信・まだ隠れている人 | 探索・答え合わせ |
+/// | いいね | 答え合わせ・終了（いいねがあるとき） |
+pub fn subscriber_snapshot(
+  state: Game(PlayerId),
+  player: PlayerId,
+) -> List(Effect(PlayerId)) {
+  list.flatten([
     [
       driver.Deliver([player], stage_payload(state)),
       driver.Deliver([player], stage_notice.doors_payload(state.open_doors)),
-      ..list.flatten([
-        hiders_resend(state, player),
-        members_resend(state, player),
-        likes_resend(state, player),
-      ])
+      driver.Deliver([player], phase_payload(state)),
+    ],
+    members_resend(state, player),
+    oni_resend(state, player),
+    hiders_resend(state, player),
+    likes_resend(state, player),
+  ])
+}
+
+/// 探索中・答え合わせ中に入り直した人へ、いまの鬼の通知を本人宛てで送る（届くまで鬼が見えないため）。
+fn oni_resend(
+  state: Game(PlayerId),
+  player: PlayerId,
+) -> List(Effect(PlayerId)) {
+  case state.phase, oni_payload(state) {
+    Exploration, Some(payload) | Reveal(_), Some(payload) -> [
+      driver.Deliver([player], payload),
     ]
-  })
+    _, _ -> []
+  }
 }
 
 /// ステージの通知（issue-29a / ADR 0042）。選ばれたステージの地図のデータそのもの。
@@ -666,16 +695,15 @@ fn ticked(
 
 /// 途中参加。全員への通知が出なかったとき（エリアの色が変わらない等）は、参加した
 /// 本人にだけ今の状態を送る。途中から入った人も、今のフェーズとエリアの色が分かる。
+/// 途中参加。変わったところ（エリアの色など）は、ふつうの通知で全員へ送る。参加した本人へのいまの状態は、
+/// ルームが入室の処理の後に subscriber_snapshot で送る（ここで本人宛てを足さない。以前は「ほかに送る物が
+/// 無いとき」だけ本人にフェーズを送っていたので、メンバーの通知のタイマーが出る参加では届かなかった）。
 fn joined(
   before: Game(PlayerId),
   after: Game(PlayerId),
-  player: PlayerId,
   pick: fn(Int) -> Int,
 ) -> #(Driver(PlayerId), List(Effect(PlayerId))) {
-  case step(before, after, pick) {
-    #(next, []) -> #(next, [driver.Deliver([player], phase_payload(after))])
-    stepped -> stepped
-  }
+  step(before, after, pick)
 }
 
 /// 全員へ知らせる中身。これが変わったときだけ通知する（隠れ側の位置は含めない）。
@@ -829,7 +857,10 @@ fn hiders_resend(
   player: PlayerId,
 ) -> List(Effect(PlayerId)) {
   case state.phase {
-    Exploration | Reveal(_) -> [driver.Deliver([player], hiders_payload(state))]
+    Exploration | Reveal(_) -> [
+      driver.Deliver([player], hiders_payload(state)),
+      driver.Deliver([player], hiding_payload(state)),
+    ]
     _ -> []
   }
 }
