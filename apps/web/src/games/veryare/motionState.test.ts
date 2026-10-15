@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import {
 	IDLE_TO_WALK,
+	INITIAL_BODY_MOTION,
 	INITIAL_MOTION,
 	MOTION_FADE_SECONDS,
 	type MotionState,
@@ -15,6 +16,7 @@ import {
 	nextGait,
 	playbackRate,
 	smoothSpeed,
+	stepBodyMotion,
 	stepMotion,
 } from "./motionState";
 
@@ -222,11 +224,141 @@ describe("stepMotion - 待機・歩く・走る・ポーズの切り替え（時
 	});
 });
 
+const SPEEDS = { walk: 1.5, run: 4.5 } as const;
+
+/** 毎フレーム here を返す関数で、frames フレーム進める（dt は 16 ms）。 */
+function run(
+	from: typeof INITIAL_BODY_MOTION,
+	frames: number,
+	here: (i: number) => { x: number; z: number },
+	options: { chosen?: "femaleDance" | null; fixed?: boolean } = {},
+) {
+	let state = from;
+	let last = stepBodyMotion(state, {
+		here: here(0),
+		dt: 0.016,
+		chosen: options.chosen ?? null,
+		fixed: options.fixed ?? false,
+		jumped: false,
+		speeds: SPEEDS,
+	});
+	for (let i = 0; i < frames; i++) {
+		last = stepBodyMotion(state, {
+			here: here(i),
+			dt: 0.016,
+			chosen: options.chosen ?? null,
+			fixed: options.fixed ?? false,
+			jumped: false,
+			speeds: SPEEDS,
+		});
+		state = last.state;
+	}
+	return last;
+}
+
+describe("stepBodyMotion - 位置の変化から、体の動きを決める（すべての体で同じ / issue-57）", () => {
+	it("位置が速く変われば歩く、止まればポーズ（選んでいれば）か待機", () => {
+		// 1 フレーム（16 ms）に 2 cm 進む ≒ 1.25 m/秒 → 歩く（ならしの後）。
+		const walking = run(
+			INITIAL_BODY_MOTION,
+			30,
+			(i) => ({ x: i * 0.02, z: 0 }),
+			{
+				chosen: "femaleDance",
+			},
+		);
+		expect(walking.action).toEqual({ kind: "walk" });
+		expect(walking.rate).toBeCloseTo(1.25 / SPEEDS.walk, 1);
+		// 止まって STILL_BEFORE_POSE_SECONDS たてば、選んだポーズ。
+		const frames = Math.ceil(STILL_BEFORE_POSE_SECONDS / 0.016) + 30;
+		const posed = run(walking.state, frames, () => ({ x: 0.6, z: 0 }), {
+			chosen: "femaleDance",
+		});
+		expect(posed.action).toEqual({ kind: "pose", pose: "femaleDance" });
+		expect(posed.rate).toBe(1);
+		// ポーズを選んでいなければ、待機の動き。
+		const idle = run(posed.state, 1, () => ({ x: 0.6, z: 0 }));
+		expect(idle.action).toEqual({ kind: "idle" });
+	});
+
+	it("走る速さ（3 m/秒以上）なら走る", () => {
+		const step = run(INITIAL_BODY_MOTION, 30, (i) => ({ x: i * 0.06, z: 0 }));
+		expect(step.action).toEqual({ kind: "run" });
+	});
+
+	it("最初のフレームと、空間が変わった直後（jumped）は、位置が飛んでも速さ 0", () => {
+		const first = stepBodyMotion(INITIAL_BODY_MOTION, {
+			here: { x: 50, z: 50 },
+			dt: 0.016,
+			chosen: null,
+			fixed: false,
+			jumped: false,
+			speeds: SPEEDS,
+		});
+		expect(first.state.speed).toBe(0);
+		const jumped = stepBodyMotion(first.state, {
+			here: { x: -50, z: 0 },
+			dt: 0.016,
+			chosen: null,
+			fixed: false,
+			jumped: true,
+			speeds: SPEEDS,
+		});
+		expect(jumped.state.speed).toBe(0);
+		expect(jumped.action).toEqual({ kind: "idle" });
+	});
+
+	it("見えていない間（here が null）は、前の位置を忘れ、見え始めの一歩で速さを出さない", () => {
+		const walking = run(INITIAL_BODY_MOTION, 30, (i) => ({
+			x: i * 0.02,
+			z: 0,
+		}));
+		const hidden = stepBodyMotion(walking.state, {
+			here: null,
+			dt: 0.016,
+			chosen: null,
+			fixed: false,
+			jumped: false,
+			speeds: SPEEDS,
+		});
+		expect(hidden.state.last).toBeNull();
+		expect(hidden.state.speed).toBe(0);
+		const back = stepBodyMotion(hidden.state, {
+			here: { x: 30, z: 0 },
+			dt: 0.016,
+			chosen: null,
+			fixed: false,
+			jumped: false,
+			speeds: SPEEDS,
+		});
+		expect(back.state.speed).toBe(0);
+	});
+
+	it("静止の指定（fixed）なら、動いていても選んだポーズ（なければ idle）", () => {
+		const fixed = run(INITIAL_BODY_MOTION, 30, (i) => ({ x: i * 0.06, z: 0 }), {
+			fixed: true,
+		});
+		expect(fixed.action).toEqual({ kind: "pose", pose: "idle" });
+	});
+
+	it("動きの素材が無い（speeds が null）なら、再生の速さは 1", () => {
+		const step = stepBodyMotion(INITIAL_BODY_MOTION, {
+			here: { x: 0, z: 0 },
+			dt: 0.016,
+			chosen: null,
+			fixed: false,
+			jumped: false,
+			speeds: null,
+		});
+		expect(step.rate).toBe(1);
+	});
+});
+
 describe("motionLogMessage - 開発中だけ Console に出す、体の動きの1行", () => {
 	it("体の名前、状態、速さ、再生の速さと、重みの付いた動きの時間・重み", () => {
 		expect(
 			motionLogMessage("自分の体", {
-				action: { kind: "walk" },
+				state: "walk",
 				speed: 1.321,
 				rate: 0.891,
 				status: [
@@ -243,7 +375,7 @@ describe("motionLogMessage - 開発中だけ Console に出す、体の動きの
 	it("ポーズは名前つき。動きの素材が無い体は「動きなし」", () => {
 		expect(
 			motionLogMessage("自分の体", {
-				action: { kind: "pose", pose: "maleCrouch" },
+				state: "pose:maleCrouch",
 				speed: 0,
 				rate: 1,
 				status: [],

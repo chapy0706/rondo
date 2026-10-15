@@ -8,19 +8,12 @@
  *   人は送られてこないが、最後の位置を保つ（更新が無いことを理由に消さない）
  * - クライアントのフェーズが鬼選出でなければ、遅れて届いた通知を捨てる。ステージに移ったら、他の
  *   メンバーを消す
- * - 動き（待機・歩く・走る・ポーズ）は、補間した位置のフレーム間の変化から速さを求め、issue-57 の
- *   切り替え（motionState.ts）で決める
+ * - 動き（待機・歩く・走る・ポーズ）は、ほかの体と同じ登録所（motionRegistry.ts）が、補間した位置の
+ *   フレーム間の変化から決める
  */
 
 import type { PlayerId, VeryareWaitingMember } from "@rondo/contracts";
 import type { VeryareModelPose } from "@rondo/contracts";
-import {
-	type BodyAction,
-	INITIAL_MOTION,
-	type MotionState,
-	smoothSpeed,
-	stepMotion,
-} from "./motionState";
 import { parseModelPose } from "./poses";
 import type { Phase } from "./rules";
 import { type TrackSample, pushSample, sampleTrack } from "./track";
@@ -156,44 +149,4 @@ export function sampleMembers(
 		out.push({ id, name: names.get(id) ?? "", ...at, pose: entry.pose });
 	}
 	return out;
-}
-
-/** メンバー1人の動きの状態（前のフレームの位置・ならした速さ・issue-57 の状態）。 */
-export interface MemberMotion {
-	readonly last: { readonly x: number; readonly z: number } | null;
-	readonly speed: number;
-	readonly motion: MotionState;
-}
-
-export const INITIAL_MEMBER_MOTION: MemberMotion = {
-	last: null,
-	speed: 0,
-	motion: INITIAL_MOTION,
-};
-
-/**
- * 1 フレーム進める。補間した位置 here の、前のフレームからの変化で速さをならし（smoothSpeed）、
- * 待機・歩く・走る・ポーズを決める（stepMotion。止まっていて待機ポーズがあれば、そのポーズ）。
- */
-export function stepMemberMotion(
-	state: MemberMotion,
-	here: { readonly x: number; readonly z: number },
-	dt: number,
-	pose: VeryareModelPose | null,
-): { readonly state: MemberMotion; readonly action: BodyAction } {
-	const moved =
-		state.last === null
-			? 0
-			: Math.hypot(here.x - state.last.x, here.z - state.last.z);
-	const speed = state.last === null ? 0 : smoothSpeed(state.speed, moved, dt);
-	const step = stepMotion(state.motion, {
-		speed,
-		dt,
-		chosen: pose,
-		fixed: false,
-	});
-	return {
-		state: { last: { x: here.x, z: here.z }, speed, motion: step.state },
-		action: step.action,
-	};
 }

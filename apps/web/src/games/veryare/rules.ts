@@ -312,7 +312,10 @@ export interface MoveReport {
 	readonly type: "move";
 	readonly x: number;
 	readonly z: number;
-	/** 向き（サーバーの向き。facingOfYaw で作る）。観戦者へ送る鬼の向きに使う。 */
+	/**
+	 * 向き（サーバーの向き）。体の向き（bodyFacing.ts。進む向きへ回る / issue-57）。ほかの人の画面の鬼と
+	 * 待機ルームのメンバーの体の向きに使う。
+	 */
 	readonly facing?: number;
 }
 

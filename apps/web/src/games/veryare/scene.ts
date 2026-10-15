@@ -88,21 +88,14 @@ import {
 	swingAngle,
 } from "./hiraya";
 import {
-	INITIAL_MEMBER_MOTION,
-	type MemberMotion,
-	stepMemberMotion,
-} from "./members";
-import {
-	type BodyAction,
-	INITIAL_MOTION,
-	type MotionState,
-	motionLogMessage,
-	playbackRate,
-	smoothSpeed,
-	stepMotion,
-} from "./motionState";
+	type BodyMotionInfo,
+	type MotionSource,
+	createMotionRegistry,
+} from "./motionRegistry";
+import { motionLogMessage } from "./motionState";
+import type { MotionWatch, Stall } from "./motionWatch";
 import { parseMotionSet } from "./motions";
-import { DEFAULT_POSE, modelPoseOf } from "./poses";
+import { modelPoseOf } from "./poses";
 import {
 	ROOM_LIGHT_COUNT,
 	type Spot,
@@ -261,6 +254,14 @@ export interface VeryareScene extends TestableScene {
 	setAim(point: Vec3 | null): void;
 	/** 隠れ側の体の位置と足もと（狙う点から相手を決めるのに使う）。 */
 	hiderBodies(): (BodyAt & { readonly id: string })[];
+	/**
+	 * 見えている体ごとの動きの状態（体の名前・状態・再生の時間・重み / motionRegistry.ts）。体の名前は
+	 * self（自分の体）、self-oni（鬼本人の体）、oni（ほかの人の画面の鬼。人間と CPU）、
+	 * member:<プレイヤー ID>（待機ルームのほかのメンバー）。テスト用の口と、開発中の Console に使う。
+	 */
+	motionInfos(): readonly BodyMotionInfo[];
+	/** 動きの止まりの記録（見張りがあるときだけ。無ければ空 / motionWatch.ts）。 */
+	motionStalls(): readonly Stall[];
 	resize(width: number, height: number): void;
 	render(): void;
 	dispose(): void;
@@ -323,6 +324,11 @@ export interface SceneOptions {
 	 * ごとに受け取る（issue-57。動きが止まる不具合を、目視で見つけるため）。
 	 */
 	readonly motionLog?: (message: string) => void;
+	/**
+	 * 動きの見張り（motionWatch.ts）。テスト用の口か、開発用の合図のときだけ渡す。本番の既定では渡さない
+	 * （作らない）。
+	 */
+	readonly watch?: MotionWatch;
 }
 
 const ONI_COLOR = 0xef4444;
@@ -506,16 +512,19 @@ export function createScene(
 	const takeCharacter = takeOnce(options.bodies);
 	const avatarSurface = createPaintSurface();
 	let avatar = bodyKit.create(avatarSurface.texture, 0xffffff);
-	/** 自分の体の動き（issue-57）: 選んだポーズ、静止の指定、ならした速さ、状態、いま当てている動き。 */
+	/** 自分の体の動き（issue-57）: 選んだポーズと、静止の指定。 */
 	let avatarChosen: VeryareModelPose | null = null;
 	let avatarFixed = false;
-	let avatarSpeed = 0;
-	let avatarMotion: MotionState = INITIAL_MOTION;
-	let avatarAction: BodyAction = { kind: "pose", pose: DEFAULT_POSE };
-	let avatarRate = 1;
-	/** 前の描画での、自分の体の位置（進んだ距離を求める）。 */
-	let avatarLast: { x: number; z: number } | null = null;
 	scene.add(avatar.object);
+	/**
+	 * 動きのある体の登録所（issue-57 の後半）。自分の体・鬼本人の体・ほかの人の画面の鬼・待機ルームの
+	 * メンバーを登録し、描画のたびに登録所を回すだけにする。体の差し替え（useBodyKit）のあとも、
+	 * 登録所が、いまの動きを新しい体に当てる。
+	 */
+	const motions = createMotionRegistry({
+		speeds: () => bodyKit.motionSpeeds,
+		watch: options.watch ?? null,
+	});
 	/**
 	 * 体を作る口が替わったら、自分の体と鬼の体を作り直す（位置・向き・ポーズ・見え方はそのまま）。
 	 * 隠れ側は次の setHiders で作り直す。
@@ -527,8 +536,6 @@ export function createScene(
 		next.object.position.copy(avatar.object.position);
 		next.object.rotation.copy(avatar.object.rotation);
 		next.object.visible = avatar.object.visible;
-		next.setAction(avatarAction, avatarRate);
-		next.snap();
 		scene.remove(avatar.object);
 		avatar.dispose();
 		avatar = next;
@@ -549,7 +556,8 @@ export function createScene(
 	// 隠れ側の描き込み面（作り直すときに捨てる）。
 	const hiderSurfaces: PaintSurface[] = [];
 
-	// 鬼の体（赤い体。素材の体なら立ち姿に固定 / issue-56）。正面が分かるよう、前に小さな印を付ける。
+	// 鬼の体（赤い体 / issue-56）。動き（待機・歩く・走る）は、自分の体と同じ登録所で当てる（issue-57 の
+	// 後半）。正面が分かるよう、前に小さな印を付ける。
 	// グループの原点が足もと。
 	const oniBody = (group: THREE.Group): BodyInstance => {
 		const body = bodyKit.create(null, ONI_COLOR);
@@ -579,6 +587,29 @@ export function createScene(
 	const selfOniParts = oniFigure();
 	const oni = oniParts.group;
 	const selfOni = selfOniParts.group;
+	// 登録所への登録。位置は、自分と鬼本人は手元の位置、ほかの人の画面の鬼は補間した位置（setOni）。
+	// 速さは、その位置の描画ごとの変化から求める（鬼 CPU も同じ）。
+	motions.add({
+		name: "self",
+		body: () => avatar,
+		where: () => (avatar.object.visible ? avatar.object.position : null),
+		chosen: () => avatarChosen,
+		fixed: () => avatarFixed,
+	});
+	motions.add({
+		name: "self-oni",
+		body: () => selfOniParts.body,
+		where: () => (selfOni.visible ? avatar.object.position : null),
+		chosen: () => null,
+		fixed: () => false,
+	});
+	motions.add({
+		name: "oni",
+		body: () => oniParts.body,
+		where: () => (oni.visible ? oni.position : null),
+		chosen: () => null,
+		fixed: () => false,
+	});
 	/** 自分の体（ふつうの体と、鬼本人の体）の材質。半透明にするときに使う。 */
 	const selfMaterials = (): THREE.Material[] => {
 		const list: THREE.Material[] = [...avatar.materials];
@@ -627,8 +658,9 @@ export function createScene(
 		body: BodyInstance;
 		label: THREE.Sprite;
 		name: string;
-		motion: MemberMotion;
 		target: SceneMember;
+		/** 登録所からの取り消し。 */
+		readonly unregister: () => void;
 	}
 	const memberFigures = new Map<string, MemberFigure>();
 	const memberBody = (group: THREE.Group): BodyInstance => {
@@ -637,6 +669,17 @@ export function createScene(
 		group.add(body.object);
 		return body;
 	};
+	/** メンバー1人を登録所に載せる口。待機ルームを表示している間だけ見える。 */
+	const memberSource = (
+		id: string,
+		figure: () => MemberFigure,
+	): MotionSource => ({
+		name: `member:${id}`,
+		body: () => figure().body,
+		where: () => (memberGroup.visible ? figure().target : null),
+		chosen: () => figure().target.pose,
+		fixed: () => false,
+	});
 	/**
 	 * 頭上の名前（Sprite）。名前は文字として canvas に描く（HTML として解釈しない）。画像と材質は、
 	 * 作り直すとき・体を消すときに disposeLabel で解放する。
@@ -675,6 +718,7 @@ export function createScene(
 		const figure = memberFigures.get(id);
 		if (figure === undefined) return;
 		memberGroup.remove(figure.group);
+		figure.unregister();
 		figure.body.dispose();
 		disposeLabel(figure.label);
 		memberFigures.delete(id);
@@ -759,28 +803,13 @@ export function createScene(
 		if (log === undefined || now - motionLogAt < MOTION_LOG_SECONDS * 1000)
 			return;
 		motionLogAt = now;
-		if (avatar.object.visible) {
+		for (const info of motions.infos()) {
 			log(
-				motionLogMessage("自分の体", {
-					action: avatarAction,
-					speed: avatarSpeed,
-					rate: avatarRate,
-					status: avatar.motionStatus(),
-				}),
-			);
-		}
-		// 鬼の体の動きは、まだ当てていない（issue-57 の後半）。見えていれば、状態だけを出す。
-		for (const [label, figure] of [
-			["鬼本人の体", selfOniParts],
-			["鬼", oniParts],
-		] as const) {
-			if (!figure.group.visible) continue;
-			log(
-				motionLogMessage(label, {
-					action: { kind: "pose", pose: DEFAULT_POSE },
-					speed: 0,
-					rate: 1,
-					status: figure.body.motionStatus(),
+				motionLogMessage(info.name, {
+					state: info.state,
+					speed: info.speed,
+					rate: info.rate,
+					status: info.clips,
 				}),
 			);
 		}
@@ -1190,14 +1219,15 @@ export function createScene(
 					const label = memberLabel(member.name);
 					group.add(label);
 					memberGroup.add(group);
-					memberFigures.set(member.id, {
+					const created: MemberFigure = {
 						group,
 						body: memberBody(group),
 						label,
 						name: member.name,
-						motion: INITIAL_MEMBER_MOTION,
 						target: member,
-					});
+						unregister: motions.add(memberSource(member.id, () => created)),
+					};
+					memberFigures.set(member.id, created);
 					continue;
 				}
 				// 名前が変わったら、名前の画像を作り直す（古い画像は解放する）。
@@ -1404,6 +1434,8 @@ export function createScene(
 		hiderBodies() {
 			return bodiesOf();
 		},
+		motionInfos: () => motions.infos(),
+		motionStalls: () => options.watch?.stalls() ?? [],
 		resize(width, height) {
 			renderer.setSize(width, height, false);
 			camera.aspect = width / Math.max(height, 1);
@@ -1424,39 +1456,6 @@ export function createScene(
 				? avatarFloor
 				: followFloor(avatarFeet, avatarFloor, dt);
 			avatar.object.position.y = avatarFeet;
-			// 自分の体の動き（issue-57）。実際に進んだ距離（壁で止まった後の手元の位置）から速さを求め、
-			// 待機・歩く・走る・ポーズを切り替える。空間が変わった直後は、位置が飛ぶので速さを 0 にする。
-			// 見えているときだけ更新する（鬼本人の画面で、鬼の体に替わっている間は止める）。
-			if (avatar.object.visible) {
-				const here = {
-					x: avatar.object.position.x,
-					z: avatar.object.position.z,
-				};
-				const moved =
-					jumped || avatarLast === null
-						? 0
-						: Math.hypot(here.x - avatarLast.x, here.z - avatarLast.z);
-				avatarLast = here;
-				avatarSpeed = jumped ? 0 : smoothSpeed(avatarSpeed, moved, dt);
-				const step = stepMotion(avatarMotion, {
-					speed: avatarSpeed,
-					dt,
-					chosen: avatarChosen,
-					fixed: avatarFixed,
-				});
-				avatarMotion = step.state;
-				avatarAction = step.action;
-				const speeds = bodyKit.motionSpeeds;
-				avatarRate =
-					speeds === null || step.action.kind === "pose"
-						? 1
-						: playbackRate(step.action.kind, avatarSpeed, speeds);
-				avatar.setAction(avatarAction, avatarRate);
-				// 動きを進め、ポーズの補正（足もと・水平の中心）をなめらかに寄せる（issue-56）。
-				avatar.update(dt);
-			} else {
-				avatarLast = null;
-			}
 			// 鬼本人の体は、自分の体と同じ位置（手元の位置）に、足もとを合わせて置く。
 			selfOni.position.set(
 				avatar.object.position.x,
@@ -1474,24 +1473,19 @@ export function createScene(
 			for (const child of hiderGroup.children) {
 				child.position.y = floorAt(child.position.x, child.position.z);
 			}
-			// 待機ルームのほかのメンバー（issue-59）。補間した位置に置き、位置の変化から動きを決める。
+			// 待機ルームのほかのメンバー（issue-59）。補間した位置に置く。
 			memberGroup.visible = lastSpace === "waiting-room";
 			if (memberGroup.visible) {
 				for (const figure of memberFigures.values()) {
-					const { x, z, facing, pose } = figure.target;
+					const { x, z, facing } = figure.target;
 					figure.group.position.set(x, floorAt(x, z), z);
 					figure.body.object.rotation.y = turnOf(facing);
-					const step = stepMemberMotion(figure.motion, { x, z }, dt, pose);
-					figure.motion = step.state;
-					const speeds = bodyKit.motionSpeeds;
-					const rate =
-						speeds === null || step.action.kind === "pose"
-							? 1
-							: playbackRate(step.action.kind, step.state.speed, speeds);
-					figure.body.setAction(step.action, rate);
-					figure.body.update(dt);
 				}
 			}
+			// 動きのある体を、登録所で、まとめて進める（issue-57 の後半。体の種類ごとに呼ばない）。
+			// 自分の体と鬼本人の体は、実際に進んだ距離（壁で止まった後の手元の位置）から、ほかの人の画面の
+			// 鬼とメンバーは、補間した位置の変化から、速さを求める。空間が変わった直後は、速さを 0 にする。
+			motions.update(dt, { jumped, at: now });
 			updateCameraReach(dt, jumped);
 			// カメラが自分の体に近いほど、自分の体を半透明にする（体の中を映さないように / issue-46）。
 			const opacity =

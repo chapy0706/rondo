@@ -77,6 +77,11 @@ export interface BodyInstance {
 	 * 開発中の Console の記録と、テストに使う。
 	 */
 	motionStatus(): readonly MotionStatus[];
+	/**
+	 * 骨の回転（ポーズの表の骨の順に、四元数 x・y・z・w を並べたもの）。動きの見張り（motionWatch.ts）が、
+	 * 骨が止まっていないかを見るのに使う。仮のカプセルは空。
+	 */
+	boneRotations(): readonly number[];
 	/** タップの光線が体に当たれば、当たった部位と、その描き込み面の (u, v)。当たらなければ null。 */
 	pickUv(
 		raycaster: THREE.Raycaster,
@@ -131,6 +136,7 @@ export const placeholderBodyKit: BodyKit = {
 			snap: () => undefined,
 			offset: () => ZERO,
 			motionStatus: () => [],
+			boneRotations: () => [],
 			pickUv(raycaster) {
 				object.updateMatrixWorld(true);
 				const inverse = object.matrixWorld.clone().invert();
@@ -459,6 +465,17 @@ function modelInstance(
 				time: action.time,
 				weight: weights.get(action) ?? 0,
 			})),
+		boneRotations: () =>
+			bones.flatMap((bone) =>
+				bone === null
+					? []
+					: [
+							bone.quaternion.x,
+							bone.quaternion.y,
+							bone.quaternion.z,
+							bone.quaternion.w,
+						],
+			),
 		pickUv(raycaster) {
 			object.updateMatrixWorld(true);
 			// 動いている体は、当たりの外接球を、いまの姿勢で作り直す（タップのときだけ）。

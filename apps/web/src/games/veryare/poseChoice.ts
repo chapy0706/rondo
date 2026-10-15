@@ -10,7 +10,7 @@ import type {
 	VeryareModelPose,
 	VeryareWaitingPoseEvent,
 } from "@rondo/contracts";
-import type { Phase, Space } from "./rules";
+import type { Phase, Role, Space } from "./rules";
 
 export interface PoseChoice {
 	/** 待機ルームで選んだポーズ（選んでいなければ null）。 */
@@ -54,6 +54,20 @@ export function avatarPoseOf(
 	space: Space,
 ): VeryareModelPose | null {
 	return space === "waiting-room" ? choice.waiting : choice.game;
+}
+
+/**
+ * 自分の体を、選んだポーズ（なければ idle）の静止した姿勢に固定するか（issue-57）。隠れ側は、ペイント
+ * フェーズに入ったら固定する（確定のあとも。動かないのが、隠れる遊びの前提のため）。鬼は固定しない。
+ */
+export function avatarPoseFixed(phase: Phase, role: Role): boolean {
+	return (
+		role === "hider" &&
+		(phase === "painting" ||
+			phase === "exploration" ||
+			phase === "reveal" ||
+			phase === "ended")
+	);
 }
 
 /**

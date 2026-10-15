@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 import {
 	NO_POSE_CHOICE,
 	WAITING_POSE_INTERVAL_MS,
+	avatarPoseFixed,
 	avatarPoseOf,
 	canChangeWaitingPose,
 	chooseGamePose,
@@ -82,5 +83,38 @@ describe("waitingPoseEvent - 待機ポーズの変更の電文", () => {
 			type: "waiting-pose",
 			pose: "femaleDance",
 		});
+	});
+});
+
+describe("avatarPoseFixed - 自分の体を、選んだポーズの静止した姿勢に固定するか（issue-57）", () => {
+	it("隠れ側は、ペイントフェーズに入ったら（確定のあとも、探索・答え合わせ・終了も）固定する", () => {
+		for (const phase of [
+			"painting",
+			"exploration",
+			"reveal",
+			"ended",
+		] as const) {
+			expect(avatarPoseFixed(phase, "hider"), phase).toBe(true);
+		}
+	});
+
+	it("準備移動と鬼選出の間は、固定しない（歩く・走る・止まってポーズ）", () => {
+		for (const phase of ["oni-selection", "preparation"] as const) {
+			expect(avatarPoseFixed(phase, "hider"), phase).toBe(false);
+		}
+	});
+
+	it("鬼と、役割が決まる前は、固定しない（鬼は探索の間も歩く・走る）", () => {
+		for (const phase of [
+			"oni-selection",
+			"preparation",
+			"painting",
+			"exploration",
+			"reveal",
+			"ended",
+		] as const) {
+			expect(avatarPoseFixed(phase, "oni"), phase).toBe(false);
+			expect(avatarPoseFixed(phase, "undecided"), phase).toBe(false);
+		}
 	});
 });

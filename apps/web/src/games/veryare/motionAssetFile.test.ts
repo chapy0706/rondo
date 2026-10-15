@@ -14,6 +14,7 @@ import {
 	seamAngle,
 	upAxisOf,
 } from "./motionAsset";
+import { BONE_EPSILON, STALL_SECONDS } from "./motionWatch";
 import { parseMotionSet } from "./motions";
 
 const asset = (name: string) =>
@@ -108,6 +109,47 @@ describe.skipIf(!present)(
 				}
 				expect(seamAngle(first, last), clip.name).toBeLessThan(0.5);
 			}
+		});
+
+		it("待機の細かい動きは、どの 0.5 秒でも、骨の回転が見張りのしきい値の 4 倍以上変わる（止まりと誤って数えない）", async () => {
+			const motions = await load(motionsFile);
+			const body = await load(bodyFile);
+			const bones: THREE.Bone[] = [];
+			body.scene.traverse((node) => {
+				if (node instanceof THREE.Bone) bones.push(node);
+			});
+			const idle = motions.animations.find((clip) => clip.name === "idle");
+			if (idle === undefined) throw new Error("idle が無い");
+			const mixer = new THREE.AnimationMixer(body.scene);
+			mixer.clipAction(idle).play();
+			const dt = 1 / 60;
+			const frames: number[][] = [];
+			for (let i = 0; i < Math.ceil((idle.duration + 1) / dt); i++) {
+				mixer.update(i === 0 ? 0 : dt);
+				frames.push(
+					bones.flatMap((b) => [
+						b.quaternion.x,
+						b.quaternion.y,
+						b.quaternion.z,
+						b.quaternion.w,
+					]),
+				);
+			}
+			// 見張りと同じ見方: ある時刻の姿勢から、0.5 秒の間に、いちばん大きく変わった成分の差。
+			const window = Math.round(STALL_SECONDS / dt);
+			let least = Number.POSITIVE_INFINITY;
+			for (let t = 0; t + window < frames.length; t++) {
+				const from = frames[t] as number[];
+				let most = 0;
+				for (let u = t + 1; u <= t + window; u++) {
+					const to = frames[u] as number[];
+					for (let k = 0; k < from.length; k++) {
+						most = Math.max(most, Math.abs((from[k] ?? 0) - (to[k] ?? 0)));
+					}
+				}
+				least = Math.min(least, most);
+			}
+			expect(least).toBeGreaterThanOrEqual(BONE_EPSILON * 4);
 		});
 	},
 );

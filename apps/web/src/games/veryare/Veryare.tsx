@@ -52,6 +52,7 @@ import {
 	saveAutoCamera,
 	stepAutoCamera,
 } from "./autoCamera";
+import { stepFacing } from "./bodyFacing";
 import { cameraSettings } from "./camera";
 import { browserStorage, loadCeiling, saveCeiling } from "./ceilingSetting";
 import { isHirayaStage } from "./hiraya";
@@ -80,6 +81,11 @@ import {
 	shouldReport,
 } from "./motion";
 import {
+	createMotionWatch,
+	motionWatchEnabled,
+	stallLogMessage,
+} from "./motionWatch";
+import {
 	type OniSample,
 	pushOniSample,
 	sampleOni,
@@ -105,6 +111,7 @@ import { FLOOR_COLOR, UNPAINTED_COLOR } from "./palette";
 import {
 	NO_POSE_CHOICE,
 	WAITING_POSE_INTERVAL_MS,
+	avatarPoseFixed,
 	avatarPoseOf,
 	canChangeWaitingPose,
 	chooseGamePose,
@@ -114,9 +121,12 @@ import {
 } from "./poseChoice";
 import {
 	DEFAULT_POSE,
+	POSE_NOTICE_MS,
 	RANDOM_POSE_POOL,
+	canChangePose,
 	pickNextPose,
 	poseLabel,
+	poseNoticeVisible,
 } from "./poses";
 import {
 	type Outcome,
@@ -305,6 +315,8 @@ export default function Veryare() {
 	const [poseChoice, setPoseChoice] = useState(NO_POSE_CHOICE);
 	const pose: VeryareModelPose = poseChoice.game ?? DEFAULT_POSE;
 	const poseChosen = poseChoice.game !== null;
+	/** ゲーム用のポーズを選んだ時刻（選んだポーズの表示名を POSE_NOTICE_MS だけ出す / issue-57）。 */
+	const [poseNoticeAt, setPoseNoticeAt] = useState<number | null>(null);
 	/** 待機ポーズのボタンを止めている間か（押してから WAITING_POSE_INTERVAL_MS）。 */
 	const [waitingPoseCooling, setWaitingPoseCooling] = useState(false);
 	const waitingPosePressedRef = useRef<number | null>(null);
@@ -686,6 +698,33 @@ export default function Veryare() {
 		remainingMs,
 	});
 	const showPaintPanel = phase === "painting" && role === "hider" && !spectator;
+	// ゲーム用のポーズ（issue-57）。準備移動とペイントフェーズの隠れ側が、確定の電文を送る前まで選べる。
+	// 準備移動では画面のボタン、ペイントフェーズではペイントの板のボタン。押すたびに、選ぶポーズだけを
+	// 変え（体は、動いていれば歩く・走るのまま、止まると選んだポーズへ移る / motionState.ts）、
+	// 選んだポーズの表示名を POSE_NOTICE_MS だけ出す。
+	const gamePoseOpen =
+		bodyPosable &&
+		canChangePose({ phase, role, spectator, submitted: paintSubmitted });
+	const gamePoseShown = gamePoseOpen && phase === "preparation";
+	const poseNoticeShown = poseNoticeVisible(poseNoticeAt, now);
+	const onNextGamePose = () => {
+		if (!gamePoseOpen) return;
+		setPoseChoice((choice) =>
+			chooseGamePose(
+				choice,
+				pickNextPose(
+					choice.game ?? DEFAULT_POSE,
+					RANDOM_POSE_POOL,
+					Math.random,
+				),
+			),
+		);
+		const at = performance.now();
+		setPoseNoticeAt(at);
+		setNow(at);
+		// 表示名を消すため、出しておく時間の後に描き直す（残り時間の表示の 250 ms ごとより早く）。
+		window.setTimeout(() => setNow(performance.now()), POSE_NOTICE_MS);
+	};
 	useEffect(() => {
 		if (
 			submittedRef.current ||
@@ -817,6 +856,7 @@ export default function Veryare() {
 		pose,
 		poseChosen,
 		avatarPose: avatarPoseOf(poseChoice, space),
+		avatarFixed: avatarPoseFixed(phase, role),
 		names,
 		bodyPosable,
 		setBodyPosable,
@@ -853,6 +893,7 @@ export default function Veryare() {
 		pose,
 		poseChosen,
 		avatarPose: avatarPoseOf(poseChoice, space),
+		avatarFixed: avatarPoseFixed(phase, role),
 		names,
 		bodyPosable,
 		setBodyPosable,
@@ -875,12 +916,26 @@ export default function Veryare() {
 			if (disposed) return;
 			// カメラの定数。開発中だけ、URL の指定（?camPitchMax=0.45 など）で変えられる。
 			const camera = cameraSettings(HIRAYA_DEV, window.location.search);
+			// 動きの見張り（issue-57 の後半）。テスト用の口か、開発用の合図のときだけ作る（本番の既定では
+			// 作らない）。開発用の合図のときは、止まりを Console に出す。
+			const watch = motionWatchEnabled({
+				testHooks: process.env.NEXT_PUBLIC_RONDO_TEST_HOOKS === "1",
+				dev: HIRAYA_DEV,
+				search: window.location.search,
+			})
+				? createMotionWatch(
+						traceEnabled(HIRAYA_DEV, window.location.search)
+							? (stall) => console.warn(stallLogMessage(stall))
+							: undefined,
+					)
+				: null;
 			// 開発中だけ、カメラの高さを Console に出す（?roof=1 と同じ合図）。
 			const scene = createScene(canvas, {
 				trace: devTrace,
 				camera,
 				// キャラクターの素材（issue-56）。待機ルームにいる間に、仮のカプセルから差し替える。
 				bodies: characterSlot,
+				...(watch === null ? {} : { watch }),
 				...(traceEnabled(HIRAYA_DEV, window.location.search)
 					? {
 							cameraLog: (message: string) => console.info(message),
@@ -901,6 +956,11 @@ export default function Veryare() {
 			let followRate = 0;
 			/** 視点パッドを最後に触った時刻（ミリ秒）。触っていなければ、ずっと前。 */
 			let lookTouchedAt = Number.NEGATIVE_INFINITY;
+			/**
+			 * テストから与えた移動の傾き（テスト用の口があるときだけ。与えていなければ null で、パッドの入力を
+			 * 使う / testHooks.ts の setMove）。
+			 */
+			let testMove: { readonly x: number; readonly y: number } | null = null;
 			// テスト用の口（テスト用の環境変数があるときだけ / testHooks.ts）。条件は、この場で環境変数を
 			// 比べる（ビルド時に false に置き換わり、口の読み込みごと本番の配るファイルから消える）。
 			// ゲームの状態は、描画ループと同じ値（手元の位置、視点の向き）を読むだけで、書き換えない。
@@ -917,6 +977,12 @@ export default function Veryare() {
 							yaw,
 							openDoors: latest.current.openDoors.size,
 						}),
+						{
+							setMove: (input) => {
+								testMove = input;
+							},
+							move: () => testMove,
+						},
 					);
 				});
 			}
@@ -927,8 +993,11 @@ export default function Veryare() {
 			let lastSent = 0;
 			let sentPosition: Point | null = null;
 			let sentFacing: number | null = null;
-			/** 鬼本人の体の向き（動ける間の視点の向き。移動の報告と同じ値 / issue-46）。 */
-			let selfFacing = 0;
+			/**
+			 * 自分の体の向き（issue-57）。スティックを倒した方向へ、なめらかに回す（視点の向きとは分ける。
+			 * 止まったら最後の向きを保つ / bodyFacing.ts）。鬼本人の体にも、移動の報告にも、この向きを使う。
+			 */
+			let bodyFacing = facingOfYaw(yaw);
 			/** 最後に視界を報告した時刻（issue-32）。探索の外では null に戻す。 */
 			let lastSight: number | null = null;
 
@@ -936,6 +1005,7 @@ export default function Veryare() {
 				const dt = Math.min((time - last) / 1000, 0.1);
 				last = time;
 				const current = latest.current;
+				const move = testMove ?? current.move;
 
 				yaw -= current.look.x * TURN_SPEED * dt;
 				// 視点の自動追従（yaw だけを動かす）。移動より先に回し、このコマの移動と体の向きは、
@@ -950,8 +1020,8 @@ export default function Veryare() {
 				const followed = stepAutoCamera(
 					{ yaw, rate: followRate },
 					{
-						move: current.move,
-						speed: Math.hypot(current.move.x, current.move.y) * WALK_SPEED,
+						move,
+						speed: Math.hypot(move.x, move.y) * WALK_SPEED,
 						secondsSinceLook: (time - lookTouchedAt) / 1000,
 						enabled:
 							current.autoCamera &&
@@ -974,19 +1044,13 @@ export default function Veryare() {
 					positionRef.current = mirrorMove({
 						...rule,
 						from: positionRef.current,
-						to: walkTarget(
-							positionRef.current,
-							current.move,
-							yaw,
-							WALK_SPEED,
-							dt,
-						),
+						to: walkTarget(positionRef.current, move, yaw, WALK_SPEED, dt),
 					});
 					// 位置と向きはクライアントが報告し、サーバーが制限する（変わったときだけ
 					// 間引いて送る）。向きは観戦者へ送る鬼の向きに使う（issue-28）。
 					const position = positionRef.current;
-					const facing = facingOfYaw(yaw);
-					selfFacing = facing;
+					bodyFacing = stepFacing(bodyFacing, move, yaw, dt);
+					const facing = bodyFacing;
 					if (
 						shouldReport({
 							time,
@@ -1038,12 +1102,12 @@ export default function Veryare() {
 							)
 						: null,
 				);
-				scene.setSelfOni(current.selfOni ? selfFacing : null);
+				scene.setSelfOni(current.selfOni ? bodyFacing : null);
 				// 自分の体の向きとポーズ（issue-56）。ポーズを変えたときは、シーンがなめらかに寄せる。
-				scene.setAvatarFacing(selfFacing);
+				scene.setAvatarFacing(bodyFacing);
 				// 選んだポーズ（押していなければ null）。待機ルームでは待機ポーズ、ステージではゲーム用の
-				// ポーズ（issue-59）。静止の指定（ペイント以降・確定後）は、後半で入れる。
-				scene.setAvatarPose(current.avatarPose, false);
+				// ポーズ（issue-59）。隠れ側は、ペイントフェーズ以降、静止した姿勢に固定する（issue-57）。
+				scene.setAvatarPose(current.avatarPose, current.avatarFixed);
 				// 待機ルームのほかのメンバー（issue-59）。補間した位置で描く。
 				scene.setMembers(
 					current.space === "waiting-room"
@@ -1179,6 +1243,27 @@ export default function Veryare() {
 						? `（いま: ${poseLabel(poseChoice.waiting)}）`
 						: ""}
 				</button>
+			) : null}
+
+			{gamePoseShown ? (
+				<button
+					type="button"
+					data-testid="veryare-game-pose"
+					data-pose={poseChoice.game ?? ""}
+					onClick={onNextGamePose}
+					className="min-h-11 rounded-xl bg-surface px-3 font-semibold text-fg text-sm ring-1 ring-line ring-inset"
+				>
+					ポーズを変える
+					{poseChosen ? `（いま: ${poseLabel(pose)}）` : ""}
+				</button>
+			) : null}
+			{poseNoticeShown && (gamePoseOpen || showPaintPanel) ? (
+				<output
+					data-testid="veryare-pose-notice"
+					className="block rounded-xl bg-accent px-3 py-2 text-center font-semibold text-accent-fg text-sm"
+				>
+					{poseLabel(pose)}
+				</output>
 			) : null}
 
 			{spectator ? (
@@ -1413,18 +1498,7 @@ export default function Veryare() {
 									label: poseLabel(pose),
 									chosen: poseChosen,
 									// いまと違うポーズを、プールからランダムに選ぶ（issue-56）。
-									onNext: () => {
-										setPoseChoice((choice) =>
-											chooseGamePose(
-												choice,
-												pickNextPose(
-													choice.game ?? DEFAULT_POSE,
-													RANDOM_POSE_POOL,
-													Math.random,
-												),
-											),
-										);
-									},
+									onNext: onNextGamePose,
 								},
 							}
 						: {})}

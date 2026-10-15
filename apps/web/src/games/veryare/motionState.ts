@@ -130,13 +130,73 @@ export function stepMotion(
 }
 
 /**
+ * 体1つの動きの状態（issue-57）。前のフレームの位置（見えていない間は null）、ならした速さ、切り替えの
+ * 状態。自分の体・鬼本人の体・ほかの人の画面の鬼・待機ルームのメンバーで同じ形を使う。
+ */
+export interface BodyMotion {
+	readonly last: { readonly x: number; readonly z: number } | null;
+	readonly speed: number;
+	readonly motion: MotionState;
+}
+
+export const INITIAL_BODY_MOTION: BodyMotion = {
+	last: null,
+	speed: 0,
+	motion: INITIAL_MOTION,
+};
+
+/**
+ * 体1つを1フレーム進める。here は描く位置（自分と鬼本人は手元の位置、ほかの体は補間した位置）。
+ * 見えていなければ null（前の位置を忘れ、見え始めの一歩で位置の飛びを速さにしない）。jumped は空間が
+ * 変わった直後（位置が飛ぶので速さ 0）。speeds は動きの素材の標準の速さ（無ければ null。再生は 1 倍）。
+ */
+export function stepBodyMotion(
+	state: BodyMotion,
+	input: {
+		readonly here: { readonly x: number; readonly z: number } | null;
+		readonly dt: number;
+		readonly chosen: VeryareModelPose | null;
+		readonly fixed: boolean;
+		readonly jumped: boolean;
+		readonly speeds: { readonly walk: number; readonly run: number } | null;
+	},
+): {
+	readonly state: BodyMotion;
+	readonly action: BodyAction;
+	readonly rate: number;
+} {
+	const { here, dt, chosen, fixed, jumped, speeds } = input;
+	const fresh = here === null || jumped || state.last === null;
+	const moved =
+		fresh || state.last === null
+			? 0
+			: Math.hypot(here.x - state.last.x, here.z - state.last.z);
+	const speed = fresh ? 0 : smoothSpeed(state.speed, moved, dt);
+	const step = stepMotion(state.motion, { speed, dt, chosen, fixed });
+	const rate =
+		speeds === null || step.action.kind === "pose"
+			? 1
+			: playbackRate(step.action.kind, speed, speeds);
+	return {
+		state: {
+			last: here === null ? null : { x: here.x, z: here.z },
+			speed,
+			motion: step.state,
+		},
+		action: step.action,
+		rate,
+	};
+}
+
+/**
  * 開発中だけ Console に出す、体の動きの1行（issue-57。動きが止まる不具合を、目視で見つけるため）。
  * status は体の動きごとの時間・重み（body.ts の motionStatus）。重みの付いた動きだけを出す。
  */
 export function motionLogMessage(
 	label: string,
 	info: {
-		readonly action: BodyAction;
+		/** idle・walk・run・pose:<識別子>（motionRegistry.ts の state）。 */
+		readonly state: string;
 		readonly speed: number;
 		readonly rate: number;
 		readonly status: readonly {
@@ -146,8 +206,7 @@ export function motionLogMessage(
 		}[];
 	},
 ): string {
-	const state =
-		info.action.kind === "pose" ? `pose:${info.action.pose}` : info.action.kind;
+	const { state } = info;
 	const weighted = info.status.filter((s) => s.weight > 0);
 	const parts =
 		weighted.length === 0

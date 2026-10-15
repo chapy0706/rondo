@@ -2,7 +2,6 @@ import type { VeryareWaitingMember } from "@rondo/contracts";
 import { describe, expect, it } from "vitest";
 import membersFixture from "../../../../../packages/contracts/src/fixtures/veryare-members.json";
 import {
-	INITIAL_MEMBER_MOTION,
 	MAX_VISIBLE_MEMBERS,
 	MEMBER_DELAY_MS,
 	MEMBER_RESEAT,
@@ -13,9 +12,7 @@ import {
 	membersSummary,
 	parseMembersNotice,
 	sampleMembers,
-	stepMemberMotion,
 } from "./members";
-import { STILL_BEFORE_POSE_SECONDS } from "./motionState";
 
 const m = (
 	playerId: string,
@@ -202,52 +199,6 @@ describe("sampleMembers - 少し遅らせた時刻の位置を補間する", () 
 			selection("me", 0),
 		);
 		expect(sampleMembers(one, 0, new Map())[0]?.name).toBe("");
-	});
-});
-
-describe("stepMemberMotion - 補間した位置の変化から、動きを決める（issue-57 の切り替え）", () => {
-	it("位置が速く変われば歩く・走る、止まればポーズ（選んでいれば）か待機", () => {
-		let state = INITIAL_MEMBER_MOTION;
-		let action = stepMemberMotion(state, { x: 0, z: 0 }, 0.016, null).action;
-		// 1 フレーム（16 ms）に 2 cm 進む ≒ 1.25 m/秒 → 歩く（ならしの後）。
-		for (let i = 1; i <= 30; i++) {
-			const step = stepMemberMotion(
-				state,
-				{ x: i * 0.02, z: 0 },
-				0.016,
-				"femaleDance",
-			);
-			state = step.state;
-			action = step.action;
-		}
-		expect(action).toEqual({ kind: "walk" });
-		// 止まって STILL_BEFORE_POSE_SECONDS たてば、選んだ待機ポーズ。
-		const frames = Math.ceil(STILL_BEFORE_POSE_SECONDS / 0.016) + 30;
-		for (let i = 0; i < frames; i++) {
-			const step = stepMemberMotion(
-				state,
-				{ x: 0.6, z: 0 },
-				0.016,
-				"femaleDance",
-			);
-			state = step.state;
-			action = step.action;
-		}
-		expect(action).toEqual({ kind: "pose", pose: "femaleDance" });
-		// ポーズを選んでいなければ、待機の動き。
-		const idle = stepMemberMotion(state, { x: 0.6, z: 0 }, 0.016, null);
-		expect(idle.action).toEqual({ kind: "idle" });
-	});
-
-	it("走る速さ（3 m/秒以上）なら走る", () => {
-		let state = INITIAL_MEMBER_MOTION;
-		let kind = "";
-		for (let i = 0; i <= 30; i++) {
-			const step = stepMemberMotion(state, { x: i * 0.06, z: 0 }, 0.016, null);
-			state = step.state;
-			kind = step.action.kind;
-		}
-		expect(kind).toBe("run");
 	});
 });
 
