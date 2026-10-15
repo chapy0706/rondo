@@ -7,12 +7,13 @@ import type { GameManifest } from "@rondo/contracts";
  */
 export const minichessManifest: GameManifest = {
 	id: "minichess",
-	title: "chess",
+	title: "ミニチェス",
 	kind: "solo",
 	minPlayers: 1,
 	maxPlayers: 1,
-	thumbnail: "/games/minichess.png",
-	description: "5×5 の小さな盤で、CPU とチェスを指す。",
+	description: "5×5 の、ちいさなチェス",
+	// ロゴ（issue-69）。画像は後半で足す。いまは背景の色と頭文字の仮のタイル。
+	logo: { background: "#2b2a33" },
 	launchScreen: "shared",
 	tagline: "小さな盤で、王を詰ませろ。",
 	howToPlay: [

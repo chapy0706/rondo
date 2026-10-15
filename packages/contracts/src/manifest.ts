@@ -25,16 +25,27 @@ export type LaunchScreen = "shared" | "custom";
 export interface GameManifest {
 	/** ゲームの一意な識別子。registry のキー、多重化の gameType と対応する。 */
 	readonly id: string;
-	/** 選択画面に表示する名称。 */
+	/**
+	 * 画面に出す名称（日本語名 / issue-69）。選択画面・ロビー・起動画面・ゲーム画面・結果画面・
+	 * ページの題名が、ここから引く。内部の識別子（id）とは別で、変えても id は変わらない。
+	 */
 	readonly title: string;
+	/**
+	 * 読み上げ（aria-label）と、ロゴの画像の代替の文字（alt）に使う名称（issue-69）。title が
+	 * 読み上げに向かない文字（テ〇〇ス など）のときだけ書く。無ければ title を使う。
+	 */
+	readonly spokenTitle?: string;
 	/** ソロ / リアルタイムの別。 */
 	readonly kind: GameKind;
 	/** 参加可能な最小人数。ソロは 1。 */
 	readonly minPlayers: number;
 	/** 参加可能な最大人数。ソロは 1。 */
 	readonly maxPlayers: number;
-	/** サムネイル画像のパス。 */
-	readonly thumbnail: string;
+	/**
+	 * ゲームのロゴ（ゲームパッケージ / issue-69）。無い・画像が読めないときは、背景の色と、
+	 * 表示名の頭文字の仮のタイルを出す。
+	 */
+	readonly logo?: GameLogo;
 	/** 選択画面に表示する短い説明。 */
 	readonly description: string;
 	/** 起動画面を基盤共通にするか、ゲーム自身が持つか。 */
@@ -54,6 +65,16 @@ export interface GameManifest {
 	 * 選んだ値はルーム一覧には出さない（入室後に初めて分かる / ADR 0024）。
 	 */
 	readonly roomOptions?: readonly RoomOption[];
+}
+
+/**
+ * ゲームのロゴ（issue-69）。画面の側だけが使い、サーバーへは送らない（Gleam の側に対応する型は無い）。
+ */
+export interface GameLogo {
+	/** 画像のパス（apps/web/public/games/<id>/logo.svg など）。無ければ仮のタイル。 */
+	readonly src?: string;
+	/** 背景の色（"#rrggbb"）。ロゴの下地と、仮のタイルの色。暗い画面でも明るい画面でも見えるよう、ロゴの側に持つ。 */
+	readonly background: string;
 }
 
 /** ルーム作成時に選ぶ設定1つ。数値の選択肢から1つを選ぶ。 */

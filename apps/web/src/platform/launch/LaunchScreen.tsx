@@ -1,13 +1,14 @@
 import type { GameManifest } from "@rondo/contracts";
+import { GameLogo } from "../brand/GameLogo";
 import { RondoMark } from "../brand/Logo";
-import { fallbackInitial } from "../select/selection";
+import { displayName } from "../brand/gameBrand";
 
 /**
  * 基盤共通の起動画面（issue-30 / ADR 0029）。
  *
  * ロゴ・タイトル・タグライン・遊び方・「はじめる」だけを出す。押しても展開は変わらない
- * 演出なので、押したら onStart を呼ぶだけにする。タイトル画像は頭文字のフォールバックを
- * 下に敷き、その上に重ねるので、画像の実体が無くても崩れない。
+ * 演出なので、押したら onStart を呼ぶだけにする。タイトル画像は、ゲームのロゴ（issue-69。無ければ
+ * 仮のタイル）を下に敷き、その上に重ねるので、画像の実体が無くても崩れない。
  */
 export function LaunchScreen({
 	manifest,
@@ -16,18 +17,17 @@ export function LaunchScreen({
 	manifest: GameManifest;
 	onStart: () => void;
 }) {
-	const { title, tagline, howToPlay, titleScreenImage } = manifest;
+	const { tagline, howToPlay, titleScreenImage } = manifest;
+	const title = displayName(manifest);
 
 	return (
 		<section className="flex w-full flex-col items-center gap-6 text-center motion-safe:animate-rise">
 			<RondoMark className="size-6" />
 
 			<div className="relative aspect-video w-full overflow-hidden rounded-3xl bg-surface ring-1 ring-line ring-inset">
-				<span
-					aria-hidden="true"
-					className="absolute inset-0 flex items-center justify-center font-bold text-8xl text-fg-muted"
-				>
-					{fallbackInitial(manifest)}
+				{/* ゲームのロゴ（issue-69）。画像が無い・読めないときは、仮のタイル。 */}
+				<span className="absolute inset-0 flex items-center justify-center">
+					<GameLogo manifest={manifest} size={128} />
 				</span>
 				{titleScreenImage !== undefined ? (
 					<span

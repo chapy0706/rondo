@@ -22,9 +22,10 @@ describe("rolling の画面（issue-36）", () => {
 		expect(html).not.toContain("<canvas");
 	});
 
-	it("画面上の名前は rolling で、内部の gameType は tilt-maze のまま", () => {
-		expect(tiltMazeManifest.title).toBe("rolling");
+	it("表示名は識別子と別で、内部の gameType は tilt-maze のまま（issue-69）", () => {
 		expect(tiltMazeManifest.id).toBe("tilt-maze");
+		expect(tiltMazeManifest.title.trim()).not.toBe("");
+		expect(tiltMazeManifest.title).not.toBe(tiltMazeManifest.id);
 		expect(JSON.stringify(tiltMazeManifest)).not.toMatch(/Tilt ?Maze/i);
 	});
 });

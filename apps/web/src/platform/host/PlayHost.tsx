@@ -42,6 +42,8 @@ import {
 	isRealtimeMatch,
 	lobbyPathOf,
 } from "../../games/registry";
+import { GameLogo } from "../brand/GameLogo";
+import { displayName } from "../brand/gameBrand";
 import { LaunchGate } from "../launch/LaunchGate";
 import { needsLaunchScreen } from "../launch/launch";
 import { ResultScreen } from "../result/ResultScreen";
@@ -202,11 +204,23 @@ export function PlayHost({ manifest }: { manifest: GameManifest }) {
 		<GameHostProvider value={host}>
 			<main className="mx-auto flex min-h-dvh max-w-md flex-col items-center gap-8 px-6 py-12">
 				{launched && (
-					<h1 className="font-bold text-2xl text-white">{manifest.title}</h1>
+					<h1
+						className="flex items-center gap-3 font-bold text-2xl text-white"
+						data-testid="play-title"
+						data-game={manifest.id}
+					>
+						<GameLogo manifest={manifest} size={32} />
+						{displayName(manifest)}
+					</h1>
 				)}
 
 				{view === "instead-of-game" && result !== null ? (
-					<ResultScreen result={result} you={you} onLeave={leaveRoom} />
+					<ResultScreen
+						result={result}
+						you={you}
+						onLeave={leaveRoom}
+						game={manifest}
+					/>
 				) : (
 					<VirtualPadProvider>
 						<LaunchGate manifest={manifest} launched={launched} onStart={start}>
@@ -247,7 +261,12 @@ export function PlayHost({ manifest }: { manifest: GameManifest }) {
 				)}
 
 				{view === "below-game" && result !== null && (
-					<ResultScreen result={result} you={you} onLeave={leaveRoom} />
+					<ResultScreen
+						result={result}
+						you={you}
+						onLeave={leaveRoom}
+						game={manifest}
+					/>
 				)}
 
 				{isRealtime && realtime !== null && result === null && (

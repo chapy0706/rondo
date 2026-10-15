@@ -1,7 +1,8 @@
 /**
- * rolling（内部名 tilt-maze）の表示文字列（issue-36 / issue-39）。
+ * ころころ迷路（内部名 tilt-maze）の表示文字列（issue-36 / issue-39）。
  *
- * 画面に出す名前・説明・案内はここにまとめ、名称変更の影響をこのファイルに閉じる。
+ * ゲームの中の案内はここにまとめる。画面に出す名前と説明文は、ほかのゲームと同じく登録
+ * （manifest.ts）の1か所に持つ（issue-69）。
  * 内部の識別子（gameType の tilt-maze、ディレクトリ名）は契約と Gleam 側の対応
  * （ADR 0009）に関わるため変えない。
  */
@@ -9,9 +10,6 @@
 import type { Difficulty } from "./engine";
 
 export const TEXT = {
-	/** 画面上の名前（英小文字）。 */
-	name: "rolling",
-	description: "パッドで球を転がして、毎回生まれる迷路を抜けよう。",
 	tagline: "転がして、抜けろ。",
 	howToPlay: [
 		"パッドを倒した向きに球が転がる",

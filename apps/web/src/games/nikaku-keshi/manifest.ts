@@ -7,12 +7,13 @@ import type { GameManifest } from "@rondo/contracts";
  */
 export const nikakuKeshiManifest: GameManifest = {
 	id: "nikaku-keshi",
-	title: "link",
+	title: "二角消去",
 	kind: "solo",
 	minPlayers: 1,
 	maxPlayers: 1,
-	thumbnail: "/games/nikaku-keshi.png",
-	description: "同じ牌を、2回までの折れ線でつないで消していく。",
+	description: "同じ牌を、2回までの折れ線でつなごう",
+	// ロゴ（issue-69）。画像は後半で足す。いまは背景の色と頭文字の仮のタイル。
+	logo: { background: "#c8553d" },
 	launchScreen: "shared",
 	tagline: "つないで、消して、空にする。",
 	howToPlay: [

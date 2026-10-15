@@ -12,6 +12,7 @@ export {
 } from "./messageTypes";
 export type {
 	GameKind,
+	GameLogo,
 	GameManifest,
 	LaunchScreen,
 	RoomOption,

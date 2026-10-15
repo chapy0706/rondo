@@ -18,9 +18,8 @@ import { test } from "../flows";
 test("選択画面", async ({ openTab }) => {
 	const a = await openTab();
 	await a.page.goto("/select");
-	await expect(
-		a.page.getByRole("link", { name: "veryare", exact: true }),
-	).toBeVisible();
+	// カードは、表示名ではなく、識別子の属性で探す（issue-69）。
+	await expect(a.page.locator('a[data-game="veryare"]')).toBeVisible();
 	await expect(a.page).toHaveScreenshot("select.png", { fullPage: true });
 });
 

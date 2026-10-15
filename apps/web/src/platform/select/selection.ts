@@ -15,12 +15,6 @@ export function playerLabel(manifest: GameManifest): string {
 	return `${kindLabel[manifest.kind]} ${players}`;
 }
 
-/** サムネイルが無いときにカードへ大きく描く頭文字。 */
-export function fallbackInitial(manifest: GameManifest): string {
-	const [first] = Array.from(manifest.title.trim());
-	return first === undefined ? "?" : first.toUpperCase();
-}
-
 /** シェルフの中心に最も近いカードの位置。等距離なら手前を選ぶ。 */
 export function nearestIndex(
 	cardCenters: readonly number[],

@@ -14,10 +14,13 @@ export default async function LobbyPage({
 }) {
 	const { gameType } = await params;
 	// ルーム作成時の選択肢はマニフェストの宣言から渡す（ロビーはゲームを知らない）。
+	const manifest = findManifest(gameType);
+	// 見出しの名前とロゴ（issue-69）も、マニフェストから渡す。
 	return (
 		<Lobby
 			gameType={gameType}
-			roomOptions={findManifest(gameType)?.roomOptions ?? []}
+			roomOptions={manifest?.roomOptions ?? []}
+			{...(manifest === undefined ? {} : { manifest })}
 		/>
 	);
 }

@@ -1,19 +1,22 @@
 import type { GameManifest } from "@rondo/contracts";
 
 /**
- * テトリスの自己記述（ADR 0003）。
+ * テ〇〇ス（落ちものパズル。内部の id は tetris）の自己記述（ADR 0003）。
  *
  * 基盤はこのマニフェストだけを読んで選択画面に並べる。ソロゲームなので
  * kind は "solo"、人数は 1（ADR 0004）。追加時に基盤側のコードは変えない。
  */
 export const tetrisManifest: GameManifest = {
 	id: "tetris",
-	title: "テトリス",
+	title: "テ〇〇ス",
+	// 表示名は読み上げに向かない（〇は漢数字のゼロ U+3007）ので、読み上げと代替の文字は別に持つ。
+	spokenTitle: "落ちものパズル",
 	kind: "solo",
 	minPlayers: 1,
 	maxPlayers: 1,
-	thumbnail: "/games/tetris.png",
-	description: "落ちてくるブロックを積んで、揃った行を消す定番パズル。",
+	description: "落ちてくるブロックを、そろえて消そう",
+	// ロゴ（issue-69）。画像は後半で足す。いまは背景の色と頭文字の仮のタイル。
+	logo: { background: "#5b3f8f" },
 	launchScreen: "shared",
 	tagline: "積んで、揃えて、消す。",
 	howToPlay: [

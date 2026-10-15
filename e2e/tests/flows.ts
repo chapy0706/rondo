@@ -12,8 +12,11 @@ import { cellOf, centerOf, findPath, pickDoorShot } from "@rondo/bots/plan";
 import { readStageNotice } from "@rondo/bots/stage";
 import { WsLink } from "./wsLink";
 
-/** ゲーム名（マニフェストの title）。選択画面のカードの名前に使う。 */
-const VERYARE_TITLE = "veryare";
+/**
+ * veryare の識別子（マニフェストの id = gameType）。選択画面のカードと、選択中の名前は、表示名では
+ * なく、この識別子の属性（data-game）で探す（issue-69。表示名を変えても壊れない）。
+ */
+const VERYARE_ID = "veryare";
 
 export interface Tab {
 	readonly page: Page;
@@ -53,17 +56,17 @@ export const test = base.extend<{ openTab: () => Promise<Tab> }>({
 /**
  * 選択画面で veryare を選ぶ（中央へ寄せると、入口のボタンが出る）。veryare は棚の先頭で、開いた
  * ときから選択中のことがある（issue-46 で先頭へ移した）。選択中のカードを押すとゲームが起動して
- * しまうので、選択中でないときだけカードを押して中央へ寄せる。
+ * しまうので、選択中でないときだけカードを押して中央へ寄せる。カードと選択中の名前は、識別子の
+ * 属性（data-game）で探す（issue-69）。
  */
 export async function chooseVeryare(page: Page): Promise<void> {
 	await page.goto("/select");
-	const title = page.locator('[aria-live="polite"] p').first();
-	await expect(title).not.toBeEmpty();
-	if ((await title.textContent()) !== VERYARE_TITLE) {
-		const card = page.getByRole("link", { name: VERYARE_TITLE, exact: true });
-		await card.click();
+	const current = page.getByTestId("shelf-current");
+	await expect(current).toBeVisible();
+	if ((await current.getAttribute("data-game")) !== VERYARE_ID) {
+		await page.locator(`a[data-game="${VERYARE_ID}"]`).click();
 	}
-	await expect(title).toHaveText(VERYARE_TITLE);
+	await expect(current).toHaveAttribute("data-game", VERYARE_ID);
 	await expect(page.getByRole("link", { name: "新しく遊ぶ" })).toBeVisible();
 }
 

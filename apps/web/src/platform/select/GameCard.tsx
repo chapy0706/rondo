@@ -1,14 +1,16 @@
 import type { GameManifest } from "@rondo/contracts";
 import Link from "next/link";
 import type { MouseEvent } from "react";
-import { fallbackInitial } from "./selection";
+import { GameLogo } from "../brand/GameLogo";
+import { spokenName } from "../brand/gameBrand";
 
 /**
  * シェルフのゲームカード。マニフェスト 1 件を選択肢として描く（ADR 0003 / 0029）。
  *
  * このコンポーネントは特定のゲームを知らず、マニフェストの自己記述だけを読む。
- * 頭文字のフォールバックを下に敷き、その上にサムネイルを背景画像として重ねるので、
- * 画像が未配置でも頭文字のタイルとして違和感なく並ぶ。
+ * ロゴ（issue-69）は、ゲームの背景の色と頭文字の仮のタイルを下に敷き、画像があれば上に重ねる
+ * （GameLogo）。画像が無い・読めないときも、タイルとして違和感なく並ぶ。テストと E2E は、表示名では
+ * なく、識別子の属性（data-game）でカードを探す。
  * 選択中のカードは拡大・強調する。押したときの振る舞い（起動か、中央へ寄せるか）は
  * シェルフが onClick で決める。
  */
@@ -26,7 +28,8 @@ export function GameCard({
 	return (
 		<Link
 			href={`/play/${manifest.id}`}
-			aria-label={manifest.title}
+			aria-label={spokenName(manifest)}
+			data-game={manifest.id}
 			aria-current={selected ? "true" : undefined}
 			onClick={onClick}
 			onFocus={onFocus}
@@ -36,17 +39,7 @@ export function GameCard({
 					: "scale-90 opacity-50 ring-1 ring-line"
 			}`}
 		>
-			<span
-				aria-hidden="true"
-				className="absolute inset-0 flex items-center justify-center font-bold text-7xl text-fg-muted"
-			>
-				{fallbackInitial(manifest)}
-			</span>
-			<span
-				aria-hidden="true"
-				className="absolute inset-0 bg-center bg-cover"
-				style={{ backgroundImage: `url(${manifest.thumbnail})` }}
-			/>
+			<GameLogo manifest={manifest} size={160} />
 		</Link>
 	);
 }

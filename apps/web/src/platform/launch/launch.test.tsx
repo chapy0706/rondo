@@ -7,11 +7,10 @@ import { needsLaunchScreen } from "./launch";
 
 const shared: GameManifest = {
 	id: "tetris",
-	title: "テトリス",
+	title: "テ〇〇ス",
 	kind: "solo",
 	minPlayers: 1,
 	maxPlayers: 1,
-	thumbnail: "/games/tetris.png",
 	description: "",
 	launchScreen: "shared",
 	tagline: "積んで、揃えて、消す。",
@@ -70,7 +69,7 @@ describe("LaunchScreen - 共通起動画面", () => {
 		const html = renderToStaticMarkup(
 			<LaunchScreen manifest={shared} onStart={() => {}} />,
 		);
-		expect(html).toContain("テトリス");
+		expect(html).toContain("テ〇〇ス");
 		expect(html).toContain("積んで、揃えて、消す。");
 		expect(html).toContain("左右で動かす");
 		expect(html).toContain("上で回転");

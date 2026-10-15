@@ -1,6 +1,6 @@
 import type { GameManifest } from "@rondo/contracts";
 import { describe, expect, it } from "vitest";
-import { fallbackInitial, nearestIndex, playerLabel } from "./selection";
+import { nearestIndex, playerLabel } from "./selection";
 
 const base: GameManifest = {
 	id: "x",
@@ -8,7 +8,6 @@ const base: GameManifest = {
 	kind: "solo",
 	minPlayers: 1,
 	maxPlayers: 1,
-	thumbnail: "/games/x.png",
 	description: "",
 	launchScreen: "shared",
 };
@@ -42,25 +41,5 @@ describe("playerLabel - 人数の表記", () => {
 		expect(
 			playerLabel({ ...base, kind: "realtime", minPlayers: 2, maxPlayers: 4 }),
 		).toBe("みんな 2〜4人");
-	});
-});
-
-describe("fallbackInitial - サムネイルが無いときの頭文字", () => {
-	it("タイトルの1文字目を大文字で返す", () => {
-		expect(fallbackInitial({ ...base, title: "czz" })).toBe("C");
-		expect(fallbackInitial({ ...base, title: "Tilt Maze" })).toBe("T");
-	});
-
-	it("日本語はそのまま1文字目を返す", () => {
-		expect(fallbackInitial({ ...base, title: "テトリス" })).toBe("テ");
-	});
-
-	it("先頭の空白を無視し、空なら ? を返す", () => {
-		expect(fallbackInitial({ ...base, title: "  rondo" })).toBe("R");
-		expect(fallbackInitial({ ...base, title: "" })).toBe("?");
-	});
-
-	it("サロゲートペアの文字を分断しない", () => {
-		expect(fallbackInitial({ ...base, title: "𠮷野" })).toBe("𠮷");
 	});
 });

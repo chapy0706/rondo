@@ -3,6 +3,7 @@
 import type { GameManifest } from "@rondo/contracts";
 import Link from "next/link";
 import { useCallback, useEffect, useRef, useState } from "react";
+import { displayName } from "../brand/gameBrand";
 import { GameCard } from "./GameCard";
 import { entriesOf } from "./entries";
 import { nearestIndex, playerLabel } from "./selection";
@@ -96,11 +97,21 @@ export function Shelf({ manifests }: { manifests: readonly GameManifest[] }) {
 
 			<div
 				aria-live="polite"
-				className="flex min-h-14 flex-col items-center gap-1"
+				className="flex min-h-20 flex-col items-center gap-1 px-6 text-center"
 			>
 				{current !== undefined ? (
 					<>
-						<p className="font-semibold text-fg text-xl">{current.title}</p>
+						<p
+							className="font-semibold text-fg text-xl"
+							data-testid="shelf-current"
+							data-game={current.id}
+						>
+							{displayName(current)}
+						</p>
+						{/* 説明文は1行（issue-69）。長いときは省く。 */}
+						<p className="max-w-xs truncate text-fg text-sm">
+							{current.description}
+						</p>
 						<p className="text-fg-muted text-sm">{playerLabel(current)}</p>
 					</>
 				) : null}

@@ -22,8 +22,9 @@ describe("モードの定義（issue-36）", () => {
 });
 
 describe("表示文字列", () => {
-	it("名前は英小文字の rolling", () => {
-		expect(TEXT.name).toBe("rolling");
+	it("表示名と説明文は、登録（manifest.ts）の1か所に持ち、表示文字列には持たない（issue-69）", () => {
+		expect(TEXT).not.toHaveProperty("name");
+		expect(TEXT).not.toHaveProperty("description");
 	});
 
 	it("旧名称（Tilt Maze）がどこにも残っていない", () => {

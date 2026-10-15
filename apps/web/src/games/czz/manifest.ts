@@ -8,12 +8,13 @@ import type { GameManifest } from "@rondo/contracts";
  */
 export const czzManifest: GameManifest = {
 	id: "czz",
-	title: "czz",
+	title: "指示厨ゲーム",
 	kind: "solo",
 	minPlayers: 1,
 	maxPlayers: 1,
-	thumbnail: "/games/czz.png",
-	description: "命令を並べて数の列を加工し、お題の出力を作るパズル。",
+	description: "指示のとおりに、コマンドを並べよう",
+	// ロゴ（issue-69）。画像は後半で足す。いまは背景の色と頭文字の仮のタイル。
+	logo: { background: "#ffe3dc" },
 	// 起動画面は czz 自身が持つ（issue-21）。それまでは選択後すぐ本編に入る。
 	launchScreen: "custom",
 };

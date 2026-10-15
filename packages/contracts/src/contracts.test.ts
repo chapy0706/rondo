@@ -11,7 +11,6 @@ describe("contracts", () => {
 			kind: "solo",
 			minPlayers: 1,
 			maxPlayers: 1,
-			thumbnail: "/games/tetris.png",
 			description: "一人で黙々と遊ぶ",
 			launchScreen: "shared",
 		};
@@ -59,7 +58,6 @@ describe("contracts", () => {
 			kind: "solo",
 			minPlayers: 1,
 			maxPlayers: 1,
-			thumbnail: "/games/tetris.png",
 			description: "",
 			launchScreen: "shared",
 			tagline: "積んで、消す。",
@@ -75,6 +73,23 @@ describe("contracts", () => {
 		expect(custom.launchScreen).toBe("custom");
 	});
 
+	it("manifest can declare a logo and a spoken title (issue-69)", () => {
+		const manifest: GameManifest = {
+			id: "tetris",
+			title: "テ〇〇ス",
+			spokenTitle: "落ちものパズル",
+			kind: "solo",
+			minPlayers: 1,
+			maxPlayers: 1,
+			description: "落ちてくるブロックを、そろえて消そう",
+			launchScreen: "shared",
+			logo: { src: "/games/tetris/logo.svg", background: "#5b3f8f" },
+		};
+		expect(manifest.logo?.background).toBe("#5b3f8f");
+		// 識別子は変えない。表示名と読み上げの名前だけが日本語になる。
+		expect(manifest.id).toBe("tetris");
+	});
+
 	it("manifest can declare room options chosen at room creation", () => {
 		const manifest: GameManifest = {
 			id: "veryare",
@@ -82,7 +97,6 @@ describe("contracts", () => {
 			kind: "realtime",
 			minPlayers: 2,
 			maxPlayers: 5,
-			thumbnail: "/games/veryare.png",
 			description: "",
 			launchScreen: "shared",
 			roomOptions: [
@@ -113,7 +127,6 @@ describe("contracts", () => {
 			kind: "realtime",
 			minPlayers: 2,
 			maxPlayers: 4,
-			thumbnail: "/games/tilt-maze.png",
 			description: "傾けて転がす",
 			launchScreen: "shared",
 		};

@@ -2,7 +2,8 @@ import type { GameManifest } from "@rondo/contracts";
 import { TEXT } from "./text";
 
 /**
- * rolling の自己記述（ADR 0003）。内部の id は tilt-maze のまま（issue-36）。
+ * ころころ迷路の自己記述（ADR 0003）。内部の id は tilt-maze のまま（issue-36）。表示名と説明文は
+ * ここだけに持つ（issue-69）。
  *
  * リアルタイムゲームなので kind は "realtime"、複数人でルームに集まって競う
  * （ADR 0004）。物理はクライアントで回すが、順位はサーバー受信順で確定する
@@ -11,12 +12,13 @@ import { TEXT } from "./text";
  */
 export const tiltMazeManifest: GameManifest = {
 	id: "tilt-maze",
-	title: TEXT.name,
+	title: "ころころ迷路",
 	kind: "realtime",
 	minPlayers: 2,
 	maxPlayers: 4,
-	thumbnail: "/games/tilt-maze.png",
-	description: TEXT.description,
+	description: "傾けて、球をゴールへ転がそう",
+	// ロゴ（issue-69）。画像は後半で足す。いまは背景の色と頭文字の仮のタイル。
+	logo: { background: "#3f8f5a" },
 	launchScreen: "shared",
 	tagline: TEXT.tagline,
 	howToPlay: TEXT.howToPlay,

@@ -80,12 +80,13 @@ const BASE_OPTIONS: readonly RoomOption[] = [
  */
 export const veryareManifest: GameManifest = {
 	id: "veryare",
-	title: "veryare",
+	title: "すごくアレ",
 	kind: "realtime",
 	minPlayers: 2,
 	maxPlayers: 5,
-	thumbnail: "/games/veryare.png",
-	description: "見た目を塗って景色に溶け込む、鬼1人のかくれんぼ。",
+	description: "隠れて、ばれずに、逃げ切ろう",
+	// ロゴ（issue-69）。画像は後半で足す。いまは背景の色と頭文字の仮のタイル。
+	logo: { background: "#26315c" },
 	// 起動画面（サーバーを探す / 作る）は veryare 自身が持つ（issue-29）。
 	launchScreen: "custom",
 	roomOptions: veryareRoomOptions(HIRAYA_ENABLED),

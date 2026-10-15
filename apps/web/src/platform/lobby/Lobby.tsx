@@ -12,6 +12,7 @@
  */
 
 import {
+	type GameManifest,
 	type GameType,
 	ROOM_NAME_MAX_LENGTH,
 	type RoomOption,
@@ -20,6 +21,8 @@ import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useEffect, useState } from "react";
 import { prefetchForLobby } from "../../games/registry";
+import { GameLogo } from "../brand/GameLogo";
+import { displayName } from "../brand/gameBrand";
 import { ConnectionFailed } from "../session/ConnectionFailed";
 import { RoomListItem } from "./RoomListItem";
 import { roomNameHint } from "./roomName";
@@ -29,8 +32,11 @@ import { useRealtimeLobby } from "./useRealtimeLobby";
 export function Lobby({
 	gameType,
 	roomOptions = [],
+	manifest,
 }: {
 	gameType: GameType;
+	/** 見出しに出すゲーム（issue-69）。無ければ識別子を出す。 */
+	manifest?: GameManifest;
 	/** ルーム作成時に選ぶ設定（マニフェストの宣言）。一覧には出さない（ADR 0024）。 */
 	roomOptions?: readonly RoomOption[];
 }) {
@@ -58,7 +64,20 @@ export function Lobby({
 		<main className="mx-auto flex min-h-dvh max-w-md flex-col gap-6 px-6 py-16">
 			<header className="flex flex-col gap-1">
 				<h1 className="font-bold text-3xl text-white">ロビー</h1>
-				<p className="text-slate-400 text-sm">{gameType}</p>
+				<p
+					className="flex items-center gap-2 text-slate-300 text-sm"
+					data-testid="lobby-game"
+					data-game={gameType}
+				>
+					{manifest !== undefined ? (
+						<>
+							<GameLogo manifest={manifest} size={24} />
+							{displayName(manifest)}
+						</>
+					) : (
+						gameType
+					)}
+				</p>
 			</header>
 
 			{error !== null && (

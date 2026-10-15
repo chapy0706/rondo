@@ -12,16 +12,21 @@
  * （issue-42）。キーはゲームが画面に出す短い語として送るので、基盤は意味を知らずに出す。
  */
 
-import type { PlayerId, RealtimeResult } from "@rondo/contracts";
+import type { GameManifest, PlayerId, RealtimeResult } from "@rondo/contracts";
 import type { ReactNode } from "react";
+import { GameLogo } from "../brand/GameLogo";
+import { displayName } from "../brand/gameBrand";
 
 export function ResultScreen({
 	result,
 	you,
 	onLeave,
+	game,
 	children,
 }: {
 	result: RealtimeResult;
+	/** どのゲームの結果か（issue-69）。あれば、見出しの上に小さくロゴと名前を出す。 */
+	game?: GameManifest;
 	you: PlayerId | null;
 	onLeave: () => void;
 	children?: ReactNode;
@@ -33,6 +38,16 @@ export function ResultScreen({
 			className="flex w-full flex-col items-center gap-5"
 			data-testid="result-screen"
 		>
+			{game !== undefined ? (
+				<p
+					className="flex items-center gap-2 text-slate-300 text-sm"
+					data-testid="result-game"
+					data-game={game.id}
+				>
+					<GameLogo manifest={game} size={24} />
+					{displayName(game)}
+				</p>
+			) : null}
 			<h2 className="font-bold text-2xl text-white">結果発表</h2>
 
 			{children}
