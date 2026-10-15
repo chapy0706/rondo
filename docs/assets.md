@@ -448,6 +448,53 @@ docker run --rm -p 8081:3000 \
 NEXT_PUBLIC_ASSET_BASE_URL=http://localhost:8081 pnpm --filter @rondo/web dev
 ```
 
+## ゲームのロゴ（issue-69）
+
+選択画面のカード・ロビー・起動画面・ゲーム画面・結果画面に出す、ゲームごとのロゴ（ゲームパッケージ）。3D 素材と違い、自作のロゴは公開リポジトリに入れてよい（第三者の絵・素材は入れない）。
+
+### 置き場所と登録
+
+- 置き場所: `apps/web/public/games/<識別子>/logo.svg`（PNG なら `logo.png`）。識別子は登録の id（gameType）で、表示名ではない
+- 登録: そのゲームの `apps/web/src/games/<識別子>/manifest.ts` の `logo` に、パスと背景の色を書く
+
+  ```ts
+  logo: { src: "/games/<識別子>/logo.svg", background: "#26315c" },
+  ```
+
+- 自作の絵（画像生成や、ほかの道具で作ったもの）に差し替えるときは、決まりどおりのファイルをその名前で置き、`src` を書くだけで出る（画面のコードは変えない）
+- ロゴが無い・読めないときは、背景の色と、表示名の頭文字の仮のタイルが出る（壊れた画像は出さない / `apps/web/src/platform/brand/GameLogo.tsx`）
+
+### 決まり
+
+| 形式 | 決まり |
+| --- | --- |
+| SVG（基本） | `viewBox="0 0 512 512"`。最初の図形で、登録の背景の色を全面に塗る（`<rect width="512" height="512" fill="#…"/>`。角の丸めは画面の側の CSS）。文字を入れない（`text`・`tspan`・`font`。名前は画面に別に出る）。線（`stroke`）を使わず、平らな図形だけ。色は `#rrggbb` で書き、背景を含めて 5 色まで（図形は白か生成り `#f5efe0`、差し色 1 色）。外の画像・参照・スクリプトを含まない。20 KB 以下 |
+| PNG | 1024 × 1024・sRGB・200 KB 以下。背景を全面に塗る（透明にしない） |
+
+- SVG の決まりは、`apps/web/src/games/logos.test.ts`（`apps/web/src/platform/brand/svgCheck.ts`）が `make verify` で確かめる
+- 暗い画面でも明るい画面でも見えるよう、背景の色はロゴの側に持つ
+- 駒や牌などは、一般的な図形だけで描く。元の作品で有名な配色・形の並びに近づけない
+
+### 確認用の見本
+
+`tools/logos.html` をブラウザで直接開く（本番には出さない）。6 つのロゴを、160 px と 48 px で、明るい背景と暗い背景の両方に並べて見られる。SVG を直したら、再読み込みで見直せる。
+
+### いまのロゴ
+
+| ゲーム（識別子） | 背景 | 図柄 |
+| --- | --- | --- |
+| すごくアレ（veryare） | `#26315c` | 縦に 2 枚の襖と、隙間からのぞく目（黒目に黄） |
+| 指示厨ゲーム（czz） | `#ffe3dc` | 白いコマンドの画面に、朱のカーソル「>_」と指し棒（マスコットの絵は、出どころの確認が済むまで使わない） |
+| テ〇〇ス（tetris） | `#5b3f8f` | 生成りの 1 色で階段状に積んだ正方形 10 個と、落ちてくる黄の 2 つ |
+| ころころ迷路（tilt-maze） | `#3f8f5a` | 生成りの迷路（3 × 3）と白い球・影、出口の黄の四角 |
+| 二角消去（nikaku-keshi） | `#c8553d` | 生成りの牌 2 枚（藍の丸）を、直角に 2 回曲がる白い折れ線で結ぶ |
+| ミニチェス（minichess） | `#2b2a33` | 5 × 5 の市松の盤（生成りと薄灰）、白い駒（円と台形）、行き先の黄の 1 マス |
+
+### rondo のホーム画面のアイコン
+
+- `apps/web/src/app/icon.svg`（ブラウザのタブ）、`app/apple-icon.tsx`（iPhone、180 × 180）、`app/pwa-icon/[size]/route.tsx`（192・512）、`app/manifest.ts`（name・short_name は rondo、display は `browser`）
+- PNG は Next の画像の生成（`next/og`）でビルドのときに作るので、画像のファイルは置かない。図柄は RondoMark（アクセントの黄の輪）を、ink の背景の中央に置いたもの（`apps/web/src/platform/brand/rondoIcon.tsx`）
+
 ## 利用規約
 
 規約の全文の写しは、公開リポジトリに入れない。原本は `assets-src/licenses/`（各自の手元）に置き、`docs/licenses/README.md` に素材ごとの要点だけをまとめる。

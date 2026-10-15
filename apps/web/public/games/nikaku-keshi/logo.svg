@@ -1,0 +1,16 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512">
+<rect width="512" height="512" fill="#c8553d"/>
+<!-- 牌を結ぶ白い折れ線（直角に2回曲がる。細い四角で描く）。 -->
+<rect x="196" y="172" width="78" height="18" fill="#ffffff"/>
+<rect x="256" y="172" width="18" height="170" fill="#ffffff"/>
+<rect x="256" y="324" width="70" height="18" fill="#ffffff"/>
+<!-- 少しずらして立てた生成りの牌2枚と、藍の丸。 -->
+<g transform="rotate(-6 152 182)">
+<rect x="92" y="102" width="120" height="160" rx="18" fill="#f5efe0"/>
+<circle cx="152" cy="182" r="32" fill="#26315c"/>
+</g>
+<g transform="rotate(6 360 332)">
+<rect x="300" y="252" width="120" height="160" rx="18" fill="#f5efe0"/>
+<circle cx="360" cy="332" r="32" fill="#26315c"/>
+</g>
+</svg>

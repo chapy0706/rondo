@@ -6,11 +6,13 @@
  * いつも仮のタイル（ゲームの背景の色と、表示名の頭文字）を下に敷き、ロゴの画像があれば、
  * その上に <img loading="lazy" width height alt> で重ねる。画像が読めなければ隠すので、壊れた
  * 画像は出ず、タイルが見える。大きさを指定するので、読み込みで画面がずれない。
+ * サーバーで描いた画像が、画面を引き継ぐ前に読み込みに失敗すると onError が呼ばれないので、
+ * 引き継いだ時点で、読み終わっていて大きさが 0 なら、失敗として扱う（imageBroken）。
  */
 
 import type { GameManifest } from "@rondo/contracts";
-import { useState } from "react";
-import { logoView } from "./gameBrand";
+import { useEffect, useRef, useState } from "react";
+import { imageBroken, logoView } from "./gameBrand";
 
 export function GameLogo({
 	manifest,
@@ -23,7 +25,12 @@ export function GameLogo({
 	className?: string;
 }) {
 	const [failed, setFailed] = useState(false);
+	const imageRef = useRef<HTMLImageElement | null>(null);
 	const { tile, image } = logoView(manifest, failed);
+	useEffect(() => {
+		const img = imageRef.current;
+		if (img !== null && imageBroken(img)) setFailed(true);
+	}, []);
 	return (
 		<span
 			data-testid="game-logo"
@@ -46,6 +53,7 @@ export function GameLogo({
 			</span>
 			{image !== null ? (
 				<img
+					ref={imageRef}
 					src={image.src}
 					alt={image.alt}
 					width={size}

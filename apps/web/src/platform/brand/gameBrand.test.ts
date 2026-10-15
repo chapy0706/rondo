@@ -3,6 +3,7 @@ import { describe, expect, it } from "vitest";
 import {
 	DEFAULT_TILE_BACKGROUND,
 	displayName,
+	imageBroken,
 	logoOf,
 	logoView,
 	pageTitle,
@@ -124,5 +125,16 @@ describe("logoView - 画面に出すもの（タイルと、重ねる画像）",
 
 	it("画像が無ければ、タイルだけ", () => {
 		expect(logoView(base, false).image).toBeNull();
+	});
+});
+
+describe("imageBroken - 画面を引き継ぐ前に読み込みが失敗した画像", () => {
+	it("読み終わっていて大きさが 0 なら、失敗", () => {
+		expect(imageBroken({ complete: true, naturalWidth: 0 })).toBe(true);
+	});
+
+	it("読み込み中、または読めていれば、失敗ではない", () => {
+		expect(imageBroken({ complete: false, naturalWidth: 0 })).toBe(false);
+		expect(imageBroken({ complete: true, naturalWidth: 512 })).toBe(false);
 	});
 });

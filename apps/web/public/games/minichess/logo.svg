@@ -1,0 +1,33 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512">
+<rect width="512" height="512" fill="#2b2a33"/>
+<!-- 5 × 5 の市松の盤（生成りと薄灰）。黄の1マスは行き先。 -->
+<rect x="106" y="136" width="60" height="60" fill="#f5efe0"/>
+<rect x="166" y="136" width="60" height="60" fill="#b9b6c3"/>
+<rect x="226" y="136" width="60" height="60" fill="#f5efe0"/>
+<rect x="286" y="136" width="60" height="60" fill="#b9b6c3"/>
+<rect x="346" y="136" width="60" height="60" fill="#f5efe0"/>
+<rect x="106" y="196" width="60" height="60" fill="#b9b6c3"/>
+<rect x="166" y="196" width="60" height="60" fill="#f5efe0"/>
+<rect x="226" y="196" width="60" height="60" fill="#b9b6c3"/>
+<rect x="286" y="196" width="60" height="60" fill="#f5b841"/>
+<rect x="346" y="196" width="60" height="60" fill="#b9b6c3"/>
+<rect x="106" y="256" width="60" height="60" fill="#f5efe0"/>
+<rect x="166" y="256" width="60" height="60" fill="#b9b6c3"/>
+<rect x="226" y="256" width="60" height="60" fill="#f5efe0"/>
+<rect x="286" y="256" width="60" height="60" fill="#b9b6c3"/>
+<rect x="346" y="256" width="60" height="60" fill="#f5efe0"/>
+<rect x="106" y="316" width="60" height="60" fill="#b9b6c3"/>
+<rect x="166" y="316" width="60" height="60" fill="#f5efe0"/>
+<rect x="226" y="316" width="60" height="60" fill="#b9b6c3"/>
+<rect x="286" y="316" width="60" height="60" fill="#f5efe0"/>
+<rect x="346" y="316" width="60" height="60" fill="#b9b6c3"/>
+<rect x="106" y="376" width="60" height="60" fill="#f5efe0"/>
+<rect x="166" y="376" width="60" height="60" fill="#b9b6c3"/>
+<rect x="226" y="376" width="60" height="60" fill="#f5efe0"/>
+<rect x="286" y="376" width="60" height="60" fill="#b9b6c3"/>
+<rect x="346" y="376" width="60" height="60" fill="#f5efe0"/>
+<!-- 白い駒（円と台形の簡単な形）。 -->
+<circle cx="196" cy="234" r="20" fill="#ffffff"/>
+<polygon points="182,250 210,250 222,290 170,290" fill="#ffffff"/>
+<rect x="160" y="290" width="72" height="16" rx="6" fill="#ffffff"/>
+</svg>

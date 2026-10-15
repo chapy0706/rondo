@@ -12,8 +12,8 @@ export const minichessManifest: GameManifest = {
 	minPlayers: 1,
 	maxPlayers: 1,
 	description: "5×5 の、ちいさなチェス",
-	// ロゴ（issue-69）。画像は後半で足す。いまは背景の色と頭文字の仮のタイル。
-	logo: { background: "#2b2a33" },
+	// ロゴ（issue-69）。画像が読めないときは、背景の色と頭文字の仮のタイル。
+	logo: { src: "/games/minichess/logo.svg", background: "#2b2a33" },
 	launchScreen: "shared",
 	tagline: "小さな盤で、王を詰ませろ。",
 	howToPlay: [

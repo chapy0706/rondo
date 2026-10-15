@@ -1,0 +1,17 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512">
+<rect width="512" height="512" fill="#5b3f8f"/>
+<!-- 階段状に積んだ正方形のブロック（生成りの1色・10個）。 -->
+<rect x="104" y="400" width="56" height="56" fill="#f5efe0"/>
+<rect x="166" y="400" width="56" height="56" fill="#f5efe0"/>
+<rect x="228" y="400" width="56" height="56" fill="#f5efe0"/>
+<rect x="290" y="400" width="56" height="56" fill="#f5efe0"/>
+<rect x="104" y="338" width="56" height="56" fill="#f5efe0"/>
+<rect x="166" y="338" width="56" height="56" fill="#f5efe0"/>
+<rect x="228" y="338" width="56" height="56" fill="#f5efe0"/>
+<rect x="104" y="276" width="56" height="56" fill="#f5efe0"/>
+<rect x="166" y="276" width="56" height="56" fill="#f5efe0"/>
+<rect x="104" y="214" width="56" height="56" fill="#f5efe0"/>
+<!-- 上から落ちてくる1組（黄の2つ）。 -->
+<rect x="414" y="96" width="56" height="56" fill="#f5b841"/>
+<rect x="414" y="158" width="56" height="56" fill="#f5b841"/>
+</svg>

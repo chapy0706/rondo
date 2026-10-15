@@ -69,6 +69,17 @@ export function logoView(
 	return { tile: tileOf(manifest), image: failed ? null : logoOf(manifest) };
 }
 
+/**
+ * 画像の読み込みが、終わっていて失敗したか（読み終わり・大きさが 0）。読み込み中（complete が
+ * false）は、まだ分からないので false。
+ */
+export function imageBroken(img: {
+	readonly complete: boolean;
+	readonly naturalWidth: number;
+}): boolean {
+	return img.complete && img.naturalWidth === 0;
+}
+
 /** ゲームの画面のページの題名（トップは「rondo」のまま）。 */
 export function pageTitle(manifest: GameManifest): string {
 	return `${displayName(manifest)}｜rondo`;

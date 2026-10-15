@@ -12,8 +12,8 @@ export const nikakuKeshiManifest: GameManifest = {
 	minPlayers: 1,
 	maxPlayers: 1,
 	description: "同じ牌を、2回までの折れ線でつなごう",
-	// ロゴ（issue-69）。画像は後半で足す。いまは背景の色と頭文字の仮のタイル。
-	logo: { background: "#c8553d" },
+	// ロゴ（issue-69）。画像が読めないときは、背景の色と頭文字の仮のタイル。
+	logo: { src: "/games/nikaku-keshi/logo.svg", background: "#c8553d" },
 	launchScreen: "shared",
 	tagline: "つないで、消して、空にする。",
 	howToPlay: [

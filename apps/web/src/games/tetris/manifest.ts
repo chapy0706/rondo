@@ -15,8 +15,8 @@ export const tetrisManifest: GameManifest = {
 	minPlayers: 1,
 	maxPlayers: 1,
 	description: "落ちてくるブロックを、そろえて消そう",
-	// ロゴ（issue-69）。画像は後半で足す。いまは背景の色と頭文字の仮のタイル。
-	logo: { background: "#5b3f8f" },
+	// ロゴ（issue-69）。画像が読めないときは、背景の色と頭文字の仮のタイル。
+	logo: { src: "/games/tetris/logo.svg", background: "#5b3f8f" },
 	launchScreen: "shared",
 	tagline: "積んで、揃えて、消す。",
 	howToPlay: [

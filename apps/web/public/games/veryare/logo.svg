@@ -1,0 +1,21 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512">
+<rect width="512" height="512" fill="#26315c"/>
+<!-- 縦に2枚並んだ襖（生成り）。間に細い暗い帯（隙間）。 -->
+<rect x="92" y="72" width="152" height="368" fill="#f5efe0"/>
+<rect x="268" y="72" width="152" height="368" fill="#f5efe0"/>
+<rect x="244" y="72" width="24" height="368" fill="#141a33"/>
+<!-- 細い格子の線（暗い帯と同じ色の細い四角）。 -->
+<rect x="92" y="148" width="152" height="6" fill="#141a33"/>
+<rect x="92" y="358" width="152" height="6" fill="#141a33"/>
+<rect x="268" y="148" width="152" height="6" fill="#141a33"/>
+<rect x="268" y="358" width="152" height="6" fill="#141a33"/>
+<rect x="166" y="72" width="6" height="368" fill="#141a33"/>
+<rect x="340" y="72" width="6" height="368" fill="#141a33"/>
+<!-- 引手。 -->
+<circle cx="222" cy="300" r="9" fill="#141a33"/>
+<circle cx="290" cy="300" r="9" fill="#141a33"/>
+<!-- 隙間からのぞく白い目と、黄色の黒目。 -->
+<ellipse cx="256" cy="226" rx="34" ry="22" fill="#ffffff"/>
+<circle cx="262" cy="226" r="14" fill="#f5b841"/>
+<circle cx="264" cy="224" r="5" fill="#141a33"/>
+</svg>

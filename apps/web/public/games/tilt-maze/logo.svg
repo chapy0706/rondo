@@ -1,0 +1,17 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512">
+<rect width="512" height="512" fill="#3f8f5a"/>
+<!-- 生成りの太い線の迷路（3 × 3）。左上が入口、右下が出口。 -->
+<rect x="200" y="96" width="216" height="22" fill="#f5efe0"/>
+<rect x="96" y="96" width="22" height="320" fill="#f5efe0"/>
+<rect x="394" y="96" width="22" height="214" fill="#f5efe0"/>
+<rect x="96" y="394" width="214" height="22" fill="#f5efe0"/>
+<rect x="200" y="96" width="22" height="120" fill="#f5efe0"/>
+<rect x="200" y="290" width="22" height="126" fill="#f5efe0"/>
+<rect x="200" y="194" width="110" height="22" fill="#f5efe0"/>
+<rect x="290" y="290" width="126" height="22" fill="#f5efe0"/>
+<!-- 出口の小さな四角（黄）。 -->
+<rect x="336" y="336" width="48" height="48" fill="#f5b841"/>
+<!-- 白い球と、小さな影の楕円。 -->
+<ellipse cx="160" cy="196" rx="30" ry="9" fill="#2f6b43"/>
+<circle cx="156" cy="160" r="32" fill="#ffffff"/>
+</svg>
