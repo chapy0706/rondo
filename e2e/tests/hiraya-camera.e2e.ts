@@ -15,7 +15,13 @@ import { readFileSync } from "node:fs";
 import { expect } from "@playwright/test";
 import { type Cell, centerOf } from "@rondo/bots/plan";
 import { type StageMap, readStageNotice } from "@rondo/bots/stage";
-import { expectPhase, joinFromLobby, test, touchArea } from "./flows";
+import {
+	createFromLobby,
+	expectPhase,
+	joinFromLobby,
+	test,
+	touchArea,
+} from "./flows";
 
 interface Probe {
 	readonly position: { x: number; y: number; z: number };
@@ -139,12 +145,7 @@ test("平屋: 各部屋の隅・壁際・家具のそばで、カメラが実物
 	const b = await openTab();
 
 	// A が、ロビーで平屋（CPU なし）のルームを作る。
-	await a.page.goto("/lobby/veryare");
-	await a.page.getByLabel("ステージ").selectOption({ label: "平屋" });
-	await a.page.getByRole("button", { name: "新しいルームを作る" }).click();
-	await expect(a.page.getByTestId("veryare-area")).toBeVisible();
-	await expect.poll(() => a.link.roomId()).not.toBeNull();
-	const roomId = a.link.roomId() as string;
+	const roomId = await createFromLobby(a, { stage: 1 });
 	await joinFromLobby(b, roomId);
 
 	// A が鬼になり、B が隠れ側として準備移動に入る（平屋の glb が表示されるまで待つ）。

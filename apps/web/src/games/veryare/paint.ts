@@ -311,6 +311,24 @@ export function shouldSubmitPaint(options: {
 	return confirmed || remainingMs <= PAINT_LOCK_MS;
 }
 
+/**
+ * 画面の送る判断（Veryare.tsx の副作用）。sent は、確定の電文をもう送ったか（自動・「塗り終わり」）。
+ * 送っていれば、残りの違うフェーズの通知が届いても（画面ロックからの復帰など / ADR 0046）、送らない。
+ * 送っていなければ、shouldSubmitPaint のとおり（残り 2 秒以下の通知が届いたら、届いた直後に送る）。
+ */
+export function submitPaintNow(
+	sent: boolean,
+	input: {
+		readonly phase: Phase;
+		readonly remainingMs: number;
+		readonly confirmed: boolean;
+		readonly strokeCount: number;
+		readonly poseChosen: boolean;
+	},
+): boolean {
+	return !sent && shouldSubmitPaint({ ...input, submitted: sent });
+}
+
 /** 描き込めるか。ペイントフェーズの隠れ側（観戦でない）で、送る前、残りが 2 秒より多い間だけ。 */
 export function canEditPaint(options: {
 	readonly phase: Phase;

@@ -47,7 +47,10 @@ make e2e/result   # シナリオ5（鬼選出から結果画面まで。約2分�
 - veryare の移動は画面のジョイスティック（タッチ）なので、「中央の円に触れる」は、そのタブの接続からサーバーへ移動の電文を送って代える（`e2e/tests/wsLink.ts`）。判定はサーバーがいつもどおり行う
 - 通信の遮断は、そのタブの WebSocket の経路で行う。サーバー側の接続を切り、ページ側は開いたまま黙らせる（応答のない回線と同じ見え方）。ブラウザ全体のオフラインの切り替えは、開いている WebSocket に効かないことがあるため使わない
 - 待ち時間は秒数ではなく、画面の状態（`data-testid` と `data-color`）を待つ
+- ロビーの部品は、文言（ラベル・ボタン名・選択肢の表示名）ではなく、`data-testid` と値で探す: 作成フォームの選択肢は `lobby-option-<key>`（`stage`・`explorationSeconds`・`cpu`・`cpuStrength`。選ぶのは値。例: CPU 1 体は `"1"`、鬼 CPU は `"4"`）、ルーム名の入力は `lobby-room-name`、作成のボタンは `lobby-create-room`、ルーム一覧の見出しは `lobby-room-list`、一覧の行は `lobby-room`（`data-room-name` にルーム名）。作るときは `e2e/tests/flows.ts` の `createFromLobby` を使う。選択肢の `<label>` は文字と `<select>` を包むので、ラベルの文字に選択肢の表示名まで入り、`getByLabel("CPU", { exact: true })` は一致しない（join-controls の 2 本が、これで 90 秒待って落ちた）
+- 待ち時間: アクション（クリック・選択など）と expect は 15 秒（`e2e/timeouts.ts` の `WAIT_MS`。どの設定でも同じ）で失敗にする。部品が見つからないとき、テスト全体のタイムアウトまで待たない。これより長く待つところ（フェーズの切り替え、ハートビートの ping、結果画面まで）は、その場で `timeout` を渡す。ページの読み込み（goto）は、開発サーバーの最初のコンパイルがあるので縮めない
 - ロビーの一覧には識別子を出さない（issue-58）ので、ロビーから入るときは、そのタブに届いたルーム一覧（room-list）で識別子からルーム名を引き、その名前のボタンを押す（`joinFromLobby`）
+- 状態を足すときの決まり: veryare に、新しい状態（通知）を足したら、(1) 購読者に届ける状態（`server/src/rondo_server/games/veryare/room.gleam` の `subscriber_snapshot`。途中参加・復帰の、どの経路もここだけを使う）に足し、(2) 参加・復帰の組み合わせ表（`bots/src/trials/joinMatrix.ts` の `expectedKinds` と、`./tools/load.sh join`）と、操作部品の出し分け（`apps/web/src/games/veryare/controls.ts` の `controlsFor` のテスト）に足す。時間の長さを持つ状態は、送り直しで「残り」にする（ADR 0046 のフェーズの通知と同じ）
 - 画面の属性: ゲームの画面（`data-testid="veryare"`）に、フェーズ（`data-phase`）、空間（`data-space`。`waiting-room`・`stage`）、いま出している操作部品の一覧（`data-controls`。空白で区切る。`pending`・`move`・`look`・`area`・`open-door`・`shoot`・`waiting-pose`・`game-pose`・`paint`・`waiting-paint` / `apps/web/src/games/veryare/controls.ts`）を出す。フェーズの通知が届くまでは `pending`（画面に「接続中…」）
 - `make e2e` は素材なし（仮のカプセル）で起動するので、待機ルームの「ポーズを変える」ボタンは出ない。待機ポーズの変更は、そのタブの接続から `waiting-pose` の電文を送って代える
 

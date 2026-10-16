@@ -26,7 +26,7 @@ test("選択画面", async ({ openTab }) => {
 test("ロビー（ルームの一覧は畳む）", async ({ openTab }) => {
 	const a = await openTab();
 	await a.page.goto("/lobby/veryare");
-	const list = a.page.getByRole("heading", { name: "ルーム一覧" });
+	const list = a.page.getByTestId("lobby-room-list");
 	await expect(list).toBeVisible();
 	// ルームの一覧は、前のテストのルームが残っていると高さが変わる（覆うだけでは下がずれる）。
 	// 撮るときだけ、一覧の中身を畳んで比べない。
@@ -45,7 +45,7 @@ test("つながらないときの失敗の表示（ロビー）", async ({ openT
 	await a.link.goOffline();
 	await a.page.goto("/lobby/veryare");
 	// 遮断したまま、ルームを作る。返事が無いまま約 10 秒で、失敗の表示に移る（issue-47）。
-	await a.page.getByRole("button", { name: "新しいルームを作る" }).click();
+	await a.page.getByTestId("lobby-create-room").click();
 	await expect(a.page.getByTestId("connection-failed")).toBeVisible({
 		timeout: 20_000,
 	});

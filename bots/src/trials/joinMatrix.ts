@@ -128,12 +128,24 @@ export function joinCases(): JoinCase[] {
 	return cases;
 }
 
-/** その時機（フェーズ）に、購読者へ届くべき状態の種類（名前の順）。 */
-export function expectedKinds(phase: string): string[] {
+/**
+ * その時機（フェーズ）に、購読者へ届くべき状態の種類（名前の順）。
+ *
+ * atCreation は、作った人の、作成の時点（まだ 1 人だけ）。メンバーの通知は、変わったときだけ送る
+ * （ADR 0044）ので、作成の時点では届かない。作った人しか載らない一覧で、画面は自分を除くので、
+ * 届いても空と同じ。2 人目が入ると、作った人にも、2 人が載ったメンバーの通知が届く（join.ts と、
+ * サーバーの join_snapshot_test で確かめる）。
+ */
+export function expectedKinds(
+	phase: string,
+	options: { readonly atCreation?: boolean } = {},
+): string[] {
 	const always = ["doors", "phase", "room-info", "stage"];
 	const extra =
 		phase === "oni-selection"
-			? ["members"]
+			? options.atCreation === true
+				? []
+				: ["members"]
 			: phase === "exploration" || phase === "reveal"
 				? ["hiders", "hiding", "oni"]
 				: [];
@@ -184,6 +196,8 @@ const show = (view: PhaseView | null): string =>
 export function judgeArrival(input: {
 	readonly arrived: readonly unknown[];
 	readonly reference: readonly unknown[];
+	/** 作った人の、作成の時点（expectedKinds の atCreation）。 */
+	readonly atCreation?: boolean;
 }): string[] {
 	const problems: string[] = [];
 	const mine = latestPhase(input.arrived);
@@ -191,6 +205,7 @@ export function judgeArrival(input: {
 	const kinds = new Set(input.arrived.map(typeOf));
 	const expected = expectedKinds(
 		mine?.phase ?? theirs?.phase ?? "oni-selection",
+		{ atCreation: input.atCreation === true },
 	);
 	const missing = expected.filter((kind) => !kinds.has(kind));
 	if (missing.length > 0)
@@ -201,4 +216,19 @@ export function judgeArrival(input: {
 		);
 	}
 	return problems;
+}
+
+/** 最後に届いたメンバーの通知に、ids の全員が載っているか。メンバーの通知が無ければ false。 */
+export function membersListed(
+	payloads: readonly unknown[],
+	ids: readonly string[],
+): boolean {
+	const last = [...payloads].reverse().find((p) => typeOf(p) === "members");
+	if (!isRecord(last) || !Array.isArray(last.members)) return false;
+	const listed = new Set(
+		last.members.flatMap((m: unknown) =>
+			isRecord(m) && typeof m.playerId === "string" ? [m.playerId] : [],
+		),
+	);
+	return ids.every((id) => listed.has(id));
 }

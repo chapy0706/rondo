@@ -18,6 +18,9 @@ export function RoomListItem({
 	return (
 		<button
 			type="button"
+			// E2E は、文言ではなく、この属性で探す（名前は来場者の入力。属性の値として持つだけ）。
+			data-testid="lobby-room"
+			data-room-name={room.name}
 			onClick={onJoin}
 			disabled={disabled}
 			className="flex w-full items-center justify-between gap-3 rounded-2xl bg-slate-800 px-4 py-3 text-left transition-transform active:scale-[0.98] disabled:opacity-50"

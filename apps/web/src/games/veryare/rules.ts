@@ -33,6 +33,10 @@ export type AreaState = "waiting" | "ready" | "counting";
 /** サーバーのフェーズ通知（room.gleam の phase_payload）。 */
 export interface PhaseNotice {
 	readonly phase: Phase;
+	/**
+	 * 通知を作った時点からの、フェーズの残り（ミリ秒 / ADR 0046）。フェーズの開始のときはフェーズの長さ、
+	 * 途中参加・復帰の送り直しでは、その時点の残り。長さを持たないフェーズ（鬼選出・終了）は null。
+	 */
 	readonly durationMs: number | null;
 	readonly oni: string | null;
 	readonly outcome: Outcome | null;

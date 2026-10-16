@@ -15,6 +15,7 @@
 import { expect } from "@playwright/test";
 import {
 	type Tab,
+	createFromLobby,
 	expectPhase,
 	joinFromLobby,
 	test,
@@ -43,29 +44,18 @@ async function open(openTab: () => Promise<Tab>): Promise<Tab> {
 	return tab;
 }
 
-/** ロビーでルームを作る。options はプルダウンの表示名。ルーム ID を返す。 */
-async function createRoom(
+/** ロビーでルームを作る（ランダム間取り）。値は選択肢の値（文言ではなく、data-testid と値で選ぶ）。 */
+function createRoom(
 	tab: Tab,
-	options: { readonly exploration?: string; readonly cpu?: string } = {},
+	options: { readonly exploration?: number; readonly cpu?: number } = {},
 ): Promise<string> {
-	await tab.page.goto("/lobby/veryare");
-	await tab.page
-		.getByLabel("ステージ")
-		.selectOption({ label: "ランダム間取り" });
-	if (options.exploration !== undefined) {
-		await tab.page
-			.getByLabel("探索時間")
-			.selectOption({ label: options.exploration });
-	}
-	if (options.cpu !== undefined) {
-		await tab.page
-			.getByLabel("CPU", { exact: true })
-			.selectOption({ label: options.cpu });
-	}
-	await tab.page.getByRole("button", { name: "新しいルームを作る" }).click();
-	await expect(tab.page.getByTestId("veryare-area")).toBeVisible();
-	await expect.poll(() => tab.link.roomId()).not.toBeNull();
-	return tab.link.roomId() as string;
+	return createFromLobby(tab, {
+		stage: 0,
+		...(options.exploration === undefined
+			? {}
+			: { explorationSeconds: options.exploration }),
+		...(options.cpu === undefined ? {} : { cpu: options.cpu }),
+	});
 }
 
 /** A が作り（探索 120 秒）、B が入った 2 人のルーム。どちらも素材の体に差し替わるまで待つ。 */
@@ -74,7 +64,7 @@ async function roomOfTwo(
 ): Promise<{ a: Tab; b: Tab; roomId: string }> {
 	const a = await open(openTab);
 	const b = await open(openTab);
-	const roomId = await createRoom(a, { exploration: "120" });
+	const roomId = await createRoom(a, { exploration: 120 });
 	await joinFromLobby(b, roomId);
 	await expectAssetBody(a);
 	await expectAssetBody(b);
@@ -174,7 +164,7 @@ test("場面3: ランダム間取りの鬼 CPU のルームで、鬼 CPU の体�
 	openTab,
 }) => {
 	const a = await open(openTab);
-	const roomId = await createRoom(a, { exploration: "40", cpu: "鬼 CPU" });
+	const roomId = await createRoom(a, { exploration: 40, cpu: 4 });
 	await expectAssetBody(a);
 	// 鬼 CPU がいれば、抽選をせずに鬼 CPU が鬼になる。A は隠れ側。
 	touchArea(a, roomId);

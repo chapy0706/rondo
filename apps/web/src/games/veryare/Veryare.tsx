@@ -60,7 +60,6 @@ import {
 	type ControlsView,
 	canMoveNow,
 	controlsFor,
-	sameNotice,
 } from "./controls";
 import { isHirayaStage } from "./hiraya";
 import {
@@ -111,10 +110,16 @@ import {
 	hereColor,
 	hslToHex,
 	paintEvent,
-	shouldSubmitPaint,
+	submitPaintNow,
 	undoStroke,
 } from "./paint";
 import { FLOOR_COLOR, UNPAINTED_COLOR } from "./palette";
+import {
+	NO_PHASE_CLOCK,
+	type PhaseClock,
+	receivePhase,
+	remainingOf,
+} from "./phaseClock";
 import {
 	NO_POSE_CHOICE,
 	WAITING_POSE_INTERVAL_MS,
@@ -234,6 +239,10 @@ export default function Veryare() {
 	const look = useVirtualPad("look");
 
 	const [notice, setNotice] = useState<PhaseNotice | null>(null);
+	/**
+	 * フェーズの通知を受け取った時刻（performance.now）。残り時間は、ここからの経過を通知の長さ（残り）から
+	 * 引く（ADR 0046）。答え合わせの点滅の位相にも使う（送り直しで受け取り直すと、点滅の位相だけがずれる）。
+	 */
 	const [phaseStartedAt, setPhaseStartedAt] = useState(0);
 	const [explorationSeconds, setExplorationSeconds] = useState<number | null>(
 		null,
@@ -381,8 +390,8 @@ export default function Veryare() {
 	const [liked, setLiked] = useState<ReadonlySet<string>>(() => new Set());
 	/** 答え合わせで見ている隠れ場所（issue-32）。null は自分の視点。 */
 	const [revealTarget, setRevealTarget] = useState<string | null>(null);
-	/** 最後に受け取ったフェーズの通知（復帰の送り直しを見分ける）。 */
-	const noticeRef = useRef<PhaseNotice | null>(null);
+	/** 最後に受け取ったフェーズの通知と、受け取った時刻（復帰の送り直しを見分ける / phaseClock.ts）。 */
+	const phaseClockRef = useRef<PhaseClock>(NO_PHASE_CLOCK);
 	/** 通知の購読の中で、いまのフェーズを読むための参照（遅れて届いた members を捨てる）。 */
 	const phaseRef = useRef<Phase>("oni-selection");
 
@@ -391,11 +400,17 @@ export default function Veryare() {
 		const offPhase = on("phase", (payload) => {
 			const next = parsePhaseNotice(payload);
 			if (next === null) return;
-			// 復帰の送り直し（中身が同じ通知）では、残り時間を始め直さない（controls.ts の sameNotice）。
-			if (sameNotice(noticeRef.current, next)) return;
-			noticeRef.current = next;
+			// 通知の長さは、通知を作った時点からの残り（ADR 0046）。中身が同じ通知（長さも同じ）は無視し、
+			// 残りの違う送り直し（途中参加・復帰）では、残り時間を届いた値に合わせ直す（phaseClock.ts）。
+			const clock = receivePhase(
+				phaseClockRef.current,
+				next,
+				performance.now(),
+			);
+			if (clock === phaseClockRef.current) return;
+			phaseClockRef.current = clock;
 			setNotice(next);
-			setPhaseStartedAt(performance.now());
+			setPhaseStartedAt(clock.receivedAt);
 		});
 		const offInfo = on("room-info", (payload) => {
 			const info = parseRoomInfo(payload);
@@ -700,10 +715,8 @@ export default function Veryare() {
 		const timer = setInterval(() => setNow(performance.now()), 250);
 		return () => clearInterval(timer);
 	}, []);
-	const remainingMs =
-		notice?.durationMs == null
-			? Number.POSITIVE_INFINITY
-			: notice.durationMs - (now - phaseStartedAt);
+	// 残り時間（ADR 0046。通知の長さは、受け取った時点からの残り）。
+	const remainingMs = remainingOf({ notice, receivedAt: phaseStartedAt }, now);
 
 	// ペイント（issue-25）。ペイントフェーズの隠れ側が、自分の体の円柱に描く。描いている間は
 	// 自分の画面だけ（誰にも送らない）。終わりの 2 秒前か「塗り終わり」で、一度だけ送る。
@@ -743,12 +756,11 @@ export default function Veryare() {
 		window.setTimeout(() => setNow(performance.now()), POSE_NOTICE_MS);
 	};
 	useEffect(() => {
+		// 確定は一度だけ（送ったあとに、残りの違う送り直しが届いても、送らない / paintSubmit.test.ts）。
 		if (
-			submittedRef.current ||
-			!shouldSubmitPaint({
+			!submitPaintNow(submittedRef.current || paintSubmitted, {
 				phase,
 				remainingMs,
-				submitted: paintSubmitted,
 				confirmed: paintConfirmed,
 				strokeCount: draft.strokes.length,
 				poseChosen,
@@ -831,12 +843,9 @@ export default function Veryare() {
 		drawingRef.current = false;
 	};
 	const remainingSeconds =
-		notice?.durationMs == null
+		remainingMs === Number.POSITIVE_INFINITY
 			? null
-			: Math.max(
-					0,
-					Math.ceil((notice.durationMs - (now - phaseStartedAt)) / 1000),
-				);
+			: Math.ceil(remainingMs / 1000);
 
 	// 描画ループが最新の値を読むための参照。
 	// 鬼希望エリアは鬼選出中だけ見せる。

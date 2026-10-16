@@ -6,6 +6,7 @@ import {
 	joinCases,
 	judgeArrival,
 	latestPhase,
+	membersListed,
 } from "./joinMatrix.ts";
 
 const phase = (
@@ -180,5 +181,52 @@ describe("latestPhase・judgeArrival - 届いた通知を、最初の参加者�
 				reference: [phase("preparation", null, "a")],
 			}),
 		).toEqual([]);
+	});
+});
+
+describe("作った人（作成の時点）と、メンバーの通知", () => {
+	it("作成の時点の期待には、メンバーの通知を含めない（自分しか載らない一覧は送らない / ADR 0044）", () => {
+		expect(expectedKinds("oni-selection", { atCreation: true })).toEqual([
+			"doors",
+			"phase",
+			"room-info",
+			"stage",
+		]);
+		const created = [
+			of("stage"),
+			of("doors"),
+			phase("oni-selection", "waiting"),
+			of("room-info"),
+		];
+		expect(
+			judgeArrival({ arrived: created, reference: created, atCreation: true }),
+		).toEqual([]);
+		// 作成の時点でなければ（途中参加・復帰）、メンバーの通知が要る。
+		expect(judgeArrival({ arrived: created, reference: created })).toEqual([
+			"届いていない種類: members",
+		]);
+	});
+
+	it("membersListed: 最後に届いたメンバーの通知に、ids の全員が載っているか", () => {
+		const members = (ids: string[]) => ({
+			type: "members",
+			members: ids.map((playerId) => ({
+				playerId,
+				x: 0,
+				z: 0,
+				facing: null,
+				pose: null,
+			})),
+		});
+		expect(
+			membersListed([members(["a"]), members(["a", "b"])], ["a", "b"]),
+		).toBe(true);
+		expect(
+			membersListed([members(["a", "b"]), members(["a"])], ["a", "b"]),
+		).toBe(false);
+		expect(membersListed([of("stage")], ["a"])).toBe(false);
+		expect(membersListed([{ type: "members", members: "x" }], ["a"])).toBe(
+			false,
+		);
 	});
 });

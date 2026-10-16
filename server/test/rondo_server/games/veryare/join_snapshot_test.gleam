@@ -181,3 +181,45 @@ pub fn stranger_resync_gets_nothing_test() {
   room_actor.resync(room, PlayerId("x"))
   drain(stranger) |> should.equal([])
 }
+
+/// 作った人だけ（作成の時点）には、メンバーの通知を送らない（ADR 0044: 待機ルームのメンバーは、
+/// 変わったときだけ送る。作った人には、自分しか載らない一覧で、画面は自分を除くので、空と同じ）。
+/// 2 人目が入ると、作った人にも、2 人が載ったメンバーの通知が届く。
+fn creator_gets_members_after_second_joins(cpu: CpuChoice) -> Nil {
+  let #(room, a) = open(cpu)
+  let created = drain(a)
+  list.contains(kinds(created), "members") |> should.be_false
+  let _ = join(room, "b")
+  // メンバーの通知は 150 ms の間隔で送る。間に合うよう、少し待ってから読む。
+  process.sleep(veryare.members_interval_ms + 100)
+  let listed =
+    drain(a)
+    |> list.filter(fn(p) { type_of(p) == "members" })
+    |> list.last
+  let assert Ok(latest) = listed
+  let assert Ok(ids) =
+    decode.run(
+      latest,
+      decode.at(
+        ["members"],
+        decode.list(decode.at(["playerId"], decode.string)),
+      ),
+    )
+  ids |> list.sort(string.compare) |> should.equal(["a", "b"])
+}
+
+pub fn creator_gets_members_without_cpu_test() {
+  creator_gets_members_after_second_joins(NoCpu)
+}
+
+pub fn creator_gets_members_with_hider_cpu_test() {
+  creator_gets_members_after_second_joins(HiderCpus(1))
+}
+
+pub fn creator_gets_members_with_two_hider_cpus_test() {
+  creator_gets_members_after_second_joins(HiderCpus(2))
+}
+
+pub fn creator_gets_members_with_oni_cpu_test() {
+  creator_gets_members_after_second_joins(OniCpu)
+}

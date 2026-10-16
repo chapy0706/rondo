@@ -8,7 +8,8 @@
  * 3. 参加する人が入る。鬼選出の間なら、届いた通知（種類とフェーズの中身）を、最初の参加者（作った人）の
  *    ものと比べる。続けて、つなぎ直して（復帰）、もう一度比べる。鬼選出の後なら、断られる
  *    （game-already-started）ことを確かめ、作った人の復帰で届く状態を比べる
- * 4. 作った人の組み合わせでは、作成で届いた状態と、復帰で届く状態を確かめる
+ * 4. 作った人の組み合わせでは、作成で届いた状態（メンバーの通知は除く / ADR 0044）と、2 人目が入った
+ *    あとに、作った人に 2 人が載ったメンバーの通知が届くことと、復帰で届く状態を確かめる
  *
  *   node src/trials/join.ts [--only 名前の一部]     （tools/load.sh join から呼ぶ。フェーズ時間は 1/20）
  */
@@ -38,6 +39,7 @@ import {
 	MOMENT_PHASE,
 	joinCases,
 	judgeArrival,
+	membersListed,
 } from "./joinMatrix.ts";
 
 /** 参加・復帰のあと、通知がそろうのを待つ時間（ミリ秒）。 */
@@ -125,11 +127,36 @@ async function runCase(c: JoinCase): Promise<Check> {
 		if (c.order === "creator") {
 			// 作成で届いた状態（自分自身が最初の参加者）と、復帰で届く状態。
 			const created = payloads(a);
+			// 作成の時点では、メンバーの通知は届かない（自分しか載らない一覧は送らない / ADR 0044）。
 			problems.push(
-				...judgeArrival({ arrived: created, reference: created }).map(
-					(p) => `作成: ${p}`,
-				),
+				...judgeArrival({
+					arrived: created,
+					reference: created,
+					atCreation: true,
+				}).map((p) => `作成: ${p}`),
 			);
+			// 2 人目が入ると、作った人にも、2 人が載ったメンバーの通知が届く。
+			const second = filler as Bot;
+			const entered = await join(second, roomId);
+			if (entered.type !== "room-joined") {
+				problems.push(`2 人目が入れない: ${errorCode(entered)}`);
+			} else {
+				const ids = [a.playerId ?? "", second.playerId ?? ""];
+				try {
+					await a.waitFor(
+						() => membersListed(payloads(a), ids),
+						REACH_MS,
+						"2 人が載ったメンバーの通知",
+					);
+				} catch {
+					problems.push(
+						"2 人目が入っても、作った人に 2 人が載ったメンバーの通知が届かない",
+					);
+				}
+			}
+			// 復帰で届く状態は、復帰の直前に作った人が持っていたもの（2 人目が入ったので、CPU なしでは
+			// エリアが赤から緑に変わっている）と同じ。
+			const before = payloads(a);
 			const back = await resume(a, roomId);
 			bots.push(back.bot);
 			if (back.answer.type !== "room-joined") {
@@ -139,7 +166,7 @@ async function runCase(c: JoinCase): Promise<Check> {
 				problems.push(
 					...judgeArrival({
 						arrived: payloads(back.bot),
-						reference: created,
+						reference: before,
 					}).map((p) => `復帰: ${p}`),
 				);
 			}

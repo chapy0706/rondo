@@ -17,6 +17,7 @@
  */
 
 import { defineConfig, devices } from "@playwright/test";
+import { WAIT_MS } from "./timeouts";
 
 const SERVER_PORT = 3000;
 const ASSET_PORT = 8083;
@@ -30,9 +31,10 @@ export default defineConfig({
 	workers: 1,
 	retries: 0,
 	timeout: 300_000,
-	expect: { timeout: 30_000 },
+	expect: { timeout: WAIT_MS },
 	reporter: [["list"], ["html", { open: "never" }]],
 	use: {
+		actionTimeout: WAIT_MS,
 		baseURL: `http://localhost:${WEB_PORT}`,
 		trace: "retain-on-failure",
 		...devices["Desktop Chrome"],

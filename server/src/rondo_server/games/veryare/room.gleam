@@ -287,6 +287,19 @@ pub fn spec_with_stage(
   durations: game.Durations,
   pick: fn(Int) -> Int,
 ) -> RoomSpec {
+  spec_with_clock(id, settings, stage, durations, pick, now_ms)
+}
+
+/// 時計も差し替えられるルーム設定（テスト用）。now は単調に増える時計（ミリ秒）。フェーズの開始時刻を
+/// 覚え、送り直しのフェーズの通知の長さを、残りにするのに使う（ADR 0046）。
+pub fn spec_with_clock(
+  id: RoomId,
+  settings: Settings,
+  stage: StageChoice,
+  durations: game.Durations,
+  pick: fn(Int) -> Int,
+  now: fn() -> Int,
+) -> RoomSpec {
   RoomSpec(
     id:,
     game_type:,
@@ -302,6 +315,7 @@ pub fn spec_with_stage(
         stage,
         cpus_of(settings.cpu, settings.strength),
         pick,
+        now,
       )
     }),
     member_info: Some(room_info(settings)),
@@ -311,12 +325,20 @@ pub fn spec_with_stage(
 
 // --- 箱 ------------------------------------------------------------------
 
+/// ルームの外から差し替える物（鬼選出の乱数・単調に増える時計）と、いまのフェーズの開始時刻
+/// （ミリ秒。step が進むたびに覚え直す）。開始時刻は、送り直しのフェーズの通知の長さを、残りに
+/// するためだけに使う（勝敗とフェーズの遷移は、これまでどおりタイマーが決める / ADR 0046）。
+type Env {
+  Env(pick: fn(Int) -> Int, now: fn() -> Int, started_at: Int)
+}
+
 fn start(
   players: List(PlayerId),
   durations: game.Durations,
   stage_choice: StageChoice,
   cpus: game.Cpus(PlayerId),
   pick: fn(Int) -> Int,
+  now: fn() -> Int,
 ) -> #(Driver(PlayerId), List(Effect(PlayerId))) {
   let initial = case stage_choice {
     // 開始時に、骨格10種から1つを選び部屋を割り当てる（ADR 0032）。
@@ -331,30 +353,30 @@ fn start(
     Hiraya -> game.new_hiraya(players, durations)
   }
   // ステージの通知（issue-29a）を全員へ送ってから、フェーズの通知を送る。
-  #(wrap(initial, pick), [
+  #(wrap(initial, Env(pick:, now:, started_at: now())), [
     driver.Broadcast(stage_payload(initial)),
     driver.Broadcast(stage_notice.doors_payload(initial.open_doors)),
     ..phase_effects(initial)
   ])
 }
 
-fn wrap(state: Game(PlayerId), pick: fn(Int) -> Int) -> Driver(PlayerId) {
+fn wrap(state: Game(PlayerId), env: Env) -> Driver(PlayerId) {
   driver.new(
     on_event: fn(player, payload) {
       case decode.run(payload, shoot_decoder()) {
         // 鬼の射撃の申告（issue-27）。判定は状態機械が行い、時刻はここで付ける。
         Ok(target) ->
-          step(state, game.shoot(state, player, target, now_ms()), pick)
+          step(state, game.shoot(state, player, target, now_ms()), env)
         Error(_) ->
           case decode.run(payload, stage_notice.open_door_decoder()) {
             // 襖を開ける報告（issue-29b）。開けられるかは状態機械が決める。
-            Ok(door) -> step(state, game.open_door(state, player, door), pick)
+            Ok(door) -> step(state, game.open_door(state, player, door), env)
             Error(_) ->
               case decode.run(payload, paint.event_decoder()) {
                 // ペイントとポーズの確定（issue-25 / issue-56）。受け付けるかは状態機械が決める。
                 // 誰にも送らない（探索の開始の一括配信に載せる）。
                 Ok(paint.Confirm(strokes:, pose:)) ->
-                  step(state, game.confirm(state, player, strokes, pose), pick)
+                  step(state, game.confirm(state, player, strokes, pose), env)
                 Error(_) ->
                   case decode.run(payload, members.waiting_pose_decoder()) {
                     // 待機ポーズの変更（issue-59）。受け付けるか（鬼選出中・人間・間）は状態機械が決める。
@@ -362,29 +384,29 @@ fn wrap(state: Game(PlayerId), pick: fn(Int) -> Int) -> Driver(PlayerId) {
                       step(
                         state,
                         game.set_waiting_pose(state, player, chosen, now_ms()),
-                        pick,
+                        env,
                       )
-                    Error(_) -> missed_event(state, player, payload, pick)
+                    Error(_) -> missed_event(state, player, payload, env)
                   }
               }
           }
       }
     },
-    on_leave: fn(player) { step(state, game.leave(state, player), pick) },
+    on_leave: fn(player) { step(state, game.leave(state, player), env) },
     on_wake: fn(token) {
       case
         token <= missed_token_base,
         token <= members_token_base,
         token == tick_token(state)
       {
-        True, _, _ -> missed_woke(state, token, pick)
-        False, True, _ -> members_woke(state, token, pick)
-        False, False, True -> ticked(state, game.tick(state), pick)
+        True, _, _ -> missed_woke(state, token, env)
+        False, True, _ -> members_woke(state, token, env)
+        False, False, True -> ticked(state, game.tick(state), env)
         False, False, False ->
-          step(state, game.advance(state, token, pick), pick)
+          step(state, game.advance(state, token, env.pick), env)
       }
     },
-    on_join: fn(player) { joined(state, game.join(state, player), pick) },
+    on_join: fn(player) { joined(state, game.join(state, player), env) },
     accepts_join: fn() { game.accepts_join(state) },
     is_over: fn() {
       case state.phase {
@@ -394,7 +416,9 @@ fn wrap(state: Game(PlayerId), pick: fn(Int) -> Int) -> Driver(PlayerId) {
     },
   )
   // 送信先を登録した人（作った人・途中参加・再接続）には、本人宛てで、いま届けるべき状態を送る。
-  |> driver.on_subscribe(fn(player) { subscriber_snapshot(state, player) })
+  |> driver.on_subscribe(fn(player) {
+    subscriber_snapshot(state, player, env.now() - env.started_at)
+  })
 }
 
 /// 購読者に、いま届けるべき状態（本人宛て）。参加（入室の後）・途中参加・復帰（resync）の、どの経路も
@@ -409,21 +433,29 @@ fn wrap(state: Game(PlayerId), pick: fn(Int) -> Int) -> Driver(PlayerId) {
 /// | 鬼の通知 | 探索・答え合わせ（鬼の位置が分かっているとき） |
 /// | 隠れ側の一括配信・まだ隠れている人 | 探索・答え合わせ |
 /// | いいね | 答え合わせ・終了（いいねがあるとき） |
+/// elapsed_ms は、いまのフェーズが始まってからの時間。フェーズの通知の長さは、その時点からの残り
+/// （長さ − 経過。0 未満にしない / ADR 0046）。
 pub fn subscriber_snapshot(
   state: Game(PlayerId),
   player: PlayerId,
+  elapsed_ms: Int,
 ) -> List(Effect(PlayerId)) {
   list.flatten([
     [
       driver.Deliver([player], stage_payload(state)),
       driver.Deliver([player], stage_notice.doors_payload(state.open_doors)),
-      driver.Deliver([player], phase_payload(state)),
+      driver.Deliver([player], phase_payload_after(state, elapsed_ms)),
     ],
     members_resend(state, player),
     oni_resend(state, player),
     hiders_resend(state, player),
     likes_resend(state, player),
   ])
+}
+
+/// フェーズの長さ total_ms のうち、elapsed_ms たった時点の残り（0 から total_ms の間）。
+pub fn remaining_ms(total_ms: Int, elapsed_ms: Int) -> Int {
+  int.clamp(total_ms - elapsed_ms, min: 0, max: total_ms)
 }
 
 /// 探索中・答え合わせ中に入り直した人へ、いまの鬼の通知を本人宛てで送る（届くまで鬼が見えないため）。
@@ -452,7 +484,7 @@ fn moved(
   state: Game(PlayerId),
   player: PlayerId,
   payload: Dynamic,
-  pick: fn(Int) -> Int,
+  env: Env,
 ) -> #(Driver(PlayerId), List(Effect(PlayerId))) {
   case decode.run(payload, move_decoder()) {
     Ok(#(x, z, facing)) -> {
@@ -461,10 +493,10 @@ fn moved(
         Some(f) -> game.turn(moved, player, f)
         None -> moved
       }
-      let #(next, effects) = step(state, turned, pick)
+      let #(next, effects) = step(state, turned, env)
       #(next, list.append(effects, human_oni_effects(state, turned, player)))
     }
-    Error(_) -> #(wrap(state, pick), [])
+    Error(_) -> #(wrap(state, env), [])
   }
 }
 
@@ -473,7 +505,7 @@ fn moved(
 fn step(
   before: Game(PlayerId),
   after: Game(PlayerId),
-  pick: fn(Int) -> Int,
+  env: Env,
 ) -> #(Driver(PlayerId), List(Effect(PlayerId))) {
   // 待機ルームのメンバーが変わっていたら、通知のタイマーを張る（issue-59）。
   let #(after, members_timer) = schedule_members(after)
@@ -503,8 +535,13 @@ fn step(
         driver.Broadcast(stage_notice.doors_payload(after.open_doors)),
       ])
   }
+  // step が進んだ（フェーズが替わった・カウントが始まった）ら、開始時刻を覚え直す。
+  let env = case after.step == before.step {
+    True -> env
+    False -> Env(..env, started_at: env.now())
+  }
   #(
-    wrap(after, pick),
+    wrap(after, env),
     list.flatten([effects, hiding, finish(before, after), members_timer]),
   )
 }
@@ -519,11 +556,11 @@ fn missed_token(state: Game(PlayerId)) -> Int {
 fn missed_woke(
   state: Game(PlayerId),
   token: Int,
-  pick: fn(Int) -> Int,
+  env: Env,
 ) -> #(Driver(PlayerId), List(Effect(PlayerId))) {
   case token == missed_token(state) && state.phase == Exploration {
     True -> {
-      let #(next, effects) = step(state, game.award_missed(state), pick)
+      let #(next, effects) = step(state, game.award_missed(state), env)
       #(
         next,
         list.append(effects, [
@@ -531,7 +568,7 @@ fn missed_woke(
         ]),
       )
     }
-    False -> #(wrap(state, pick), [])
+    False -> #(wrap(state, env), [])
   }
 }
 
@@ -540,20 +577,20 @@ fn missed_event(
   state: Game(PlayerId),
   player: PlayerId,
   payload: Dynamic,
-  pick: fn(Int) -> Int,
+  env: Env,
 ) -> #(Driver(PlayerId), List(Effect(PlayerId))) {
   case decode.run(payload, missed_events.sight_decoder()) {
     Ok(ids) ->
       step(
         state,
         game.report_sight(state, player, list.map(ids, PlayerId)),
-        pick,
+        env,
       )
     Error(_) ->
       case decode.run(payload, missed_events.like_decoder()) {
         Ok(target) ->
-          step(state, game.like(state, player, PlayerId(target)), pick)
-        Error(_) -> moved(state, player, payload, pick)
+          step(state, game.like(state, player, PlayerId(target)), env)
+        Error(_) -> moved(state, player, payload, env)
       }
   }
 }
@@ -606,7 +643,7 @@ fn schedule_members(
 fn members_woke(
   state: Game(PlayerId),
   token: Int,
-  pick: fn(Int) -> Int,
+  env: Env,
 ) -> #(Driver(PlayerId), List(Effect(PlayerId))) {
   let ready = game.members_scheduled(state, False)
   let current = game.waiting_members(ready)
@@ -617,10 +654,10 @@ fn members_woke(
   {
     True -> {
       let sent = game.members_were_sent(ready, current)
-      let #(next, effects) = step(sent, sent, pick)
+      let #(next, effects) = step(sent, sent, env)
       #(next, [driver.Broadcast(members.payload(current)), ..effects])
     }
-    False -> step(ready, ready, pick)
+    False -> step(ready, ready, env)
   }
 }
 
@@ -679,9 +716,9 @@ fn tick_token(state: Game(PlayerId)) -> Int {
 fn ticked(
   before: Game(PlayerId),
   after: Game(PlayerId),
-  pick: fn(Int) -> Int,
+  env: Env,
 ) -> #(Driver(PlayerId), List(Effect(PlayerId))) {
-  let #(next, effects) = step(before, after, pick)
+  let #(next, effects) = step(before, after, env)
   let oni = case oni_payload(after) {
     Some(payload) -> [driver.Broadcast(payload)]
     None -> []
@@ -693,17 +730,15 @@ fn ticked(
   #(next, list.flatten([oni, effects, again]))
 }
 
-/// 途中参加。全員への通知が出なかったとき（エリアの色が変わらない等）は、参加した
-/// 本人にだけ今の状態を送る。途中から入った人も、今のフェーズとエリアの色が分かる。
 /// 途中参加。変わったところ（エリアの色など）は、ふつうの通知で全員へ送る。参加した本人へのいまの状態は、
 /// ルームが入室の処理の後に subscriber_snapshot で送る（ここで本人宛てを足さない。以前は「ほかに送る物が
 /// 無いとき」だけ本人にフェーズを送っていたので、メンバーの通知のタイマーが出る参加では届かなかった）。
 fn joined(
   before: Game(PlayerId),
   after: Game(PlayerId),
-  pick: fn(Int) -> Int,
+  env: Env,
 ) -> #(Driver(PlayerId), List(Effect(PlayerId))) {
-  step(before, after, pick)
+  step(before, after, env)
 }
 
 /// 全員へ知らせる中身。これが変わったときだけ通知する（隠れ側の位置は含めない）。
@@ -819,15 +854,22 @@ fn room_info(settings: Settings) -> Dynamic {
   ])
 }
 
+/// フェーズの開始のときのフェーズの通知（長さ = フェーズの長さ）。
+fn phase_payload(state: Game(PlayerId)) -> Dynamic {
+  phase_payload_after(state, 0)
+}
+
 /// フェーズの通知。全員に同じ内容を送るため、隠れ側の位置は載せない。
 /// area は鬼希望エリアの色（waiting 赤 / ready 緑 / counting 青）で、鬼選出中だけ載せる。
-fn phase_payload(state: Game(PlayerId)) -> Dynamic {
+/// durationMs は、通知を作った時点からの残り（ADR 0046）。フェーズの開始から elapsed_ms たった時点の
+/// 残り（長さ − 経過。0 未満にしない）。開始のときの通知（elapsed_ms = 0）は、フェーズの長さ。
+pub fn phase_payload_after(state: Game(PlayerId), elapsed_ms: Int) -> Dynamic {
   let oni = case state.oni {
     Some(PlayerId(id)) -> dynamic.string(id)
     None -> dynamic.nil()
   }
   let duration = case game.phase_duration(state) {
-    Some(ms) -> dynamic.int(ms)
+    Some(ms) -> dynamic.int(remaining_ms(ms, elapsed_ms))
     None -> dynamic.nil()
   }
   let outcome = case state.phase {

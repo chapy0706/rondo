@@ -90,9 +90,44 @@ export async function joinFromLobby(tab: Tab, roomId: string): Promise<void> {
 	await expect(tab.page).toHaveURL(/\/lobby\/veryare$/);
 	await expect.poll(() => roomNameIn(tab, roomId)).not.toBeNull();
 	const name = roomNameIn(tab, roomId) as string;
-	await tab.page.getByRole("button", { name }).click();
+	// 一覧の行は、文言ではなく、属性（data-testid と data-room-name）で探す。
+	await tab.page
+		.getByTestId("lobby-room")
+		.and(tab.page.locator(`[data-room-name=${JSON.stringify(name)}]`))
+		.click();
 	await expect(tab.page.getByTestId("veryare-area")).toBeVisible();
 	await expect.poll(() => tab.link.roomId()).toBe(roomId);
+}
+
+/**
+ * ロビーの作成フォームの選択肢（apps/web の roomOptions の key と、選択肢の値）。文言（ラベル・選択肢の
+ * 表示名）ではなく、data-testid（lobby-option-<key>）と値で選ぶ。
+ */
+export interface LobbySettings {
+	/** 0 = ランダム間取り、1 = 平屋（開発用の変数があるときだけ出る）。 */
+	readonly stage?: number;
+	readonly explorationSeconds?: number;
+	/** 0 = なし、1〜3 = 隠れ側 CPU の数、4 = 鬼 CPU。 */
+	readonly cpu?: number;
+	readonly cpuStrength?: number;
+}
+
+/** ロビー（/lobby/veryare）を開き、settings を選んで「新しいルームを作る」を押す。ルーム ID を返す。 */
+export async function createFromLobby(
+	tab: Tab,
+	settings: LobbySettings = {},
+): Promise<string> {
+	await tab.page.goto("/lobby/veryare");
+	for (const [key, value] of Object.entries(settings)) {
+		if (value === undefined) continue;
+		await tab.page
+			.getByTestId(`lobby-option-${key}`)
+			.selectOption(String(value));
+	}
+	await tab.page.getByTestId("lobby-create-room").click();
+	await expect(tab.page.getByTestId("veryare-area")).toBeVisible();
+	await expect.poll(() => tab.link.roomId()).not.toBeNull();
+	return tab.link.roomId() as string;
 }
 
 /** このタブに届いた最新のルーム一覧で、識別子 roomId のルームの名前。無ければ null。 */

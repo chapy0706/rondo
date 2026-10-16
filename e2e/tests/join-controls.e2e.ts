@@ -12,20 +12,7 @@
  */
 
 import { expect } from "@playwright/test";
-import { type Tab, chooseVeryare, joinFromLobby, test } from "./flows";
-
-/** ロビーで、CPU の選択肢 cpu（表示名）のルームを作る（ランダム間取り。make e2e ではステージの選択肢が無い）。 */
-async function createWithCpu(tab: Tab, cpu: string): Promise<string> {
-	await chooseVeryare(tab.page);
-	await tab.page.goto("/lobby/veryare");
-	await tab.page
-		.getByLabel("CPU", { exact: true })
-		.selectOption({ label: cpu });
-	await tab.page.getByRole("button", { name: "新しいルームを作る" }).click();
-	await expect(tab.page.getByTestId("veryare-area")).toBeVisible();
-	await expect.poll(() => tab.link.roomId()).not.toBeNull();
-	return tab.link.roomId() as string;
-}
+import { type Tab, createFromLobby, joinFromLobby, test } from "./flows";
 
 /** 画面の操作部品の一覧（data-controls）に、移動パッドと鬼希望エリアが入り、待っている表示が無い。 */
 async function expectWaitingRoomControls(tab: Tab): Promise<void> {
@@ -92,7 +79,7 @@ test("CPU 1 体のルームに 2 人目が入ると、どちらの画面でも�
 }) => {
 	const a = await openTab();
 	const b = await openTab();
-	const roomId = await createWithCpu(a, "隠れ側 CPU 1体");
+	const roomId = await createFromLobby(a, { cpu: 1 });
 	await joinFromLobby(b, roomId);
 	await expectWaitingRoomControls(b);
 	await expectWaitingRoomControls(a);
@@ -106,7 +93,7 @@ test("CPU 2 体のルームに 2 人目と 3 人目が入ると、全員の画�
 	const a = await openTab();
 	const b = await openTab();
 	const c = await openTab();
-	const roomId = await createWithCpu(a, "隠れ側 CPU 2体");
+	const roomId = await createFromLobby(a, { cpu: 2 });
 	await joinFromLobby(b, roomId);
 	await joinFromLobby(c, roomId);
 	for (const tab of [a, b, c]) await expectWaitingRoomControls(tab);

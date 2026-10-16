@@ -96,7 +96,12 @@ export function Lobby({
 			) : (
 				<section className="flex flex-col gap-4">
 					<div className="flex items-center justify-between">
-						<h2 className="font-semibold text-lg text-white">ルーム一覧</h2>
+						<h2
+							data-testid="lobby-room-list"
+							className="font-semibold text-lg text-white"
+						>
+							ルーム一覧
+						</h2>
 						<button
 							type="button"
 							onClick={refresh}
@@ -131,6 +136,7 @@ export function Lobby({
 						ルーム名
 						<input
 							type="text"
+							data-testid="lobby-room-name"
 							value={roomName}
 							onChange={(event) => setRoomName(event.target.value)}
 							placeholder="空欄なら「（あなたの名前）のルーム」"
@@ -149,6 +155,8 @@ export function Lobby({
 						>
 							{option.label}
 							<select
+								// E2E は、文言ではなく、選択肢の key で探す（lobby-option-cpu など）。
+								data-testid={`lobby-option-${option.key}`}
 								value={settings[option.key] ?? option.default}
 								onChange={(event) =>
 									setSettings((current) =>
@@ -168,6 +176,7 @@ export function Lobby({
 
 					<button
 						type="button"
+						data-testid="lobby-create-room"
 						onClick={() =>
 							createRoom(
 								roomOptions.length > 0 ? settings : undefined,

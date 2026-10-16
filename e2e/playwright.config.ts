@@ -12,6 +12,7 @@
  */
 
 import { defineConfig, devices } from "@playwright/test";
+import { WAIT_MS } from "./timeouts";
 
 const SERVER_PORT = 3000;
 const WEB_PORT = 3100;
@@ -26,7 +27,7 @@ export default defineConfig({
 	retries: 0,
 	timeout: 90_000,
 	expect: {
-		timeout: 15_000,
+		timeout: WAIT_MS,
 		// 見た目の比較（issue-52）: 画素の 1% までの差は許す。アニメーションは止めて撮る。
 		toHaveScreenshot: {
 			maxDiffPixelRatio: 0.01,
@@ -36,6 +37,7 @@ export default defineConfig({
 	},
 	reporter: [["list"], ["html", { open: "never" }]],
 	use: {
+		actionTimeout: WAIT_MS,
 		baseURL: `http://localhost:${WEB_PORT}`,
 		trace: "retain-on-failure",
 		...devices["Desktop Chrome"],
