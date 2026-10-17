@@ -17,6 +17,7 @@ help:
 	@echo "  e2e            2タブの E2E スモーク（Playwright。verify には含めない）"
 	@echo "  e2e/result     E2E の結果画面までのシナリオ（約2分）"
 	@echo "  bots           ボット同士の対戦（ブラウザなし。サーバーを :3300 で起動。ARGS=\"--seed N\"）"
+	@echo "  preflight      載せ換えの前の最終確認（verify・bots・limits・join・e2e・e2e:extended を順に。dev-all を止めてから）"
 	@echo ""
 	@echo "  lint           静的解析（Biome）"
 	@echo "  type-check     型チェック（tsc）"
@@ -94,6 +95,12 @@ e2e/result:
 .PHONY: bots
 bots:
 	./tools/bots.sh $(ARGS)
+
+# 載せ換えの前の最終確認。verify・ボット・上限と組み合わせの試験・E2E を順に流し、失敗したら止まる。
+# サーバーとブラウザは、それぞれの試験が起動・停止する。make dev-all は止めておく（ポートを使うため）。
+.PHONY: preflight
+preflight:
+	./tools/preflight.sh
 
 # ------------------------
 # Lint / Format / Types

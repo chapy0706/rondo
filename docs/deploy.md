@@ -66,6 +66,8 @@ RONDO_VERIFY_WEB_URL=https://rondo.chapy0706.com
 
 ## 更新の手順（通常）
 
+載せ換えの前に、手元で `make preflight` が通ること（`make dev-all` を止めてから。verify・ボット・上限と組み合わせの試験・E2E を順に流し、失敗したら、どれで止まったかを出す。最後に、いまのコミットと、未コミットの変更の有無を出す）。
+
 A1 のリポジトリの作業コピーで実行する。
 
 ```bash
