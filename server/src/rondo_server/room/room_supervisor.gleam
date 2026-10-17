@@ -3,6 +3,7 @@ import gleam/erlang/process.{type Pid, type Subject}
 import gleam/list
 import gleam/otp/actor
 import gleam/otp/factory_supervisor as factory
+import gleam/otp/supervision
 import rondo_server/room/room_actor.{type Message, type RoomSpec}
 
 /// ルームを動的に生成・監視するスーパーバイザーへの参照。
@@ -13,10 +14,13 @@ pub type RoomSupervisor =
 
 /// スーパーバイザーを起動する。
 ///
-/// 子（ルーム）の再起動方針は既定の Transient。正常終了（解散）では再起動せず、
-/// 異常終了のときだけ回復させる（ADR 0006）。
+/// 子（ルーム）の再起動方針は Temporary（ADR 0047。ADR 0006 の「異常終了のときは回復させる」を、
+/// ルームについて置き換える）。落ちたルームを、空の状態で作り直さない。作り直したルームは、台帳にも、
+/// 入っていた人の接続にもつながらず、数え漏れと、誰も入れないルームが残るだけだったため。入っていた
+/// 人には、接続が room-closed を送る（session_actor）。
 pub fn start() -> actor.StartResult(RoomSupervisor) {
   factory.worker_child(room_actor.start)
+  |> factory.restart_strategy(supervision.Temporary)
   |> factory.start
 }
 

@@ -51,6 +51,7 @@ make e2e/result   # シナリオ5（鬼選出から結果画面まで。約2分�
 - 待ち時間: アクション（クリック・選択など）と expect は 15 秒（`e2e/timeouts.ts` の `WAIT_MS`。どの設定でも同じ）で失敗にする。部品が見つからないとき、テスト全体のタイムアウトまで待たない。これより長く待つところ（フェーズの切り替え、ハートビートの ping、結果画面まで）は、その場で `timeout` を渡す。ページの読み込み（goto）は、開発サーバーの最初のコンパイルがあるので縮めない
 - ロビーの一覧には識別子を出さない（issue-58）ので、ロビーから入るときは、そのタブに届いたルーム一覧（room-list）で識別子からルーム名を引き、その名前のボタンを押す（`joinFromLobby`）
 - 状態を足すときの決まり: veryare に、新しい状態（通知）を足したら、(1) 購読者に届ける状態（`server/src/rondo_server/games/veryare/room.gleam` の `subscriber_snapshot`。途中参加・復帰の、どの経路もここだけを使う）に足し、(2) 参加・復帰の組み合わせ表（`bots/src/trials/joinMatrix.ts` の `expectedKinds` と、`./tools/load.sh join`）と、操作部品の出し分け（`apps/web/src/games/veryare/controls.ts` の `controlsFor` のテスト）に足す。時間の長さを持つ状態は、送り直しで「残り」にする（ADR 0046 のフェーズの通知と同じ）
+- 落ちたあとの掃除の決まり（ADR 0047）: 接続やルームが、別のプロセス（ルーム・ソケットなど）を指して持つときは、そのプロセスを監視し、終わったら指している物を外す（落ちたプロセスを指したままにしない）。異常に終わったときだけ利用者に知らせ（ルームなら `room-closed`）、ふつうに終わったときは黙って外す。ほかのプロセスへの問い合わせは、止まらない形（`room_actor.try_snapshot` のように、監視つきで、時間で切る）にし、失敗したら、その相手を飛ばす。新しく足したら、サーバーの結合テスト（`room_closed_test.gleam` の形: 強制終了・ふつうの終了・応答しない相手）に足す
 - 画面の属性: ゲームの画面（`data-testid="veryare"`）に、フェーズ（`data-phase`）、空間（`data-space`。`waiting-room`・`stage`）、いま出している操作部品の一覧（`data-controls`。空白で区切る。`pending`・`move`・`look`・`area`・`open-door`・`shoot`・`waiting-pose`・`game-pose`・`paint`・`waiting-paint` / `apps/web/src/games/veryare/controls.ts`）を出す。フェーズの通知が届くまでは `pending`（画面に「接続中…」）
 - `make e2e` は素材なし（仮のカプセル）で起動するので、待機ルームの「ポーズを変える」ボタンは出ない。待機ポーズの変更は、そのタブの接続から `waiting-pose` の電文を送って代える
 

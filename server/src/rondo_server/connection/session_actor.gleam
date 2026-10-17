@@ -10,6 +10,8 @@
 ///   session と room-joined を送ってから、ためた配信を流す
 /// - 猶予を過ぎたらルームへ離脱（Leave）を伝えて止まる。ルームにいなければ切断で止まる
 /// - 復帰できるのは切断中だけ。つながっている間は、正しいトークンでも付け替えない
+/// - 入っているルームのプロセスを監視する（ADR 0047）。ルームが異常に終わった（落ちた）ら、本人に
+///   room-closed を送り、入っているルームを外す。ふつうに終わったとき（解散）は送らない
 import gleam/erlang/process.{type Monitor, type Pid, type Subject}
 import gleam/list
 import gleam/option.{type Option, None, Some}
@@ -64,6 +66,8 @@ type State {
     buffer: List(ServerMessage),
     /// 切断・復帰のたびに進める。古い猶予タイマーを見分ける。
     generation: Int,
+    /// 入っているルームのプロセスの監視（ADR 0047）。入る・出るたびに張り直す。
+    room_watch: Option(#(Pid, Monitor)),
   )
 }
 
@@ -95,6 +99,7 @@ pub fn start(
       monitor:,
       buffer: [],
       generation: 0,
+      room_watch: None,
     )
     |> actor.initialised
     |> actor.selecting(selector)
@@ -135,7 +140,7 @@ fn handle(state: State, message: Message) -> actor.Next(State, Message) {
     FromClient(incoming) -> {
       let #(session, replies) =
         session.handle(state.session, state.deps, incoming)
-      let state = State(..state, session:)
+      let state = State(..state, session:) |> watch_room
       list.each(replies, deliver(state, _))
       actor.continue(state)
     }
@@ -162,15 +167,10 @@ fn handle(state: State, message: Message) -> actor.Next(State, Message) {
         // 今のソケットの受信プロセスが落ちたときだけ、切断として扱う（issue-51）。
         // normal（ふつうの閉じ）以外は、異常終了としてログに1行だけ残す。
         process.ProcessDown(pid:, reason:, ..) ->
-          case state.socket_pid == Some(pid) {
-            True -> {
-              case reason {
-                process.Normal -> Nil
-                _ -> heap_guard.note_socket_killed()
-              }
-              detach_current(state)
-            }
-            False -> actor.continue(state)
+          case watching_room(state, pid), state.socket_pid == Some(pid) {
+            // 入っているルームのプロセスが終わった（ADR 0047）。
+            True, _ -> room_down(state, reason)
+            False, sockets -> socket_down(state, sockets, reason)
           }
         process.PortDown(..) -> actor.continue(state)
       }
@@ -232,6 +232,78 @@ fn detach_current(state: State) -> actor.Next(State, Message) {
   }
 }
 
+/// 入っているルームのプロセスの監視を、いまのルームに合わせ直す（入った・出た・別のルームへ）。
+fn watch_room(state: State) -> State {
+  let wanted = case state.session.room {
+    Some(joined) -> option.from_result(process.subject_owner(joined.room))
+    None -> None
+  }
+  case state.room_watch, wanted {
+    Some(#(pid, _)), Some(next) if pid == next -> state
+    current, _ -> {
+      case current {
+        Some(#(_, monitor)) -> process.demonitor_process(monitor)
+        None -> Nil
+      }
+      let room_watch = case wanted {
+        Some(pid) -> Some(#(pid, process.monitor(pid)))
+        None -> None
+      }
+      State(..state, room_watch:)
+    }
+  }
+}
+
+/// pid が、入っているルームのプロセスか。
+fn watching_room(state: State, pid: Pid) -> Bool {
+  case state.room_watch {
+    Some(#(room, _)) -> room == pid
+    None -> False
+  }
+}
+
+/// 監視しているソケットの受信プロセスが落ちた。今のソケットのときだけ、切断として扱う（issue-51）。
+/// normal（ふつうの閉じ）以外は、異常終了としてログに1行だけ残す。
+fn socket_down(
+  state: State,
+  current: Bool,
+  reason: process.ExitReason,
+) -> actor.Next(State, Message) {
+  case current {
+    True -> {
+      case reason {
+        process.Normal -> Nil
+        _ -> heap_guard.note_socket_killed()
+      }
+      detach_current(state)
+    }
+    False -> actor.continue(state)
+  }
+}
+
+/// 入っているルームのプロセスが終わった。異常に終わった（落ちた）ときだけ、本人に room-closed を送る。
+/// どちらでも、入っているルームを外す（もう無いルームを指したままにしない）。切断中なら、戻る先が
+/// 無くなったので、ルームにいないときの切断と同じく終わる（戻ってきた接続には reconnect-failed）。
+fn room_down(
+  state: State,
+  reason: process.ExitReason,
+) -> actor.Next(State, Message) {
+  let state =
+    State(
+      ..state,
+      session: session.Session(..state.session, room: None),
+      room_watch: None,
+    )
+  case reason {
+    process.Normal -> Nil
+    _ -> deliver(state, session.room_closed())
+  }
+  case state.socket {
+    Some(_) -> actor.continue(state)
+    None -> actor.stop()
+  }
+}
+
 /// ソケットの受信プロセスを監視する。所有者が取れなければ監視しない（socket_pid は None）。
 fn watch(socket: Subject(ServerMessage)) -> #(Option(Pid), Option(Monitor)) {
   case process.subject_owner(socket) {
@@ -261,32 +333,23 @@ fn resume_on(
   state: State,
   socket: Subject(ServerMessage),
 ) -> actor.Next(State, Message) {
-  let session = state.session
-  process.send(socket, SessionMessage(session.player_id, session.resume_token))
-  case session.room {
-    Some(joined) -> {
-      let snapshot = room_actor.snapshot(joined.room)
-      let players =
-        snapshot.players
-        |> list.map(fn(player) {
-          let PlayerId(id) = player.id
-          PlayerInfo(player_id: id, name: player.name)
-        })
-      process.send(
-        socket,
-        RoomJoined(
-          game_type: joined.game_type,
-          room_id: joined.room_id,
-          you: session.player_id,
-          players:,
-          room_name: Some(snapshot.name),
-        ),
-      )
-      // 入室後の案内とゲームの今の状態（ステージの通知など）を、ルームに送り直してもらう
-      // （issue-29a。リロードで戻った画面は、それまでの通知を持っていないため）。
-      room_actor.resync(joined.room, PlayerId(session.player_id))
-    }
-    None -> Nil
+  let current = state.session
+  process.send(socket, SessionMessage(current.player_id, current.resume_token))
+  let room = case current.room {
+    Some(joined) ->
+      case room_actor.try_snapshot(joined.room, 1000) {
+        // 戻る先のルームが落ちていた（監視の知らせより先に復帰した）。閉じたと伝え、ルームを外す
+        // （ADR 0047）。
+        Error(Nil) -> {
+          process.send(socket, session.room_closed())
+          None
+        }
+        Ok(snapshot) -> {
+          rejoined(socket, current, joined, snapshot)
+          Some(joined)
+        }
+      }
+    None -> None
   }
   list.each(list.reverse(state.buffer), process.send(socket, _))
   // 新しいソケットの受信プロセスを監視し直す（古い監視は切断時に外してある / issue-51）。
@@ -295,13 +358,43 @@ fn resume_on(
   actor.continue(
     State(
       ..state,
+      session: session.Session(..current, room:),
       socket: Some(socket),
       socket_pid:,
       monitor:,
       buffer: [],
       generation: state.generation + 1,
+    )
+    |> watch_room,
+  )
+}
+
+/// 復帰した本人へ、room-joined を送り、ルームに今の状態を送り直してもらう。
+fn rejoined(
+  socket: Subject(ServerMessage),
+  current: Session,
+  joined: session.Joined,
+  snapshot: room_actor.RoomState,
+) -> Nil {
+  let players =
+    snapshot.players
+    |> list.map(fn(player) {
+      let PlayerId(id) = player.id
+      PlayerInfo(player_id: id, name: player.name)
+    })
+  process.send(
+    socket,
+    RoomJoined(
+      game_type: joined.game_type,
+      room_id: joined.room_id,
+      you: current.player_id,
+      players:,
+      room_name: Some(snapshot.name),
     ),
   )
+  // 入室後の案内とゲームの今の状態（ステージの通知など）を、ルームに送り直してもらう
+  // （issue-29a。リロードで戻った画面は、それまでの通知を持っていないため）。
+  room_actor.resync(joined.room, PlayerId(current.player_id))
 }
 
 /// 本人への返信。電文はソケットから来るので、切断中に返信が生じることは無い（来ても捨てる）。

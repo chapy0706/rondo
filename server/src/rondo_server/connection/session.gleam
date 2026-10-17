@@ -32,6 +32,9 @@ import rondo_server/room/room_actor.{
 import rondo_server/room/room_directory.{LimitReached, StartFailed}
 import rondo_server/room/room_name
 
+/// ルームへの問い合わせ（一覧・参加）を待つ上限（ミリ秒 / ADR 0047）。
+const snapshot_timeout_ms = 1000
+
 /// 表示名の長さの上限（文字数）。
 const max_name_length = 20
 
@@ -134,9 +137,10 @@ fn set_name(session: Session, raw: String) -> Session {
 /// ルーム一覧。人数・定員・参加できるかだけを載せ、探索時間などの設定は載せない。
 /// 終わったルームは出さない。
 fn list_rooms(deps: Deps, game_type: String) -> ServerMessage {
+  // 落ちている・答えないルームは飛ばす（一覧を返すのを止めない / ADR 0047）。
   let rooms =
     room_directory.rooms(deps.directory, game_type)
-    |> list.map(room_actor.snapshot)
+    |> list.filter_map(room_actor.try_snapshot(_, snapshot_timeout_ms))
     |> list.filter(fn(state) { state.status != room_actor.Finished })
     |> list.map(summary)
   RoomList(game_type:, rooms:)
@@ -203,9 +207,11 @@ fn join(
   case room_directory.find(deps.directory, room_id) {
     Error(Nil) -> not_found
     Ok(room) ->
-      case room_actor.snapshot(room).game_type == game_type {
-        False -> not_found
-        True ->
+      // 落ちている・答えないルームは、見つからない扱い（参加の処理を止めない / ADR 0047）。
+      case room_actor.try_snapshot(room, snapshot_timeout_ms) {
+        Error(Nil) -> not_found
+        Ok(state) if state.game_type != game_type -> not_found
+        Ok(_) ->
           enter(
             session,
             game_type,
@@ -241,39 +247,52 @@ fn enter(
     Error(GameAlreadyStarted) -> #(session, [
       error("game-already-started", "そのルームは始まっています。"),
     ])
-    Ok(Nil) -> {
-      let state = room_actor.snapshot(room)
-      case policy, state.status {
-        StartOnCreate, room_actor.Open -> {
+    Ok(Nil) ->
+      case room_actor.try_snapshot(room, snapshot_timeout_ms) {
+        // 入った直後に落ちた（ごくまれ）。入っていないことにして、閉じたと伝える（ADR 0047）。
+        Error(Nil) -> #(session, [room_closed()])
+        Ok(state) -> entered(session, game_type, room_id, room, policy, state)
+      }
+  }
+}
+
+fn entered(
+  session: Session,
+  game_type: String,
+  room_id: String,
+  room: Subject(room_actor.Message),
+  policy: catalog.StartPolicy,
+  state: RoomState,
+) -> #(Session, List(ServerMessage)) {
+  case policy, state.status {
+    StartOnCreate, room_actor.Open -> {
+      let _ = room_actor.start_game(room)
+      Nil
+    }
+    StartAtMinimum, room_actor.Open ->
+      case list.length(state.players) >= state.min_players {
+        True -> {
           let _ = room_actor.start_game(room)
           Nil
         }
-        StartAtMinimum, room_actor.Open ->
-          case list.length(state.players) >= state.min_players {
-            True -> {
-              let _ = room_actor.start_game(room)
-              Nil
-            }
-            False -> Nil
-          }
-        _, _ -> Nil
+        False -> Nil
       }
-      let players =
-        list.map(state.players, fn(player) {
-          let PlayerId(id) = player.id
-          PlayerInfo(player_id: id, name: player.name)
-        })
-      #(Session(..session, room: Some(Joined(game_type:, room_id:, room:))), [
-        RoomJoined(
-          game_type:,
-          room_id:,
-          you: session.player_id,
-          players:,
-          room_name: Some(state.name),
-        ),
-      ])
-    }
+    _, _ -> Nil
   }
+  let players =
+    list.map(state.players, fn(player) {
+      let PlayerId(id) = player.id
+      PlayerInfo(player_id: id, name: player.name)
+    })
+  #(Session(..session, room: Some(Joined(game_type:, room_id:, room:))), [
+    RoomJoined(
+      game_type:,
+      room_id:,
+      you: session.player_id,
+      players:,
+      room_name: Some(state.name),
+    ),
+  ])
 }
 
 fn leave(session: Session, room_id: String) -> Session {
@@ -317,4 +336,10 @@ fn not_in_room(
 
 fn error(code: String, text: String) -> ServerMessage {
   ErrorMessage(code:, message: text)
+}
+
+/// 入っていたルームのプロセスが落ちた（異常に終わった）ときに、本人へ送る（ADR 0047）。code は
+/// room-closed。画面は code から文言を決める（この文は、文言の表を持たない画面のための既定）。
+pub fn room_closed() -> ServerMessage {
+  error("room-closed", "ルームが閉じました。ロビーへ戻って、もう一度ルームに入ってください。")
 }

@@ -3,7 +3,9 @@
  *
  * 1. veryare の同時ルームは3つまで。4つ目の作成は room-limit で断られる
  * 2. 定員は5人。6人目の参加は room-full で断られる
- * 3. 退出で空きが戻る: 1人だけのルームの人が退出すると、ルームが消え、4つ目を作れる
+ * 3. 退出で空きが戻る: 1人だけのルームの人が退出すると、ルームが消え、4つ目を作れる。解散した
+ *    ルームへの参加は room-not-found で断られる（issue-60。ルームが落ちたときの room-closed は、ルームを
+ *    止める手段がサーバーの外に無いので、サーバーの結合テスト room_closed_test で確かめる）
  * 4. 終了で空きが戻る: ルームのゲームが終わる（不成立）と、作れるようになる。終わったルームに
  *    人が残っている間と、全員が退出した後の両方を見る
  *
@@ -75,6 +77,14 @@ try {
 		name: "退出でルームが消え、空きが戻る",
 		ok: freedRoom !== null,
 		detail: `退出の後の作成: ${afterLeave.type === "error" ? afterLeave.code : "作れた"}`,
+	});
+
+	// 3b. 解散したルーム（3つ目）へ参加しようとすると、room-not-found で断られる（issue-60）。
+	const toDissolved = await join(creators[2] as Bot, rooms[2] as string);
+	checks.push({
+		name: "解散したルームへの参加は、room-not-found で断られる",
+		ok: errorCode(toDissolved) === "room-not-found",
+		detail: `返事: ${toDissolved.type === "error" ? toDissolved.code : toDissolved.type}`,
 	});
 
 	// 4. 2つ目のルームを2人にしてカウントを始め、1人が抜けて不成立で終わらせる。

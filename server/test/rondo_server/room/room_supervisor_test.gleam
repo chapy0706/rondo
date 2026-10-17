@@ -64,17 +64,20 @@ pub fn dissolved_room_leaves_supervision_test() {
   process.is_alive(sup.pid) |> should.be_true
 }
 
-/// ルームが異常終了しても、スーパーバイザーが監視して回復する（ADR 0006）。
-pub fn recovers_from_crash_test() {
+/// ルームが異常終了しても、スーパーバイザーは巻き込まれない。落ちたルームは作り直さない
+/// （Temporary / ADR 0047。ADR 0006 の「回復させる」を、ルームについて置き換える）。ほかのルームは残る。
+pub fn crashed_room_is_not_restarted_test() {
   let assert Ok(sup) = room_supervisor.start()
   let assert Ok(room) = room_supervisor.open_room(sup.data, spec("a"))
+  let assert Ok(other) = room_supervisor.open_room(sup.data, spec("b"))
 
-  room_supervisor.room_count(sup.pid) |> should.equal(1)
+  room_supervisor.room_count(sup.pid) |> should.equal(2)
 
-  // 異常終了させる。スーパーバイザーは巻き込まれず、子を再起動する。
+  // 異常終了させる。スーパーバイザーは生きたまま、落ちたルームだけが消える。
   process.kill(room.pid)
   process.sleep(50)
 
   process.is_alive(sup.pid) |> should.be_true
+  process.is_alive(other.pid) |> should.be_true
   room_supervisor.room_count(sup.pid) |> should.equal(1)
 }

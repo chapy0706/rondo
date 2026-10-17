@@ -267,6 +267,34 @@ pub fn snapshot(room: Subject(Message)) -> RoomState {
   process.call(room, 1000, Snapshot)
 }
 
+/// 今の状態を、止まらずに読む（ADR 0047）。ルームが落ちている・timeout ミリ秒のうちに答えないときは
+/// Error。問い合わせた側（接続の処理）を止めない（snapshot は、相手が落ちていると panic する）。
+/// 答えが timeout より遅れて届いたときは、問い合わせた側の受け箱に 1 通残る（捨てる先が無いため。
+/// 1 秒以上答えないルームでだけ起こる）。
+pub fn try_snapshot(
+  room: Subject(Message),
+  timeout: Int,
+) -> Result(RoomState, Nil) {
+  case process.subject_owner(room) {
+    Error(Nil) -> Error(Nil)
+    Ok(pid) -> {
+      let monitor = process.monitor(pid)
+      let reply = process.new_subject()
+      process.send(room, Snapshot(reply))
+      let answer =
+        process.new_selector()
+        |> process.select_map(reply, Ok)
+        |> process.select_specific_monitor(monitor, fn(_down) { Error(Nil) })
+        |> process.selector_receive(timeout)
+      process.demonitor_process(monitor)
+      case answer {
+        Ok(Ok(state)) -> Ok(state)
+        _ -> Error(Nil)
+      }
+    }
+  }
+}
+
 /// ルームを解散する。
 /// 再接続で戻った参加者へ、今の状態を送り直してもらう（issue-29a）。
 pub fn resync(room: Subject(Message), player: PlayerId) -> Nil {

@@ -52,26 +52,67 @@ function lastSentPosition(tab: Tab): { x: number; z: number } | null {
 /**
  * 移動パッドをマウスで後ろへ倒し、少し待って離す。送った移動の報告の位置が、倒す前から変わる。前へ倒すと
  * 鬼希望エリア（中央の円）に触れて、カウントが始まってしまうので、後ろへ倒す。
+ *
+ * パッドは、ゲーム画面の下（描画の下）にあり、Desktop Chrome（1280×720）では画面の外に出る。マウスの
+ * 操作は画面の中の座標にしか届かない（toBeVisible は画面の外でも通る）ので、先にパッドを画面の中へ
+ * 寄せ、画面の中にあることを確かめてから倒す。パッドはポインターのイベント（マウスでもタッチでも）を
+ * 受ける（game-sdk の virtual-pad.tsx）。失敗したら、パッドの位置と大きさ・画面の大きさ・そのタブが送った
+ * 直近の電文 10 件を、レポートに添付する。
  */
-async function walkWithPad(tab: Tab): Promise<void> {
+async function walkWithPad(tab: Tab, label: string): Promise<void> {
 	const before = lastSentPosition(tab);
 	const pad = tab.page.getByLabel("仮想パッド（move）");
+	await pad.scrollIntoViewIfNeeded();
 	const box = await pad.boundingBox();
-	if (box === null) throw new Error("移動パッドの位置が分からない");
-	const cx = box.x + box.width / 2;
-	const cy = box.y + box.height / 2;
-	await tab.page.mouse.move(cx, cy);
-	await tab.page.mouse.down();
-	await tab.page.mouse.move(cx, cy + box.height / 2, { steps: 5 });
-	await tab.page.waitForTimeout(600);
-	await tab.page.mouse.up();
-	await expect
-		.poll(() => {
-			const now = lastSentPosition(tab);
-			if (now === null) return false;
-			return before === null || now.x !== before.x || now.z !== before.z;
-		})
-		.toBe(true);
+	const viewport = tab.page.viewportSize();
+	try {
+		if (box === null) throw new Error("移動パッドの位置が分からない");
+		if (
+			viewport !== null &&
+			(box.y < 0 ||
+				box.y + box.height > viewport.height ||
+				box.x < 0 ||
+				box.x + box.width > viewport.width)
+		) {
+			throw new Error("移動パッドが、画面の中に収まっていない");
+		}
+		const cx = box.x + box.width / 2;
+		const cy = box.y + box.height / 2;
+		await tab.page.mouse.move(cx, cy);
+		await tab.page.mouse.down();
+		// パッドの中で、半径の 9 割まで後ろへ倒す（縁の外へは出さない）。
+		await tab.page.mouse.move(cx, cy + box.height * 0.45, { steps: 5 });
+		await tab.page.waitForTimeout(600);
+		await tab.page.mouse.up();
+		await expect
+			.poll(() => {
+				const now = lastSentPosition(tab);
+				if (now === null) return false;
+				return before === null || now.x !== before.x || now.z !== before.z;
+			})
+			.toBe(true);
+	} catch (error) {
+		await test.info().attach(`${label}: パッドと送った電文`, {
+			contentType: "application/json",
+			body: JSON.stringify(
+				{
+					pad: box,
+					viewport,
+					scrollY: await tab.page.evaluate(() => window.scrollY),
+					controls: await tab.page
+						.getByTestId("veryare")
+						.getAttribute("data-controls"),
+					before,
+					sent: tab.link.frames
+						.filter((frame) => frame.direction === "sent")
+						.slice(-10),
+				},
+				null,
+				2,
+			),
+		});
+		throw error;
+	}
 }
 
 test("CPU 1 体のルームに 2 人目が入ると、どちらの画面でも移動パッドと鬼希望エリアが出て、動ける", async ({
@@ -83,8 +124,8 @@ test("CPU 1 体のルームに 2 人目が入ると、どちらの画面でも�
 	await joinFromLobby(b, roomId);
 	await expectWaitingRoomControls(b);
 	await expectWaitingRoomControls(a);
-	await walkWithPad(b);
-	await walkWithPad(a);
+	await walkWithPad(b, "2 人目");
+	await walkWithPad(a, "1 人目");
 });
 
 test("CPU 2 体のルームに 2 人目と 3 人目が入ると、全員の画面で移動パッドと鬼希望エリアが出て、動ける", async ({
@@ -97,6 +138,6 @@ test("CPU 2 体のルームに 2 人目と 3 人目が入ると、全員の画�
 	await joinFromLobby(b, roomId);
 	await joinFromLobby(c, roomId);
 	for (const tab of [a, b, c]) await expectWaitingRoomControls(tab);
-	await walkWithPad(c);
-	await walkWithPad(b);
+	await walkWithPad(c, "3 人目");
+	await walkWithPad(b, "2 人目");
 });
