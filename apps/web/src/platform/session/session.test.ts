@@ -158,6 +158,37 @@ describe("reduceSession - ルームの状態の遷移（issue-40）", () => {
 		expect(failed.error).toBe("戻れなかった");
 	});
 
+	it("エラーの種類（code）を持つ（画面は、種類から文言を決める / issue-60）。新しく頼むと消える", () => {
+		const failed = server(
+			reduceSession(INITIAL_SESSION, {
+				type: "request",
+				kind: "create",
+				gameType: "veryare",
+			}),
+			{ type: "error", code: "room-limit", message: "上限" },
+		);
+		expect(failed.errorCode).toBe("room-limit");
+		const again = reduceSession(failed, {
+			type: "request",
+			kind: "create",
+			gameType: "veryare",
+		});
+		expect(again.errorCode).toBeNull();
+		expect(reduceSession(failed, { type: "dismiss" }).errorCode).toBeNull();
+		expect(server(failed, joined("room-2")).errorCode).toBeNull();
+	});
+
+	it("ルームが閉じた（room-closed / ADR 0047）ら、参加中のルームと結果を忘れる", () => {
+		const closed = server(inRoom(), {
+			type: "error",
+			code: "room-closed",
+			message: "閉じた",
+		});
+		expect(closed.room).toBeNull();
+		expect(closed.result).toBeNull();
+		expect(closed.errorCode).toBe("room-closed");
+	});
+
 	it("退出で、ルーム・結果・待ちを消す", () => {
 		const left = reduceSession(inRoom(), { type: "left" });
 		expect(left).toEqual(INITIAL_SESSION);

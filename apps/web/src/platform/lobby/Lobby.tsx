@@ -24,6 +24,7 @@ import { prefetchForLobby } from "../../games/registry";
 import { GameLogo } from "../brand/GameLogo";
 import { displayName } from "../brand/gameBrand";
 import { ConnectionFailed } from "../session/ConnectionFailed";
+import { LobbyNotice } from "./LobbyNotice";
 import { RoomListItem } from "./RoomListItem";
 import { roomNameHint } from "./roomName";
 import { choiceLabel, chooseOption, initialSettings } from "./roomOptions";
@@ -45,12 +46,13 @@ export function Lobby({
 		rooms,
 		entering,
 		waiting,
-		error,
+		notice,
 		failed,
 		retry,
 		createRoom,
 		joinRoom,
 		refresh,
+		reload,
 	} = useRealtimeLobby(gameType);
 	const [settings, setSettings] = useState(() => initialSettings(roomOptions));
 	const [roomName, setRoomName] = useState("");
@@ -80,10 +82,14 @@ export function Lobby({
 				</p>
 			</header>
 
-			{error !== null && (
-				<p className="rounded-lg bg-red-950 px-4 py-3 text-red-200 text-sm">
-					{error}
-				</p>
+			{/* 入れない・作れないときの案内（issue-60）。文言は、エラーの種類から決める（サーバーの文は出さない）。 */}
+			{notice !== null && (
+				<LobbyNotice
+					notice={notice}
+					onRefresh={refresh}
+					onReload={reload}
+					onRetry={retry}
+				/>
 			)}
 
 			{entering ? (
@@ -117,18 +123,16 @@ export function Lobby({
 						</p>
 					) : (
 						<ul className="flex flex-col gap-3">
-							{rooms.map((room) => {
-								const full = room.playerCount >= room.capacity;
-								return (
-									<li key={room.roomId}>
-										<RoomListItem
-											room={room}
-											onJoin={() => joinRoom(room.roomId)}
-											disabled={waiting || full || room.status === "playing"}
-										/>
-									</li>
-								);
-							})}
+							{rooms.map((room) => (
+								<li key={room.roomId}>
+									{/* 満員・プレイ中は、行が自分で押せない形にする（roomAvailability.ts）。 */}
+									<RoomListItem
+										room={room}
+										onJoin={() => joinRoom(room.roomId)}
+										disabled={waiting}
+									/>
+								</li>
+							))}
 						</ul>
 					)}
 

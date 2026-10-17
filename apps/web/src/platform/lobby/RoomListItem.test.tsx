@@ -48,7 +48,32 @@ describe("RoomListItem - ルーム一覧の1行（issue-58）", () => {
 			/>,
 		);
 		expect(html).toContain("名前のないルーム");
-		expect(html).toContain("進行中");
+		expect(html).toContain("プレイ中");
 		expect(html).not.toContain(room.roomId);
+	});
+
+	it("満員のルームは「満員」と出し、押せない（issue-60）。状態は data-availability に出す", () => {
+		const html = renderToStaticMarkup(
+			<RoomListItem
+				room={{ ...room, playerCount: 5, name: "いっぱい" }}
+				disabled={false}
+				onJoin={noop}
+			/>,
+		);
+		expect(html).toContain("満員");
+		expect(html).toContain('data-availability="full"');
+		expect(html).toContain('disabled=""');
+	});
+
+	it("空きのある待機中のルームは、押せる", () => {
+		const html = renderToStaticMarkup(
+			<RoomListItem
+				room={{ ...room, name: "あき" }}
+				disabled={false}
+				onJoin={noop}
+			/>,
+		);
+		expect(html).toContain('data-availability="open"');
+		expect(html).not.toContain('disabled=""');
 	});
 });

@@ -78,8 +78,10 @@ test("シナリオ2b: 切断と復帰（猶予を過ぎると離脱が確定し�
 	await expect(b.page.getByTestId("room-error")).toBeVisible({
 		timeout: 20_000,
 	});
-	await expect(b.page.getByTestId("room-error")).toContainText(
-		"前の接続に戻れませんでした",
+	// 文言は画面の表（serverErrors.ts / issue-60）が決めるので、文言ではなく、エラーの種類で確かめる。
+	await expect(b.page.getByTestId("room-error")).toHaveAttribute(
+		"data-code",
+		"reconnect-failed",
 	);
 });
 

@@ -44,6 +44,11 @@ export interface SessionState {
 	/** 参加中のルームの確定結果（game-ended）。 */
 	readonly result: RealtimeResult | null;
 	readonly error: string | null;
+	/**
+	 * 最後のエラーの種類（error の code / issue-60）。画面は、これから文言を決める（serverErrors.ts）。
+	 * error（サーバーの文）と同じときに付き、同じときに消える。
+	 */
+	readonly errorCode: string | null;
 	readonly failure: SessionFailure | null;
 }
 
@@ -67,6 +72,7 @@ export const INITIAL_SESSION: SessionState = {
 	pending: null,
 	result: null,
 	error: null,
+	errorCode: null,
 	failure: null,
 };
 
@@ -80,6 +86,7 @@ export function reduceSession(
 				...state,
 				pending: { kind: event.kind, gameType: event.gameType },
 				error: null,
+				errorCode: null,
 				failure: null,
 			};
 		case "left":
@@ -97,7 +104,7 @@ export function reduceSession(
 				failure: "connection-lost",
 			};
 		case "dismiss":
-			return { ...state, error: null, failure: null };
+			return { ...state, error: null, errorCode: null, failure: null };
 		case "server":
 			return reduceServer(state, event.message);
 	}
@@ -123,6 +130,7 @@ function reduceServer(
 				pending: null,
 				result: state.room?.roomId === message.roomId ? state.result : null,
 				error: null,
+				errorCode: null,
 				failure: null,
 			};
 		case "player-joined": {
@@ -150,14 +158,19 @@ function reduceServer(
 		case "game-ended":
 			if (state.room?.roomId !== message.roomId) return state;
 			return { ...state, result: message.result };
-		case "error":
+		case "error": {
+			// 戻れなかったルームと、閉じた（落ちた / ADR 0047）ルームは、もう自分のルームではない。
+			const gone =
+				message.code === "reconnect-failed" || message.code === "room-closed";
 			return {
 				...state,
-				// 戻れなかったルームは、もう自分のルームではない。
-				room: message.code === "reconnect-failed" ? null : state.room,
+				room: gone ? null : state.room,
+				result: gone ? null : state.result,
 				pending: null,
 				error: message.message,
+				errorCode: message.code,
 			};
+		}
 		default:
 			return state;
 	}

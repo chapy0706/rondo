@@ -41,13 +41,16 @@ import {
 	findGameLoader,
 	isRealtimeMatch,
 	lobbyPathOf,
+	registry,
 } from "../../games/registry";
 import { GameLogo } from "../brand/GameLogo";
 import { displayName } from "../brand/gameBrand";
 import { LaunchGate } from "../launch/LaunchGate";
 import { needsLaunchScreen } from "../launch/launch";
+import { SoloGameLinks, soloGames } from "../lobby/soloGames";
 import { ResultScreen } from "../result/ResultScreen";
 import { ConnectionFailed } from "../session/ConnectionFailed";
+import { type ErrorNotice, noticeFor } from "../session/serverErrors";
 import { playEntry, playStatus } from "../session/session";
 import {
 	getRealtimeSession,
@@ -62,8 +65,11 @@ interface RealtimeSession {
 	readonly you: PlayerId | null;
 	/** 参加中のルームの名前（issue-58）。名前を持たない古いサーバーでは null。 */
 	readonly roomName: string | null;
-	/** 部屋に入れなかったとき（参加・復帰の失敗）の文言。 */
-	readonly error: string | null;
+	/**
+	 * 部屋に入れなかったとき（作成・参加・復帰の失敗）と、ルームが閉じたとき（room-closed / ADR 0047）の
+	 * 案内。文言は、エラーの種類から決める（serverErrors.ts / issue-60）。
+	 */
+	readonly notice: ErrorNotice | null;
 	/** つながらなかった（返事が届かない・つなぎ直しをすべて失敗した / issue-47）。 */
 	readonly failed: boolean;
 	/** もう一度、部屋に入るところからやり直す。 */
@@ -140,7 +146,10 @@ function useRealtimeSession(gameType: string | null): RealtimeSession {
 		result: room === null ? null : state.result,
 		you,
 		roomName: room?.roomName ?? null,
-		error: room === null && !waiting && !failed ? state.error : null,
+		notice:
+			room === null && !waiting && !failed && state.errorCode !== null
+				? noticeFor(state.errorCode)
+				: null,
 		failed,
 		retry,
 		leave,
@@ -159,7 +168,7 @@ export function PlayHost({ manifest }: { manifest: GameManifest }) {
 
 	const isRealtime = manifest.kind === "realtime";
 	// ルームへの接続は起動してから始める（起動画面で待つ間に部屋を作らない）。
-	const { realtime, result, you, roomName, error, failed, retry, leave } =
+	const { realtime, result, you, roomName, notice, failed, retry, leave } =
 		useRealtimeSession(isRealtime && launched ? manifest.id : null);
 
 	const reportResult = useCallback((value: PlayResult) => {
@@ -234,12 +243,17 @@ export function PlayHost({ manifest }: { manifest: GameManifest }) {
 									onLobby={isRealtimeMatch(manifest.id) ? toLobby : undefined}
 									onSelect={backToSelect}
 								/>
-							) : connecting && error !== null ? (
+							) : connecting && notice !== null ? (
 								<div
 									className="flex flex-col items-center gap-3"
 									data-testid="room-error"
+									data-code={notice.code}
 								>
-									<p className="text-red-200 text-sm">{error}</p>
+									<p className="text-red-200 text-sm">{notice.text}</p>
+									{/* ルームを作れないときは、ひとり用のゲームへの導線（issue-60）。 */}
+									{notice.actions.includes("solo") ? (
+										<SoloGameLinks games={soloGames(registry)} />
+									) : null}
 									<Link
 										href={lobbyPathOf(manifest.id)}
 										className="text-indigo-400 text-sm underline"
