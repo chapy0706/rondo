@@ -16,6 +16,7 @@ import rondo_server/games/veryare/game
 import rondo_server/games/veryare/grid
 import rondo_server/games/veryare/stage
 import rondo_server/games/veryare/stage_notice
+import rondo_server/games/veryare/wide_skeleton_maps
 import rondo_server/protocol/message
 
 @external(erlang, "file", "read_file")
@@ -251,5 +252,33 @@ pub fn movement_fixture_moves_follow_game_move_test() {
         #(text(case_, "name"), #(after.x, after.z))
         |> should.equal(#(text(case_, "name"), expected))
     }
+  })
+}
+
+/// 契約の見本の wideStages（広い屋敷のはじめの 3 種 / issue-65。tools/wide_skeletons.mjs が書き出す）が、
+/// サーバーの地図（移動の規則の入力）と玄関に一致する。既存の stages（10 種）は、上のテストが見る。
+pub fn wide_stage_fixture_matches_the_server_test() {
+  let stages = items(at(fixture("veryare-skeleton-stages"), ["wideStages"]))
+  list.length(stages) |> should.equal(3)
+  let skeletons =
+    wide_skeleton_maps.maps
+    |> list.take(3)
+    |> list.index_map(fn(rows, index) { stage.parse(index + 101, rows) })
+  list.zip(skeletons, stages)
+  |> list.each(fn(pair) {
+    let #(skeleton, notice) = pair
+    let rooms =
+      skeleton.slots
+      |> list.map(fn(slot) {
+        #(slot.id, case slot.size {
+          stage.Large -> stage.Washitsu
+          stage.Small -> stage.Oshiire
+        })
+      })
+      |> dict.from_list
+    let layout = stage.Layout(skeleton, rooms)
+    let assert Ok(decoded) = stage_notice.decode(notice)
+    decoded.grid |> should.equal(grid.of_layout(layout))
+    decoded.spawn |> should.equal(skeleton.spawn)
   })
 }

@@ -85,14 +85,14 @@ pub type Layout {
 
 // --- 構成の幅（ADR 0032） ------------------------------------------------------
 
-const min_washitsu = 8
+pub const min_washitsu = 8
 
-const max_washitsu = 12
+pub const max_washitsu = 12
 
 /// 「押し入れ4前後」を 3〜5 とする（部屋内包と独立の合計）。
-const min_oshiire = 3
+pub const min_oshiire = 3
 
-const max_oshiire = 5
+pub const max_oshiire = 5
 
 // --- 骨格の読み込み -------------------------------------------------------------
 
@@ -101,7 +101,8 @@ pub fn skeletons() -> List(Skeleton) {
   list.index_map(skeleton_maps.maps, fn(rows, index) { parse(index + 1, rows) })
 }
 
-fn parse(id: Int, rows: List(String)) -> Skeleton {
+/// 文字地図を骨格に読む（10 種と、広い屋敷の検算 / issue-65 が使う）。
+pub fn parse(id: Int, rows: List(String)) -> Skeleton {
   let cells =
     rows
     |> list.index_map(fn(row, z) {
