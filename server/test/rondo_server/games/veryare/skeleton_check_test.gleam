@@ -8,8 +8,8 @@ import gleam/list
 import gleam/option.{None, Some}
 import gleam/set
 import gleeunit/should
-import rondo_server/games/veryare/skeleton_check.{Normal, Range, Wide}
-import rondo_server/games/veryare/stage
+import rondo_server/games/veryare/skeleton_check.{Range}
+import rondo_server/games/veryare/stage.{Normal, Wide}
 import rondo_server/games/veryare/wide_skeleton_maps
 
 fn wide_skeletons() -> List(stage.Skeleton) {

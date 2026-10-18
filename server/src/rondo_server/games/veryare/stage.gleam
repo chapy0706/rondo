@@ -8,11 +8,13 @@
 /// 割り当ては種（seed）から決まる純粋関数で、同じ種なら同じ結果になる。ゲーム開始時に
 /// 乱数で種を1つ引いて使う。
 import gleam/dict.{type Dict}
+import gleam/float
 import gleam/int
 import gleam/list
 import gleam/set
 import gleam/string
 import rondo_server/games/veryare/skeleton_maps
+import rondo_server/games/veryare/wide_skeleton_maps
 
 // --- 型 ------------------------------------------------------------------
 
@@ -94,11 +96,77 @@ pub const min_oshiire = 3
 
 pub const max_oshiire = 5
 
+/// 骨格の種類（issue-65 / ADR 0048）。番号で分かる（10 種は 1〜10、広い屋敷は 101〜130）。
+pub type Kind {
+  /// 既存の 10 種（ADR 0032）。
+  Normal
+  /// 広い屋敷（迷路のような骨格 30 種）。
+  Wide
+}
+
+/// 広い屋敷の骨格の番号の始まり（番号は、これに 1〜30 を足したもの）。
+pub const wide_id_base = 100
+
+/// おまかせ（2 段の抽選）で、広い屋敷になる確率（1 段目）。
+pub const wide_probability = 0.25
+
+/// 割り当てる部屋の数の範囲（和室系と、押し入れの合計）。
+pub type Composition {
+  Composition(
+    min_washitsu: Int,
+    max_washitsu: Int,
+    min_oshiire: Int,
+    max_oshiire: Int,
+  )
+}
+
+/// 種類ごとの部屋の数の範囲。10 種は、これまでの値（和室 8〜12・押し入れ 3〜5）のまま。
+pub fn composition(kind: Kind) -> Composition {
+  case kind {
+    Normal -> Composition(min_washitsu, max_washitsu, min_oshiire, max_oshiire)
+    Wide -> Composition(18, 24, 7, 11)
+  }
+}
+
+pub fn kind_of(skeleton: Skeleton) -> Kind {
+  case skeleton.id > wide_id_base {
+    True -> Wide
+    False -> Normal
+  }
+}
+
+pub fn is_wide(skeleton: Skeleton) -> Bool {
+  kind_of(skeleton) == Wide
+}
+
 // --- 骨格の読み込み -------------------------------------------------------------
 
 /// 10種の骨格。
 pub fn skeletons() -> List(Skeleton) {
   list.index_map(skeleton_maps.maps, fn(rows, index) { parse(index + 1, rows) })
+}
+
+/// 広い屋敷の 30 種（番号 101〜130 / issue-65）。
+pub fn wide_skeletons() -> List(Skeleton) {
+  list.index_map(wide_skeleton_maps.maps, fn(rows, index) {
+    parse(wide_id_base + index + 1, rows)
+  })
+}
+
+/// 骨格の文字地図（10 種と広い屋敷のどちらも。番号で引く）。無い番号は空。
+pub fn rows_of(id: Int) -> List(String) {
+  let #(maps, index) = case id > wide_id_base {
+    True -> #(wide_skeleton_maps.maps, id - wide_id_base - 1)
+    False -> #(skeleton_maps.maps, id - 1)
+  }
+  case index < 0 {
+    True -> []
+    False ->
+      case maps |> list.drop(index) |> list.first {
+        Ok(rows) -> rows
+        Error(Nil) -> []
+      }
+  }
 }
 
 /// 文字地図を骨格に読む（10 種と、広い屋敷の検算 / issue-65 が使う）。
@@ -249,6 +317,45 @@ pub fn generate(seed: Int) -> Layout {
   Layout(skeleton:, rooms: assign(skeleton, seed))
 }
 
+/// 2 段の抽選の 1 段目（issue-65）。wide_probability の確率で広い屋敷、それ以外はふつう。wide_ready が False
+/// なら、いつもふつう（種は進めない）。返り値は、種類と、次の種。
+pub fn draw_kind(seed: Int, wide_ready: Bool) -> #(Kind, Int) {
+  case wide_ready {
+    False -> #(Normal, seed)
+    True -> {
+      let #(roll, next) = draw(normalize(seed), 100)
+      case roll < float.round(wide_probability *. 100.0) {
+        True -> #(Wide, next)
+        False -> #(Normal, next)
+      }
+    }
+  }
+}
+
+/// 2 段目（広い屋敷）: 30 種の中から一様に、何番目か。返り値は、0 から数えた番号と、次の種。
+pub fn draw_wide_index(seed: Int) -> #(Int, Int) {
+  draw(normalize(seed), list.length(wide_skeleton_maps.maps))
+}
+
+/// 2 段の抽選（おまかせ / issue-65）。1 段目で種類を決め（draw_kind）、2 段目で、選んだ種類の中から一様に
+/// 1 つ選び、部屋タイプを割り当てる。同じ種なら同じ結果。wide_ready が False（広い屋敷の準備ができて
+/// いない）なら、ふつうだけと同じ（generate と完全に同じ結果）。
+pub fn generate_mixed(seed: Int, wide_ready: Bool) -> Layout {
+  case draw_kind(seed, wide_ready) {
+    #(Wide, next) -> generate_wide(next)
+    #(Normal, next) -> generate(next)
+  }
+}
+
+/// 広い屋敷だけから、一様に 1 つ選び、部屋タイプを割り当てる（広い屋敷だけ / ボット・E2E・開発用）。
+/// 選んだ 1 つだけを読む（30 種を毎回読まない）。
+pub fn generate_wide(seed: Int) -> Layout {
+  let #(index, seed) = draw_wide_index(seed)
+  let id = wide_id_base + index + 1
+  let skeleton = parse(id, rows_of(id))
+  Layout(skeleton:, rooms: assign(skeleton, seed))
+}
+
 /// 骨格を指定して、部屋タイプだけを割り当てる（シミュレーションで骨格ごとに集計する）。
 pub fn generate_on(skeleton: Skeleton, seed: Int) -> Layout {
   Layout(skeleton:, rooms: assign(skeleton, normalize(seed)))
@@ -261,14 +368,16 @@ fn assign(skeleton: Skeleton, seed: Int) -> Dict(String, RoomType) {
   let small = slot_ids(skeleton, Small)
   let large_count = list.length(large)
   let small_count = list.length(small)
+  // 部屋の数の範囲は、骨格の種類ごと（10 種は、これまでの値のまま / issue-65）。
+  let range = composition(kind_of(skeleton))
 
   // 和室の数
-  let most = int.min(max_washitsu, large_count)
-  let #(extra, seed) = draw(seed, most - min_washitsu + 1)
-  let washitsu = min_washitsu + extra
+  let most = int.min(range.max_washitsu, large_count)
+  let #(extra, seed) = draw(seed, most - range.min_washitsu + 1)
+  let washitsu = range.min_washitsu + extra
   // 押し入れの総数（部屋内包＋独立）
-  let #(extra, seed) = draw(seed, max_oshiire - min_oshiire + 1)
-  let oshiire = int.min(min_oshiire + extra, washitsu + small_count)
+  let #(extra, seed) = draw(seed, range.max_oshiire - range.min_oshiire + 1)
+  let oshiire = int.min(range.min_oshiire + extra, washitsu + small_count)
   // そのうち独立した押し入れの数
   let fewest = int.max(0, oshiire - washitsu)
   let #(extra, seed) = draw(seed, int.min(small_count, oshiire) - fewest + 1)

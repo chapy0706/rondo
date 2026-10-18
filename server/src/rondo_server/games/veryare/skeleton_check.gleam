@@ -17,17 +17,11 @@ import gleam/order
 import gleam/set.{type Set}
 import gleam/string
 import rondo_server/games/veryare/stage.{
-  type Cell, type Skeleton, type Slot, Cell, Large, Small,
+  type Cell, type Kind, type Skeleton, type Slot, Cell, Large, Normal, Small,
+  Wide,
 }
 
 // --- 種類と設定 ------------------------------------------------------------------
-
-pub type Kind {
-  /// 既存の 10 種（ADR 0032）。
-  Normal
-  /// 広い屋敷（issue-65）。
-  Wide
-}
 
 /// 両端を含む範囲。
 pub type Range {

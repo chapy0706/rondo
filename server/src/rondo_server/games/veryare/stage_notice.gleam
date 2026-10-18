@@ -14,7 +14,6 @@ import gleam/string
 import rondo_server/games/veryare/grid.{
   type DoorKind, type Edge, type Grid, AlwaysClosed, AlwaysOpen, Fusuma, Grid,
 }
-import rondo_server/games/veryare/skeleton_maps
 import rondo_server/games/veryare/stage.{
   type Cell, type Layout, type RoomType, Cell, Oshiire, Washitsu,
   WashitsuWithKakejiku, WashitsuWithOshiire,
@@ -32,7 +31,8 @@ pub type Decoded {
 /// 壁・庭の文字は regions に載せない（歩けない）。戸は、割り当てられたスロットの襖。
 pub fn payload(layout: Layout) -> Dynamic {
   let skeleton = layout.skeleton
-  let rows = rows_of(skeleton.id)
+  // 10 種と広い屋敷のどちらも、番号で文字地図を引く（issue-65）。
+  let rows = stage.rows_of(skeleton.id)
   let open_chars = [".", "+", "=", "@"]
   let regions =
     list.append(
@@ -93,13 +93,6 @@ pub fn payload_of(
     #(dynamic.string("doors"), dynamic.list(doors)),
     #(dynamic.string("spawn"), point(spawn.0, spawn.1)),
   ])
-}
-
-fn rows_of(skeleton_id: Int) -> List(String) {
-  skeleton_maps.maps
-  |> list.drop(skeleton_id - 1)
-  |> list.first
-  |> result.unwrap([])
 }
 
 fn cell(c: Cell) -> Dynamic {
