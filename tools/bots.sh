@@ -7,6 +7,7 @@
 #
 # - 開発用のサーバー（3000番）と別に、3300番で Gleam サーバーを起動する
 # - フェーズ時間を 1/20 に縮める（RONDO_TEST_PHASE_DIVISOR。この起動の間だけ。本番の既定は変えない）
+# - 広い屋敷だけ（stage 3）を受け付ける（RONDO_WIDE_DEV=1。広い屋敷のシナリオ / issue-65。この起動の間だけ）
 # - 終わったら、サーバーを止める。終了コードは、ボットの結果（全部成功で 0、失敗があれば 1）
 
 set -euo pipefail
@@ -30,7 +31,7 @@ if curl -s -o /dev/null "http://localhost:${port}/"; then
 	exit 2
 fi
 
-(cd "$repo_root/server" && RONDO_PORT="$port" RONDO_TEST_PHASE_DIVISOR="$divisor" exec gleam run) &
+(cd "$repo_root/server" && RONDO_PORT="$port" RONDO_TEST_PHASE_DIVISOR="$divisor" RONDO_WIDE_DEV=1 exec gleam run) &
 server_pid=$!
 
 echo "[bots] サーバーの起動を待っています（${port} 番、フェーズ時間 1/${divisor}）"

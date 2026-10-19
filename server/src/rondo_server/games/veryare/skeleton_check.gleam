@@ -334,7 +334,8 @@ fn bfs(
   }
 }
 
-fn farthest_door(skeleton: Skeleton) -> Int {
+/// 玄関から最も遠い襖までの道のり（メートル。襖を全部開けた、準備移動の道）。
+pub fn farthest_door(skeleton: Skeleton) -> Int {
   let reached = distances(skeleton)
   skeleton.slots
   |> list.flat_map(fn(slot) { slot.doors })

@@ -100,6 +100,16 @@ export type Action =
 			readonly spawn: { readonly x: number; readonly z: number };
 	  }
 	/**
+	 * 確かめ（issue-65）: 届いたステージの通知が広い屋敷（幅 20 m 以上）で、いちばん新しいルーム情報
+	 * （room-info）の探索時間が explorationSeconds（ルームで選んだ時間 +80 秒）か。違えば、check の名前を
+	 * 添えて問題にする。
+	 */
+	| {
+			readonly type: "expect-wide";
+			readonly check: string;
+			readonly explorationSeconds: number;
+	  }
+	/**
 	 * 確かめ（issue-44）: いちばん新しい襖の通知で、開いている襖の辺の数が open か。違えば、
 	 * check の名前を添えて問題にする。襖の通知はフェーズの通知の後に届くので、delayMs を空ける。
 	 */

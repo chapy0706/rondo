@@ -4,12 +4,13 @@
  *   node src/main.ts [--seed N] [--only シナリオ名の一部]
  *
  * - 接続先: 環境変数 RONDO_BOTS_URL（既定 ws://localhost:3300/ws）
+ * - シナリオ: 既存のシナリオと、広い屋敷（stage 3 / issue-65。サーバーは RONDO_WIDE_DEV=1 で動かす）
  * - 終了コード: 全シナリオが成功なら 0、1つでも失敗なら 1
  */
 
 import { formatTable } from "./expect.ts";
 import { runScenario } from "./runner.ts";
-import { scenarios } from "./scenarios.ts";
+import { allScenarios } from "./scenarios.ts";
 
 const url = process.env.RONDO_BOTS_URL ?? "ws://localhost:3300/ws";
 const args = process.argv.slice(2);
@@ -20,7 +21,7 @@ const option = (name: string): string | undefined => {
 const seed = Number(option("--seed") ?? Date.now() % 1_000_000);
 const only = option("--only");
 
-const chosen = scenarios.filter(
+const chosen = allScenarios.filter(
 	(s) => only === undefined || s.name.includes(only),
 );
 if (chosen.length === 0) {

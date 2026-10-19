@@ -397,6 +397,20 @@ function act(
 			}
 			break;
 		}
+		case "expect-wide": {
+			const stage = stageOf(bot);
+			const seconds = latestExplorationSeconds(bot);
+			if (
+				stage === null ||
+				stage.width < WIDE_MIN_WIDTH ||
+				seconds !== action.explorationSeconds
+			) {
+				context.problems.push(
+					`${action.check}: ステージは幅 ${WIDE_MIN_WIDTH} m 以上・探索 ${action.explorationSeconds} 秒のはず（届いたもの: ${stage === null ? "ステージなし" : `幅 ${stage.width} m`}・${seconds === null ? "ルーム情報なし" : `探索 ${seconds} 秒`}）`,
+				);
+			}
+			break;
+		}
 		case "expect-doors": {
 			const open = latestDoors(bot);
 			if (open !== action.open) {
@@ -492,6 +506,29 @@ function latestHiding(bot: Bot): readonly string[] | null {
 			latest = payload.playerIds.filter(
 				(id): id is string => typeof id === "string",
 			);
+		}
+	}
+	return latest;
+}
+
+/** 広い屋敷かを見分ける、ステージの通知の幅（メートル。サーバーの skeleton_check.wide_min_width / issue-65）。 */
+export const WIDE_MIN_WIDTH = 20;
+
+/** いちばん新しいルーム情報（room-info）の探索時間（秒）。届いていなければ null。 */
+function latestExplorationSeconds(bot: Bot): number | null {
+	let latest: number | null = null;
+	for (const { message } of bot.received) {
+		if (message.type !== "game-state" && message.type !== "game-state-to")
+			continue;
+		const payload = message.payload as {
+			type?: unknown;
+			explorationSeconds?: unknown;
+		};
+		if (
+			payload.type === "room-info" &&
+			typeof payload.explorationSeconds === "number"
+		) {
+			latest = payload.explorationSeconds;
 		}
 	}
 	return latest;

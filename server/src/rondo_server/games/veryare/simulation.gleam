@@ -21,6 +21,7 @@ import rondo_server/games/veryare/game.{
 import rondo_server/games/veryare/oni_cpu.{type Strength}
 import rondo_server/games/veryare/sight
 import rondo_server/games/veryare/stage.{type Layout, type Skeleton}
+import rondo_server/games/veryare/stage_timing
 
 /// 隠れ CPU の数（定員5人 = 鬼1 + 隠れ側4 のうち、鬼 CPU との対戦では3体まで並べる）。
 pub const hider_count = 3
@@ -34,16 +35,24 @@ pub type Match {
     /// 終了まで進んだか。
     finished: Bool,
     anomalies: List(String),
+    /// 試合の長さ（秒）。準備移動・ペイント・探索（全員が見つかったら、そこまで）・答え合わせの合計
+    /// （issue-65 の 10 種と広い屋敷の比較に使う）。
+    length_seconds: Float,
   )
 }
 
-/// 骨格・強さ・種を決めて1試合を回す。exploration_ms は探索フェーズの長さ。
+/// 骨格・強さ・種を決めて1試合を回す。exploration_ms は、ルームで選んだ探索フェーズの長さ。
+/// フェーズの長さは、ルームと同じく骨格に合わせる（広い屋敷は準備移動を骨格から計算し、探索 +80 秒 /
+/// issue-65。10 種は、そのまま）。
 pub fn run(
   skeleton: Skeleton,
   strength: Strength,
   seed: Int,
   exploration_ms: Int,
 ) -> Match {
+  let durations =
+    stage_timing.durations_for(game.durations(exploration_ms:), skeleton)
+  let exploration_ms = durations.exploration_ms
   let layout = stage.generate_on(skeleton, seed)
   let oni = "cpu-0"
   let hiders =
@@ -51,7 +60,7 @@ pub fn run(
   let start =
     game.new_with(
       [oni, ..hiders],
-      game.durations(exploration_ms:),
+      durations,
       layout,
       game.Cpus(hiders:, oni: Some(oni), strength:),
     )
@@ -73,7 +82,7 @@ pub fn run(
     _, _ -> ["被りの失格が想定と違う"]
   }
 
-  let #(after, find_seconds, explore_anomalies) =
+  let #(after, find_seconds, explore_anomalies, explored_ms) =
     explore(exploration, 0, exploration_ms, [], [])
   // 答え合わせの後に終了する。
   let ended = case after.phase {
@@ -98,21 +107,33 @@ pub fn run(
     find_seconds: list.reverse(find_seconds),
     finished:,
     anomalies:,
+    length_seconds: int.to_float(
+      durations.preparation_ms
+      + durations.painting_ms
+      + explored_ms
+      + durations.reveal_ms,
+    )
+      /. 1000.0,
   )
 }
 
-/// 探索を tick で進める。時間切れでフェーズのタイマーを満了させる。
+/// 探索を tick で進める。時間切れでフェーズのタイマーを満了させる。4 つ目は、探索が続いた長さ（ミリ秒）。
 fn explore(
   g: Game(String),
   elapsed_ms: Int,
   limit_ms: Int,
   found: List(Float),
   anomalies: List(String),
-) -> #(Game(String), List(Float), List(String)) {
+) -> #(Game(String), List(Float), List(String), Int) {
   case g.phase {
     Exploration ->
       case elapsed_ms >= limit_ms {
-        True -> #(game.advance(g, g.step, fn(_) { 0 }), found, anomalies)
+        True -> #(
+          game.advance(g, g.step, fn(_) { 0 }),
+          found,
+          anomalies,
+          elapsed_ms,
+        )
         False -> {
           let next = game.tick(g)
           let elapsed = elapsed_ms + 500
@@ -135,7 +156,7 @@ fn explore(
           explore(next, elapsed, limit_ms, found, anomalies)
         }
       }
-    _ -> #(g, found, anomalies)
+    _ -> #(g, found, anomalies, elapsed_ms)
   }
 }
 
@@ -221,6 +242,8 @@ pub type Summary {
     average_find_seconds: Float,
     finished_rate: Float,
     anomalies: Int,
+    /// 試合の平均の長さ（秒 / issue-65）。
+    average_length_seconds: Float,
   )
 }
 
@@ -243,6 +266,10 @@ pub fn summarize(matches: List(Match)) -> Summary {
     anomalies: list.fold(matches, 0, fn(acc, m) {
       acc + list.length(m.anomalies)
     }),
+    average_length_seconds: float.sum(
+      list.map(matches, fn(m) { m.length_seconds }),
+    )
+      /. n,
   )
 }
 
@@ -261,6 +288,23 @@ pub fn format_row(label: String, summary: Summary) -> String {
     " ",
   )
 }
+
+/// 10 種と広い屋敷の比較の1行（issue-65）。隠れ勝率・試合の平均の長さ（秒）・異常。
+pub fn format_comparison(label: String, summary: Summary) -> String {
+  string.join(
+    [
+      string.pad_end(label, 14, " "),
+      string.pad_start(int.to_string(summary.matches), 6, " "),
+      string.pad_start(percent(summary.hider_win_rate), 8, " "),
+      string.pad_start(one_decimal(summary.average_length_seconds), 10, " "),
+      string.pad_start(int.to_string(summary.anomalies), 6, " "),
+    ],
+    " ",
+  )
+}
+
+/// 比較の表の見出し。
+pub const comparison_header = "種類・強さ        試合  隠れ勝率  平均試合秒  異常"
 
 /// 表の見出し。
 pub const header = "骨格・強さ        試合  隠れ勝率  発見人数  平均発見秒  終了率  異常"

@@ -16,7 +16,7 @@ import rondo_server/games/veryare/grid
 import rondo_server/games/veryare/hiraya
 import rondo_server/games/veryare/oni_cpu
 import rondo_server/games/veryare/room.{
-  HiderCpus, Hiraya, NoCpu, RandomLayout, Settings,
+  HiderCpus, Hiraya, Mixed, NoCpu, RandomLayout, Settings,
 } as veryare
 import rondo_server/games/veryare/stage_notice
 import rondo_server/protocol/message.{type ServerMessage, GameState}
@@ -136,8 +136,12 @@ pub fn stage_choice_is_read_from_the_settings_test() {
 }
 
 /// 知らない値・形の違う値は拒む。平屋と CPU の組み合わせは、issue-45 まで拒む。
+/// 2 はおまかせ（issue-65）として読める。知らない値は、決めた値の範囲から離れた値（99）で確かめる
+/// （今後、値を足しても、ぶつからないように）。
 pub fn unknown_stage_and_hiraya_with_cpus_are_rejected_test() {
-  veryare.parse_room(raw([#("stage", dynamic.int(2))])) |> should.be_error
+  veryare.parse_room(raw([#("stage", dynamic.int(2))]))
+  |> should.equal(Ok(#(Settings(40, NoCpu, oni_cpu.Normal), Mixed)))
+  veryare.parse_room(raw([#("stage", dynamic.int(99))])) |> should.be_error
   veryare.parse_room(raw([#("stage", dynamic.int(-1))])) |> should.be_error
   veryare.parse_room(raw([#("stage", dynamic.string("hiraya"))]))
   |> should.be_error

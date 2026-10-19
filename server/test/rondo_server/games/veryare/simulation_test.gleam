@@ -1,8 +1,11 @@
+import gleam/int
 import gleam/list
 import gleeunit/should
+import rondo_server/games/veryare/game
 import rondo_server/games/veryare/oni_cpu
 import rondo_server/games/veryare/simulation
 import rondo_server/games/veryare/stage
+import rondo_server/games/veryare/stage_timing
 
 /// どの骨格・強さでも、試合は終了まで進み、異常（ADR 0028）が出ない。
 pub fn matches_finish_without_anomalies_test() {
@@ -42,4 +45,28 @@ pub fn stronger_oni_wins_more_often_test() {
   let normal = rate(oni_cpu.Normal)
   let strong = rate(oni_cpu.Strong)
   { weak >. normal && normal >. strong } |> should.be_true
+}
+
+/// 広い屋敷の 30 種でも、試合は終了まで進み、異常が出ない（issue-65）。探索は、ルームと同じく +80 秒で
+/// 回り、試合の長さは、その長さを超えない。
+pub fn wide_matches_finish_without_anomalies_test() {
+  list.each(stage.wide_skeletons(), fn(skeleton) {
+    let m = simulation.run(skeleton, oni_cpu.Normal, 1, 40_000)
+    m.finished |> should.be_true
+    m.anomalies |> should.equal([])
+    let d =
+      stage_timing.durations_for(
+        game.durations(exploration_ms: 40_000),
+        skeleton,
+      )
+    d.exploration_ms |> should.equal(120_000)
+    {
+      m.length_seconds
+      <=. int.to_float(
+        d.preparation_ms + d.painting_ms + d.exploration_ms + d.reveal_ms,
+      )
+      /. 1000.0
+    }
+    |> should.be_true
+  })
 }

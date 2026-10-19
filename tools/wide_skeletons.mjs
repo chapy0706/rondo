@@ -514,7 +514,7 @@ function gleamOf(found) {
 		"/// （skeleton_check.gleam）を通ったものだけを置く。手で直さない（道具で作り直す）。",
 		"///",
 		"/// 形式と凡例は skeleton_maps.gleam と同じ（1 文字 = 1 m 四方。行が奥から手前、列が x）。",
-		"/// まだどこからも使わない（段階 4 で、2 段の抽選につなぐ）。",
+		"/// stage.gleam の 2 段の抽選（おまかせ）と、広い屋敷だけ（ルーム作成の stage 2・3）から使う。",
 		"pub const maps: List(List(String)) = [",
 	];
 	for (const entry of found) {

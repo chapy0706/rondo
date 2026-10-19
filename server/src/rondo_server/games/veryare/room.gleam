@@ -24,6 +24,12 @@
 /// 選ぶ。ロビーに選択肢を出すのは issue-46。平屋と CPU の組み合わせは、見通しと CPU の一般化
 /// （issue-45）まで拒む。
 ///
+/// 広い屋敷（issue-65 / ADR 0048）: stage 2 = おまかせ（1 段目で 4 分の 1 の広い屋敷、2 段目で種類の中から
+/// 一様に）、3 = 広い屋敷だけ（ボット・E2E・開発用）。旗 wide_ready が False の間は、おまかせは 10 種だけを
+/// 選び（ふつうだけと同じ結果）、3 は環境変数 RONDO_WIDE_DEV=1 のときだけ受け付ける。広い屋敷のときは、
+/// 準備移動と探索の長さを骨格に合わせ（stage_timing）、ルーム情報（探索時間）を、開始のときに全員へ、
+/// 入り直した人には本人宛てで、送り直す。
+///
 /// 待機ルームのメンバー（issue-59 / ADR 0044）: 鬼選出の間だけ、待機ルームにいる人間の参加者の
 /// 位置・向き・待機ポーズを、1通にまとめて全員へ送る。変わったときに 150 ms のタイマーを張り、
 /// 起きたときに、最後に送った内容と違えば送る。張った後に step が進んでいたら送らず、まだ鬼選出
@@ -42,6 +48,7 @@ import gleam/list
 import gleam/option.{type Option, None, Some}
 import gleam/result
 import gleam/set
+import gleam/string
 import rondo_server/games/timing.{type Timing}
 import rondo_server/games/veryare/game.{
   type AreaState, type Game, type Outcome, type Phase, AreaCounting, AreaReady,
@@ -60,6 +67,7 @@ import rondo_server/games/veryare/palette
 import rondo_server/games/veryare/result as final_result
 import rondo_server/games/veryare/stage
 import rondo_server/games/veryare/stage_notice
+import rondo_server/games/veryare/stage_timing
 import rondo_server/room/driver.{type Driver, type Effect}
 import rondo_server/room/room_actor.{
   type Player, type PlayerId, type RoomId, type RoomSpec, Player, PlayerId,
@@ -93,8 +101,15 @@ pub const cpu_choices = [0, 1, 2, 3, 4]
 /// 鬼 CPU の強さの選択肢の値。0 = よわい、1 = ふつう、2 = つよい。
 pub const cpu_strength_choices = [0, 1, 2]
 
-/// ステージの選択肢の値。0 = ランダム間取り、1 = 平屋（issue-44）。
-pub const stage_choices = [0, 1]
+/// ステージの選択肢の値。0 = ランダム間取り（ふつうだけ。既定）、1 = 平屋（issue-44）、
+/// 2 = おまかせ、3 = 広い屋敷だけ（issue-65。3 は RONDO_WIDE_DEV=1 のときだけ受け付ける）。
+pub const stage_choices = [0, 1, 2, 3]
+
+/// 広い屋敷を、おまかせの抽選に入れるか（issue-65）。False の間、おまかせは 10 種だけを選ぶ。
+pub const wide_ready = False
+
+/// 広い屋敷だけ（stage 3）を受け付ける環境変数の名前。値が 1 のときだけ受け付ける。
+pub const wide_dev_env_name = "RONDO_WIDE_DEV"
 
 /// 鬼 CPU が歩く間隔（ミリ秒）。
 const tick_ms = 500
@@ -125,6 +140,10 @@ pub type StageChoice {
   RandomLayout
   /// 固定ステージ「平屋」（ADR 0039）。
   Hiraya
+  /// おまかせ（issue-65）。2 段の抽選（stage.generate_mixed）。wide_ready が False なら 10 種だけ。
+  Mixed
+  /// 広い屋敷だけ（issue-65。ボット・E2E・開発用）。
+  WideOnly
 }
 
 /// ルーム作成時の設定。
@@ -167,9 +186,27 @@ pub fn parse_settings(raw: Option(Dynamic)) -> Result(Settings, Nil) {
 
 /// create-room の settings（unknown）から、設定とステージの選び方を読む（issue-44）。
 /// stage は省略時 0（ランダム間取り）。選択肢にない値は拒む。平屋と CPU の組み合わせは、
-/// 見通しと CPU の一般化（issue-45）まで拒む。
+/// 見通しと CPU の一般化（issue-45）まで拒む。広い屋敷だけ（3）は、環境変数 RONDO_WIDE_DEV=1 の
+/// ときだけ受け付ける（issue-65）。
 pub fn parse_room(
   raw: Option(Dynamic),
+) -> Result(#(Settings, StageChoice), Nil) {
+  parse_room_with(raw, wide_dev(get_env(wide_dev_env_name)))
+}
+
+/// 環境変数 RONDO_WIDE_DEV の値（無ければ Error）から、広い屋敷だけ（3）を受け付けるかを決める。
+/// 前後の空白を除いて 1 のときだけ受け付ける。
+pub fn wide_dev(value: Result(String, Nil)) -> Bool {
+  case value {
+    Ok(raw) -> string.trim(raw) == "1"
+    Error(Nil) -> False
+  }
+}
+
+/// parse_room の中身。wide_dev は、広い屋敷だけ（3）を受け付けるか。
+pub fn parse_room_with(
+  raw: Option(Dynamic),
+  wide_dev: Bool,
 ) -> Result(#(Settings, StageChoice), Nil) {
   use settings <- result.try(parse_settings(raw))
   let stage = case raw {
@@ -184,6 +221,8 @@ pub fn parse_room(
   case stage {
     Ok(0) -> Ok(#(settings, RandomLayout))
     Ok(1) if settings.cpu == NoCpu -> Ok(#(settings, Hiraya))
+    Ok(2) -> Ok(#(settings, Mixed))
+    Ok(3) if wide_dev -> Ok(#(settings, WideOnly))
     _ -> Error(Nil)
   }
 }
@@ -311,6 +350,7 @@ pub fn spec_with_clock(
     driver: Some(fn(players) {
       start(
         players,
+        settings,
         durations,
         stage,
         cpus_of(settings.cpu, settings.strength),
@@ -318,7 +358,7 @@ pub fn spec_with_clock(
         now,
       )
     }),
-    member_info: Some(room_info(settings)),
+    member_info: Some(room_info(settings.exploration_seconds)),
     bots: cpu_players(settings.cpu),
   )
 }
@@ -328,36 +368,75 @@ pub fn spec_with_clock(
 /// ルームの外から差し替える物（鬼選出の乱数・単調に増える時計）と、いまのフェーズの開始時刻
 /// （ミリ秒。step が進むたびに覚え直す）。開始時刻は、送り直しのフェーズの通知の長さを、残りに
 /// するためだけに使う（勝敗とフェーズの遷移は、これまでどおりタイマーが決める / ADR 0046）。
+/// info は、骨格が決まって、入室後の案内（member_info）の探索時間と違ったときのルーム情報（広い屋敷
+/// だけ / issue-65）。入り直した人へ、本人宛てで送り直す。
 type Env {
-  Env(pick: fn(Int) -> Int, now: fn() -> Int, started_at: Int)
+  Env(
+    pick: fn(Int) -> Int,
+    now: fn() -> Int,
+    started_at: Int,
+    info: Option(Dynamic),
+  )
 }
 
 fn start(
   players: List(PlayerId),
+  settings: Settings,
   durations: game.Durations,
   stage_choice: StageChoice,
   cpus: game.Cpus(PlayerId),
   pick: fn(Int) -> Int,
   now: fn() -> Int,
 ) -> #(Driver(PlayerId), List(Effect(PlayerId))) {
-  let initial = case stage_choice {
+  let layout = case stage_choice {
     // 開始時に、骨格10種から1つを選び部屋を割り当てる（ADR 0032）。
-    RandomLayout ->
-      game.new_with(
-        players,
-        durations,
-        stage.generate(pick(stage_seed_range)),
-        cpus,
-      )
+    RandomLayout -> Some(stage.generate(pick(stage_seed_range)))
+    // おまかせと広い屋敷だけ（issue-65）。
+    Mixed -> Some(stage.generate_mixed(pick(stage_seed_range), wide_ready))
+    WideOnly -> Some(stage.generate_wide(pick(stage_seed_range)))
+    Hiraya -> None
+  }
+  let #(initial, info) = case layout {
+    Some(layout) -> {
+      let exploration_seconds =
+        stage_timing.exploration_seconds(
+          layout.skeleton,
+          settings.exploration_seconds,
+        )
+      // 骨格に合わせた長さ（ふつうは渡された長さのまま / issue-65）。
+      let initial =
+        game.new_with(
+          players,
+          stage_timing.durations_for(durations, layout.skeleton),
+          layout,
+          cpus,
+        )
+      let info = case exploration_seconds == settings.exploration_seconds {
+        True -> None
+        False -> Some(room_info(exploration_seconds))
+      }
+      #(initial, info)
+    }
     // 平屋は CPU を持たない（parse_room が拒む / issue-45 まで）。
-    Hiraya -> game.new_hiraya(players, durations)
+    None -> #(game.new_hiraya(players, durations), None)
+  }
+  // 探索時間が入室後の案内と違えば（広い屋敷）、ルーム情報を全員へ送り直す（issue-65）。
+  let info_effects = case info {
+    Some(payload) -> [driver.Broadcast(payload)]
+    None -> []
   }
   // ステージの通知（issue-29a）を全員へ送ってから、フェーズの通知を送る。
-  #(wrap(initial, Env(pick:, now:, started_at: now())), [
-    driver.Broadcast(stage_payload(initial)),
-    driver.Broadcast(stage_notice.doors_payload(initial.open_doors)),
-    ..phase_effects(initial)
-  ])
+  #(
+    wrap(initial, Env(pick:, now:, started_at: now(), info:)),
+    list.flatten([
+      info_effects,
+      [
+        driver.Broadcast(stage_payload(initial)),
+        driver.Broadcast(stage_notice.doors_payload(initial.open_doors)),
+      ],
+      phase_effects(initial),
+    ]),
+  )
 }
 
 fn wrap(state: Game(PlayerId), env: Env) -> Driver(PlayerId) {
@@ -417,7 +496,12 @@ fn wrap(state: Game(PlayerId), env: Env) -> Driver(PlayerId) {
   )
   // 送信先を登録した人（作った人・途中参加・再接続）には、本人宛てで、いま届けるべき状態を送る。
   |> driver.on_subscribe(fn(player) {
-    subscriber_snapshot(state, player, env.now() - env.started_at)
+    subscriber_snapshot_with(
+      state,
+      player,
+      env.now() - env.started_at,
+      env.info,
+    )
   })
 }
 
@@ -440,7 +524,23 @@ pub fn subscriber_snapshot(
   player: PlayerId,
   elapsed_ms: Int,
 ) -> List(Effect(PlayerId)) {
+  subscriber_snapshot_with(state, player, elapsed_ms, None)
+}
+
+/// subscriber_snapshot に、骨格が決まってからのルーム情報（info。広い屋敷の探索時間 / issue-65）を
+/// 先頭に足したもの。入室後の案内（member_info）の後に届くので、案内の探索時間を正しい値で上書きする。
+pub fn subscriber_snapshot_with(
+  state: Game(PlayerId),
+  player: PlayerId,
+  elapsed_ms: Int,
+  info: Option(Dynamic),
+) -> List(Effect(PlayerId)) {
+  let info = case info {
+    Some(payload) -> [driver.Deliver([player], payload)]
+    None -> []
+  }
   list.flatten([
+    info,
     [
       driver.Deliver([player], stage_payload(state)),
       driver.Deliver([player], stage_notice.doors_payload(state.open_doors)),
@@ -843,14 +943,12 @@ fn number() -> decode.Decoder(Float) {
   decode.one_of(decode.float, [decode.int |> decode.map(int.to_float)])
 }
 
-/// 入室後の案内。探索時間はルーム一覧には出さず、ここで初めて伝える。
-fn room_info(settings: Settings) -> Dynamic {
+/// 入室後の案内。探索時間はルーム一覧には出さず、ここで初めて伝える。広い屋敷では、骨格が決まった
+/// ときに、+80 秒した探索時間で送り直す（issue-65）。
+fn room_info(exploration_seconds: Int) -> Dynamic {
   dynamic.properties([
     #(dynamic.string("type"), dynamic.string("room-info")),
-    #(
-      dynamic.string("explorationSeconds"),
-      dynamic.int(settings.exploration_seconds),
-    ),
+    #(dynamic.string("explorationSeconds"), dynamic.int(exploration_seconds)),
   ])
 }
 
@@ -1025,3 +1123,7 @@ fn outcome_name(outcome: Outcome) -> String {
 /// 単調に増える時刻（ミリ秒）。射撃の申告を受け取った時刻に使う（撃つ間隔の判定）。
 @external(erlang, "rondo_server_ffi", "monotonic_ms")
 fn now_ms() -> Int
+
+/// 環境変数を読む（無ければ Error）。
+@external(erlang, "rondo_server_ffi", "get_env")
+fn get_env(name: String) -> Result(String, Nil)

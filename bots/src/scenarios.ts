@@ -423,3 +423,86 @@ export const scenarios: readonly Scenario[] = [
 		rankings: [hider("bot-b", true), hider("bot-c", true), oni("bot-a", false)],
 	},
 ];
+
+/** 広い屋敷だけ（issue-65）の作成時の設定。サーバーを RONDO_WIDE_DEV=1 で動かすときだけ受け付けられる。 */
+const wide = { stage: 3 } as const;
+
+/** 広い屋敷の確かめ。探索は、ルームで選んだ時間（既定 40 秒）に +80 秒。 */
+const expectWide = (bot: string): Step => ({
+	on: { phase: "preparation" },
+	bot,
+	action: {
+		type: "expect-wide",
+		check: "広い屋敷のステージと、+80 秒の探索時間",
+		explorationSeconds: 40 + 80,
+	},
+});
+
+/**
+ * 広い屋敷だけ（stage 3 / issue-65）で、時間切れ・全員発見・壁越しと襖越しの射撃を通す。既存の
+ * シナリオ（scenarios）と同じ手順で、作成時の設定だけが違う。サーバーは RONDO_WIDE_DEV=1 で動かす
+ * （tools/bots.sh）。手順の時刻は、既存のシナリオと同じ（探索は、縮めても 6 秒あり、既存の見積もりの
+ * 2 秒より長い）。
+ */
+export const wideScenarios: readonly Scenario[] = [
+	{
+		name: "広い屋敷で時間切れ",
+		settings: wide,
+		bots: ["bot-a", "bot-b", "bot-c", "bot-d", "bot-e"],
+		steps: [
+			{ on: "joined", bot: "bot-a", action: { type: "touch-area" } },
+			...hide(["bot-b", "bot-c", "bot-d", "bot-e"]),
+			expectWide("bot-a"),
+		],
+		receivers: ["bot-a", "bot-b", "bot-c", "bot-d", "bot-e"],
+		rankings: [
+			hider("bot-b", true),
+			hider("bot-c", true),
+			hider("bot-d", true),
+			hider("bot-e", true),
+			oni("bot-a", false),
+		],
+	},
+	{
+		name: "広い屋敷で全員発見",
+		settings: wide,
+		bots: ["bot-a", "bot-b", "bot-c"],
+		steps: [
+			...hide(["bot-b", "bot-c"]),
+			{ on: "joined", bot: "bot-a", action: { type: "touch-area" } },
+			expectWide("bot-a"),
+			{
+				on: { phase: "exploration" },
+				bot: "bot-a",
+				action: { type: "shoot", target: "bot-b" },
+				delayMs: 100,
+			},
+			{
+				on: { phase: "exploration" },
+				bot: "bot-a",
+				action: { type: "shoot", target: "bot-c" },
+				delayMs: 600,
+			},
+		],
+		receivers: ["bot-a", "bot-b", "bot-c"],
+		rankings: [
+			oni("bot-a", true),
+			hider("bot-b", false),
+			hider("bot-c", false),
+		],
+	},
+	{
+		name: "広い屋敷の壁越し・襖越しの射撃",
+		settings: wide,
+		bots: ["bot-a", "bot-b", "bot-c"],
+		steps: [...doorShotSteps, expectWide("bot-a")],
+		receivers: ["bot-a", "bot-b", "bot-c"],
+		rankings: doorShotRankings,
+	},
+];
+
+/** make bots で流す、すべてのシナリオ（既存のシナリオの後に、広い屋敷）。 */
+export const allScenarios: readonly Scenario[] = [
+	...scenarios,
+	...wideScenarios,
+];

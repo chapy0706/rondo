@@ -24,7 +24,12 @@ export function roofToggleAllowed(dev: boolean, search: string): boolean {
 	return dev || new URLSearchParams(search).get("roof") === "1";
 }
 
-/** ステージの選択肢（サーバーの room.gleam の stage と揃える。0 = ランダム間取り、1 = 平屋）。 */
+/**
+ * ステージの選択肢（サーバーの room.gleam の stage と揃える。0 = ランダム間取り、1 = 平屋）。
+ * サーバーは、ほかに 2 = おまかせ（4 分の 1 で広い屋敷 / issue-65）と、3 = 広い屋敷だけ（ボット・E2E・
+ * 開発用。ロビーには出さない）を受け付ける。おまかせは、広い屋敷を本番に出す準備ができるまで（サーバーの
+ * wide_ready）10 種だけを選ぶので、ロビーには、まだ出さない。
+ */
 const STAGE_OPTION: RoomOption = {
 	key: "stage",
 	label: "ステージ",

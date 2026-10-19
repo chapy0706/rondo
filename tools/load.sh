@@ -10,6 +10,7 @@
 #
 # - 開発用のサーバー（3000番）と別に、3300番で Gleam サーバーを起動し、終わったら止める
 #   （tools/bots.sh と同じ）。フェーズ時間は 1/20 に縮める（再接続猶予とハートビートは縮まない）
+#   広い屋敷だけ（stage 3）を受け付ける（RONDO_WIDE_DEV=1。join の広い屋敷の構成 / issue-65）
 # - サーバーのプロセス（待ち受けのポートのプロセス）を調べて、RONDO_SERVER_PID で試験へ渡す。
 #   試験は、ps で RSS と CPU を読む
 # - サーバーの出力は一時ファイルに取り、終わったら、落ちた・警告の行の有無と末尾を出す
@@ -48,7 +49,7 @@ fi
 
 server_log="$(mktemp -t rondo-load-log.XXXXXX)"
 echo "[load] サーバーの出力を ${server_log} に取ります"
-(cd "$repo_root/server" && RONDO_PORT="$port" RONDO_TEST_PHASE_DIVISOR="$divisor" exec gleam run) >"$server_log" 2>&1 &
+(cd "$repo_root/server" && RONDO_PORT="$port" RONDO_TEST_PHASE_DIVISOR="$divisor" RONDO_WIDE_DEV=1 exec gleam run) >"$server_log" 2>&1 &
 server_pid=$!
 
 echo "[load] サーバーの起動を待っています（${port} 番、フェーズ時間 1/${divisor}）"

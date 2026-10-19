@@ -3,11 +3,12 @@
  * 実際のサーバーで、1 つずつ回す（同時ルーム数の上限があるので、順に）。
  *
  * 組み合わせごとに:
- * 1. 作った人がルームを作る（CPU の設定つき。ランダム間取り）。3 人目の組み合わせでは、もう 1 人が先に入る
+ * 1. 作った人がルームを作る（CPU の設定つき。ランダム間取り。広い屋敷の構成（issue-65）は、広い屋敷だけ）。3 人目の組み合わせでは、もう 1 人が先に入る
  * 2. 時機まで進める（カウント中・準備移動・ペイント・探索・答え合わせは、作った人が鬼希望エリアに触れる）
  * 3. 参加する人が入る。鬼選出の間なら、届いた通知（種類とフェーズの中身）を、最初の参加者（作った人）の
  *    ものと比べる。続けて、つなぎ直して（復帰）、もう一度比べる。鬼選出の後なら、断られる
  *    （game-already-started）ことを確かめ、作った人の復帰で届く状態を比べる
+ *    どの比べ方でも、いちばん新しいルーム情報の探索時間が、組み合わせの値（広い屋敷は +80 秒）か確かめる
  * 4. 作った人の組み合わせでは、作成で届いた状態（メンバーの通知は除く / ADR 0044）と、2 人目が入った
  *    あとに、作った人に 2 人が載ったメンバーの通知が届くことと、復帰で届く状態を確かめる
  *
@@ -40,6 +41,7 @@ import {
 	joinCases,
 	judgeArrival,
 	membersListed,
+	wideJoinCases,
 } from "./joinMatrix.ts";
 
 /** 参加・復帰のあと、通知がそろうのを待つ時間（ミリ秒）。 */
@@ -112,7 +114,7 @@ async function runCase(c: JoinCase): Promise<Check> {
 		const [creator, filler, joiner] = await connectBots(`join-${c.cpu}`, 3);
 		bots.push(creator as Bot, filler as Bot, joiner as Bot);
 		const a = creator as Bot;
-		const made = await create(a, { cpu: CPU_SETTING[c.cpu], stage: 0 });
+		const made = await create(a, { cpu: CPU_SETTING[c.cpu], stage: c.stage });
 		if (made.type !== "room-joined") {
 			return {
 				name: c.name,
@@ -130,6 +132,7 @@ async function runCase(c: JoinCase): Promise<Check> {
 			// 作成の時点では、メンバーの通知は届かない（自分しか載らない一覧は送らない / ADR 0044）。
 			problems.push(
 				...judgeArrival({
+					explorationSeconds: c.explorationSeconds,
 					arrived: created,
 					reference: created,
 					atCreation: true,
@@ -165,6 +168,7 @@ async function runCase(c: JoinCase): Promise<Check> {
 				await sleep(SETTLE_MS);
 				problems.push(
 					...judgeArrival({
+						explorationSeconds: c.explorationSeconds,
 						arrived: payloads(back.bot),
 						reference: before,
 					}).map((p) => `復帰: ${p}`),
@@ -222,13 +226,16 @@ async function runCase(c: JoinCase): Promise<Check> {
 				await sleep(SETTLE_MS);
 				const arrived = payloads(back.bot);
 				problems.push(
-					...judgeArrival({ arrived, reference: before }).map(
-						(p) => `作った人の復帰: ${p}`,
-					),
+					...judgeArrival({
+						explorationSeconds: c.explorationSeconds,
+						arrived,
+						reference: before,
+					}).map((p) => `作った人の復帰: ${p}`),
 				);
 				if (c.order === "third") {
 					problems.push(
 						...judgeArrival({
+							explorationSeconds: c.explorationSeconds,
 							arrived,
 							reference: payloads(filler as Bot),
 						}).map((p) => `先にいる人と比べて: ${p}`),
@@ -251,9 +258,11 @@ async function runCase(c: JoinCase): Promise<Check> {
 		}
 		await sleep(SETTLE_MS);
 		problems.push(
-			...judgeArrival({ arrived: payloads(b), reference: payloads(a) }).map(
-				(p) => `参加: ${p}`,
-			),
+			...judgeArrival({
+				explorationSeconds: c.explorationSeconds,
+				arrived: payloads(b),
+				reference: payloads(a),
+			}).map((p) => `参加: ${p}`),
 		);
 		const back = await resume(b, roomId);
 		bots.push(back.bot);
@@ -263,6 +272,7 @@ async function runCase(c: JoinCase): Promise<Check> {
 			await sleep(SETTLE_MS);
 			problems.push(
 				...judgeArrival({
+					explorationSeconds: c.explorationSeconds,
 					arrived: payloads(back.bot),
 					reference: payloads(a),
 				}).map((p) => `復帰: ${p}`),
@@ -291,7 +301,7 @@ function detail(problems: readonly string[]): string {
 }
 
 const only = option("--only");
-const cases = joinCases().filter(
+const cases = [...joinCases(), ...wideJoinCases()].filter(
 	(c) => only === undefined || c.name.includes(only),
 );
 console.log(`[join] 組み合わせ ${cases.length} 件・接続先 ${url}`);

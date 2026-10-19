@@ -77,7 +77,17 @@ export interface JoinCase {
 	readonly areaBefore: "waiting" | "ready" | "counting" | null;
 	/** same-state: 最初の参加者と同じ状態が届く。refused: サーバーが断る（game-already-started）。 */
 	readonly outcome: "same-state" | "refused";
+	/** ルーム作成の設定の stage（0 = ふつうだけ、3 = 広い屋敷だけ / issue-65）。 */
+	readonly stage: number;
+	/** 届くべき、いちばん新しいルーム情報の探索時間（秒）。広い屋敷は、既定の 40 秒に +80 秒。 */
+	readonly explorationSeconds: number;
 }
+
+/** ルーム作成の探索時間の既定（秒。サーバーの room.gleam の default_exploration_seconds）。 */
+export const DEFAULT_EXPLORATION_SECONDS = 40;
+
+/** 広い屋敷で、探索の時間に足す秒数（サーバーの stage_timing.wide_extra_exploration_seconds）。 */
+export const WIDE_EXTRA_EXPLORATION_SECONDS = 80;
 
 const MOMENTS: readonly Moment[] = [
 	"waiting",
@@ -99,6 +109,8 @@ export function joinCases(): JoinCase[] {
 			moment: "waiting",
 			areaBefore: null,
 			outcome: "same-state",
+			stage: 0,
+			explorationSeconds: DEFAULT_EXPLORATION_SECONDS,
 		});
 		for (const order of ["second", "third"] as const) {
 			// 参加の直前にいる人数（人間と CPU。CPU も人数に数える）。
@@ -121,11 +133,48 @@ export function joinCases(): JoinCase[] {
 									: "waiting"
 								: null,
 					outcome: selecting ? "same-state" : "refused",
+					stage: 0,
+					explorationSeconds: DEFAULT_EXPLORATION_SECONDS,
 				});
 			}
 		}
 	}
 	return cases;
+}
+
+/**
+ * 広い屋敷（issue-65）の構成を 1 つ。CPU なしの組み合わせ（joinCases と同じ順番・時機）を、広い屋敷だけ
+ * （stage 3）のルームで回す。広い屋敷では、骨格が決まったときに、ルーム情報の探索時間が +80 秒で
+ * 送り直されるので、途中参加・復帰の人にも、その値が届くことを確かめる。サーバーは RONDO_WIDE_DEV=1 で
+ * 動かす（tools/load.sh）。
+ */
+export function wideJoinCases(): JoinCase[] {
+	return joinCases()
+		.filter((c) => c.cpu === "none")
+		.map((c) => ({
+			...c,
+			name: `広い屋敷・${c.name}`,
+			stage: 3,
+			explorationSeconds:
+				DEFAULT_EXPLORATION_SECONDS + WIDE_EXTRA_EXPLORATION_SECONDS,
+		}));
+}
+
+/** いちばん新しいルーム情報（room-info）の探索時間（秒）。届いていなければ null。 */
+export function latestExplorationSeconds(
+	payloads: readonly unknown[],
+): number | null {
+	for (let i = payloads.length - 1; i >= 0; i--) {
+		const p = payloads[i];
+		if (
+			isRecord(p) &&
+			p.type === "room-info" &&
+			typeof p.explorationSeconds === "number"
+		) {
+			return p.explorationSeconds;
+		}
+	}
+	return null;
 }
 
 /**
@@ -198,6 +247,8 @@ export function judgeArrival(input: {
 	readonly reference: readonly unknown[];
 	/** 作った人の、作成の時点（expectedKinds の atCreation）。 */
 	readonly atCreation?: boolean;
+	/** あれば、いちばん新しいルーム情報の探索時間が、この秒数か（issue-65）。 */
+	readonly explorationSeconds?: number;
 }): string[] {
 	const problems: string[] = [];
 	const mine = latestPhase(input.arrived);
@@ -214,6 +265,14 @@ export function judgeArrival(input: {
 		problems.push(
 			`フェーズの中身が違う: 届いた ${show(mine)}・最初の参加者 ${show(theirs)}`,
 		);
+	}
+	if (input.explorationSeconds !== undefined) {
+		const seconds = latestExplorationSeconds(input.arrived);
+		if (seconds !== input.explorationSeconds) {
+			problems.push(
+				`ルーム情報の探索時間が違う: 届いた ${seconds ?? "なし"}・${input.explorationSeconds} 秒のはず`,
+			);
+		}
 	}
 	return problems;
 }

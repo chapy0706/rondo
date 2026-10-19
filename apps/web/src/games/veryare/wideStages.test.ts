@@ -1,7 +1,8 @@
 /**
  * 広い屋敷の契約の見本（veryare-skeleton-stages.json の wideStages / issue-65）を、画面の移動の規則
  * （stage.ts）で読む。サーバーの側は、stage_notice_test が、同じ見本とサーバーの地図の一致を確かめる。
- * 広い屋敷は、まだゲームにつないでいない（段階 4 で、2 段の抽選につなぐ）。
+ * 広い屋敷は、ルーム作成の stage 2（おまかせ。旗 wide_ready が立つまでは 10 種だけ）と 3（広い屋敷だけ。
+ * サーバーを RONDO_WIDE_DEV=1 で動かすときだけ）で出る。ロビーの選択肢は、まだ 0・1 のまま。
  */
 import { describe, expect, it } from "vitest";
 import skeletons from "../../../../../packages/contracts/src/fixtures/veryare-skeleton-stages.json";
