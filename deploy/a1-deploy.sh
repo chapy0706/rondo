@@ -17,7 +17,8 @@
 #   env ファイルからそろえて渡す。どちらかの行が無い、または値が空なら、止まって警告する
 #   （NEXT_PUBLIC_* はビルド時に埋め込まれるので、片方を忘れると、その機能が黙って止まるため）。
 #   わざと空にする（モック動作にする、素材を読み込まない）ときだけ、--allow-empty を付ける
-# - 実行すること: prod ブランチであることの確認、git pull（早送りのみ）、docker compose build、
+# - 実行すること: 載せるブランチ（既定は prod。環境変数 RONDO_DEPLOY_BRANCH で変えられる。例: main）
+#   であることの確認、git pull（早送りのみ）、docker compose build、
 #   docker compose up -d、コンテナが動いていることの確認
 # - コンテナやボリュームを消す操作はしない
 # - --verify を付けると、最後にデプロイ後の確認（issue-50）を行う。A1 の中の確認
@@ -159,8 +160,9 @@ unset NEXT_PUBLIC_RONDO_WS_URL NEXT_PUBLIC_ASSET_BASE_URL ASSET_ALLOWED_ORIGIN A
 
 cd "$repo_root"
 
+deploy_branch="${RONDO_DEPLOY_BRANCH:-prod}"
 branch="$(git rev-parse --abbrev-ref HEAD)"
-[ "$branch" = "prod" ] || die "prod ブランチで実行する（いまは ${branch}）。git switch prod の後に実行し直す"
+[ "$branch" = "$deploy_branch" ] || die "${deploy_branch} ブランチで実行する（いまは ${branch}）。git switch ${deploy_branch} の後に実行し直す"
 
 echo "== git pull（早送りのみ）"
 git pull --ff-only
