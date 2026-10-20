@@ -23,8 +23,9 @@ make bots ARGS="--only 不成立"    # シナリオ名の一部で絞る
 | `RONDO_TEST_PHASE_DIVISOR` | veryare の全フェーズの時間と、結果のあとにルームを閉じるまでの時間（3 分 / issue-70）を、この数で割る（2〜1000 の整数のときだけ有効） | 無し（本番の時間のまま） |
 | `RONDO_PORT` | サーバーが待ち受けるポート | 3000 |
 | `RONDO_WIDE_DEV` | `1` のときだけ、ルーム作成の `stage: 3`（広い屋敷だけ / issue-65）を受け付ける。ほかの値・無しなら、`stage: 3` は `invalid-settings` で断る | 無し（受け付けない） |
+| `RONDO_SPECTATE_DEV` | `1` のときだけ、ルーム作成の `spectate: 1`（観戦ルーム / issue-67）を受け付ける（旗 `veryare.spectate_ready` が false の間）。ほかの値・無しなら、`invalid-settings` で断る。テスト用の短縮（`RONDO_TEST_PHASE_DIVISOR`）は、観戦ルームの、結果を見せる時間（10 秒）と、観戦者 0 人で閉じるまで（60 秒）も割る | 無し（受け付けない） |
 
-- 無い・正しくない値なら、短縮しない。本番（A1）では設定しない（`RONDO_WIDE_DEV` も、本番では設定しない）
+- 無い・正しくない値なら、短縮しない。本番（A1）では設定しない（`RONDO_WIDE_DEV` と `RONDO_SPECTATE_DEV` も、本番では設定しない）
 - 縮めるのは、フェーズのタイマーと、撃つ間隔（issue-27）だけ。判定（状態機械）と、再接続猶予（10 秒 / ADR 0013）、ハートビート（issue-41）の時間は変わらない。撃つ間隔は、どれだけ縮めても 0 にはならない
 - 縮めても、フェーズの順序と勝敗が変わらないことは、`server/test/rondo_server/games/timing_test.gleam` で確かめている
 

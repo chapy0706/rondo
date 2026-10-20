@@ -369,6 +369,239 @@ pub fn spec_with_clock(
   )
 }
 
+// --- 観戦ルーム（issue-67 / ADR 0051） ---------------------------------------------
+
+/// 観戦ルームを、本番に出してよいか。false の間は、作成の設定の spectate: 1 を invalid-settings で
+/// 断る（環境変数 RONDO_SPECTATE_DEV=1 のときだけ、テストのために受け付ける）。作成フォームにも
+/// ロビーにも、何も出さない。
+pub const spectate_ready = False
+
+/// 観戦ルームを、開発・テストのために受け付ける環境変数（RONDO_WIDE_DEV と同じ作り）。
+pub const spectate_dev_env_name = "RONDO_SPECTATE_DEV"
+
+/// 観戦ルームの隠れ CPU の数の範囲と既定（issue-66 のあとで上げる）。
+const spectate_hider_choices = [1, 2, 3, 4]
+
+pub const spectate_default_hiders = 3
+
+/// 観戦ルームの鬼 CPU の強さ（段階 ⑤ の make simulate で、鬼の勝率が 40〜60% に収まる値に決める）。
+pub const spectate_strength = oni_cpu.Normal
+
+/// 観戦者の上限と、結果を見せる時間、観戦者が 0 人のまま閉じるまでの時間（ミリ秒。本番の値）。
+pub const max_spectators = 20
+
+pub const spectate_next_game_ms = 10_000
+
+pub const spectate_idle_close_ms = 60_000
+
+/// 観戦ルームの設定。
+pub type SpectateSettings {
+  SpectateSettings(hiders: Int, exploration_seconds: Int, stage: StageChoice)
+}
+
+/// 環境変数 RONDO_SPECTATE_DEV の値（無ければ Error）から、観戦ルームを受け付けるかを決める。前後の
+/// 空白を除いて 1 のときだけ。
+pub fn spectate_dev(value: Result(String, Nil)) -> Bool {
+  case value {
+    Ok(raw) -> string.trim(raw) == "1"
+    Error(Nil) -> False
+  }
+}
+
+/// create-room の settings から、観戦ルームの設定を読む（旗と、開発用の環境変数 RONDO_SPECTATE_DEV・
+/// RONDO_WIDE_DEV を見る）。
+pub fn parse_spectate_room(
+  raw: Option(Dynamic),
+) -> Result(Option(SpectateSettings), Nil) {
+  parse_spectate(raw, spectate_allowed(), wide_dev(get_env(wide_dev_env_name)))
+}
+
+/// 観戦ルームを、いま受け付けるか（旗か、開発用の環境変数）。
+pub fn spectate_allowed() -> Bool {
+  spectate_ready || spectate_dev(get_env(spectate_dev_env_name))
+}
+
+/// create-room の settings から、観戦ルームの設定を読む。spectate が無い・0 なら Ok(None)（対戦の
+/// ルーム。これまでどおり parse_room で読む）。spectate: 1 は、allowed のときだけ受け付ける。cpu は
+/// 隠れ CPU の数（1〜4。既定 3）、stage は 0（ランダム間取り）か、wide_dev のときだけ 3（広い屋敷だけ）。
+/// 平屋（1）とおまかせ（2）は、観戦ルームでは選べない（CPU の一般化まで）。
+pub fn parse_spectate(
+  raw: Option(Dynamic),
+  allowed: Bool,
+  wide_dev: Bool,
+) -> Result(Option(SpectateSettings), Nil) {
+  case raw {
+    None -> Ok(None)
+    Some(data) -> {
+      let decoder = {
+        use spectate <- decode.optional_field("spectate", 0, decode.int)
+        use seconds <- decode.optional_field(
+          "explorationSeconds",
+          default_exploration_seconds,
+          decode.int,
+        )
+        use hiders <- decode.optional_field(
+          "cpu",
+          spectate_default_hiders,
+          decode.int,
+        )
+        use stage <- decode.optional_field("stage", 0, decode.int)
+        decode.success(#(spectate, seconds, hiders, stage))
+      }
+      case decode.run(data, decoder) {
+        Ok(#(0, _, _, _)) -> Ok(None)
+        Ok(#(1, seconds, hiders, stage)) if allowed ->
+          case
+            list.contains(exploration_choices, seconds),
+            list.contains(spectate_hider_choices, hiders),
+            stage
+          {
+            True, True, 0 ->
+              Ok(Some(SpectateSettings(hiders, seconds, RandomLayout)))
+            True, True, 3 if wide_dev ->
+              Ok(Some(SpectateSettings(hiders, seconds, WideOnly)))
+            _, _, _ -> Error(Nil)
+          }
+        _ -> Error(Nil)
+      }
+    }
+  }
+}
+
+/// 観戦ルームの、時間と上限（テスト用の短縮で、結果を見せる時間と、閉じるまでの時間も割る）。
+pub fn spectate_config(timing: Timing) -> room_actor.SpectateConfig {
+  room_actor.SpectateConfig(
+    max_spectators:,
+    next_game_ms: timing.scale_ms(spectate_next_game_ms, timing),
+    idle_close_ms: timing.scale_ms(spectate_idle_close_ms, timing),
+  )
+}
+
+/// 観戦ルームの参加者（CPU だけ）。鬼 CPU が cpu-1、隠れ CPU が cpu-2 から。
+fn spectate_players(hiders: Int) -> List(Player) {
+  numbered(1, hiders + 1)
+  |> list.map(fn(n) {
+    Player(
+      id: PlayerId("cpu-" <> int.to_string(n)),
+      name: "CPU " <> int.to_string(n),
+    )
+  })
+}
+
+/// 観戦ルームの設定（作成の入口が、room_actor.Spectate の種類と一緒に台帳へ渡す）。
+pub fn spectate_spec_on(
+  id: RoomId,
+  settings: SpectateSettings,
+  timing: Timing,
+) -> RoomSpec {
+  spectate_spec_with(
+    id,
+    settings,
+    game.durations(exploration_ms: settings.exploration_seconds * 1000)
+      |> timing.apply(timing),
+    int.random,
+    now_ms,
+  )
+}
+
+/// フェーズの長さ・乱数・時計を差し替えられる観戦ルームの設定（テスト用）。
+pub fn spectate_spec_with(
+  id: RoomId,
+  settings: SpectateSettings,
+  durations: game.Durations,
+  pick: fn(Int) -> Int,
+  now: fn() -> Int,
+) -> RoomSpec {
+  let players = spectate_players(settings.hiders)
+  let ids = list.map(players, fn(player) { player.id })
+  let cpus = case ids {
+    [oni, ..hiders] ->
+      game.Cpus(hiders:, oni: Some(oni), strength: spectate_strength)
+    [] -> game.Cpus(hiders: [], oni: None, strength: spectate_strength)
+  }
+  RoomSpec(
+    id:,
+    game_type:,
+    name: "",
+    min_players:,
+    max_players:,
+    authority: None,
+    driver: Some(fn(players) {
+      start_spectating(players, settings, durations, cpus, pick, now, 0)
+    }),
+    member_info: Some(room_info_with(settings.exploration_seconds, True)),
+    bots: players,
+    // 観戦ルームは、結果のあとに時間で閉じない（次の試合を始める）。使わない値。
+    close_after_ms: expiry.default_close_ms,
+  )
+}
+
+/// 観戦ルームの試合を始める。骨格を抽選し、鬼選出を飛ばして準備移動から始める（隠れ CPU は歩く）。
+/// first_step は、前の試合の続きの step（最初の試合は 0）。次の試合は、同じ設定で、この関数を
+/// 呼び直して作る（前の試合の状態・タイマー・CPU の道は持ち越さない）。
+fn start_spectating(
+  players: List(PlayerId),
+  settings: SpectateSettings,
+  durations: game.Durations,
+  cpus: game.Cpus(PlayerId),
+  pick: fn(Int) -> Int,
+  now: fn() -> Int,
+  first_step: Int,
+) -> #(Driver(PlayerId), List(Effect(PlayerId))) {
+  let layout = case settings.stage {
+    WideOnly -> stage.generate_wide(pick(stage_seed_range))
+    _ -> stage.generate(pick(stage_seed_range))
+  }
+  let exploration_seconds =
+    stage_timing.exploration_seconds(
+      layout.skeleton,
+      settings.exploration_seconds,
+    )
+  let begun =
+    game.new_with(
+      players,
+      stage_timing.durations_for(durations, layout.skeleton),
+      layout,
+      cpus,
+    )
+    |> game.continue_from(first_step)
+    |> game.with_walking_cpus
+    |> game.begin_without_selection(pick)
+  // 探索時間が入室後の案内と違えば（広い屋敷）、ルーム情報を送り直す（issue-65）。
+  let info = case exploration_seconds == settings.exploration_seconds {
+    True -> None
+    False -> Some(room_info_with(exploration_seconds, True))
+  }
+  let restart = fn(last_step) {
+    start_spectating(
+      players,
+      settings,
+      durations,
+      cpus,
+      pick,
+      now,
+      last_step + 1,
+    )
+  }
+  #(
+    wrap(
+      begun,
+      Env(pick:, now:, started_at: now(), info:, restart: Some(restart)),
+    ),
+    list.flatten([
+      case info {
+        Some(payload) -> [driver.Broadcast(payload)]
+        None -> []
+      },
+      [
+        driver.Broadcast(stage_payload(begun)),
+        driver.Broadcast(stage_notice.doors_payload(begun.open_doors)),
+      ],
+      phase_effects(begun),
+    ]),
+  )
+}
+
 // --- 箱 ------------------------------------------------------------------
 
 /// ルームの外から差し替える物（鬼選出の乱数・単調に増える時計）と、いまのフェーズの開始時刻
@@ -382,6 +615,9 @@ type Env {
     now: fn() -> Int,
     started_at: Int,
     info: Option(Dynamic),
+    /// 観戦ルームの次の試合を作る関数（issue-67）。前の試合の最後の step を受け取り、その続きの step
+    /// から始める。対戦のルームでは None。
+    restart: Option(fn(Int) -> #(Driver(PlayerId), List(Effect(PlayerId)))),
   )
 }
 
@@ -433,7 +669,7 @@ fn start(
   }
   // ステージの通知（issue-29a）を全員へ送ってから、フェーズの通知を送る。
   #(
-    wrap(initial, Env(pick:, now:, started_at: now(), info:)),
+    wrap(initial, Env(pick:, now:, started_at: now(), info:, restart: None)),
     list.flatten([
       info_effects,
       [
@@ -509,6 +745,13 @@ fn wrap(state: Game(PlayerId), env: Env) -> Driver(PlayerId) {
       env.info,
     )
   })
+  // 観戦ルームでは、同じ設定で、次の試合を作れる（issue-67）。
+  |> fn(d) {
+    case env.restart {
+      Some(restart) -> driver.on_restart(d, fn() { Ok(restart(state.step)) })
+      None -> d
+    }
+  }
 }
 
 /// 購読者に、いま届けるべき状態（本人宛て）。参加（入室の後）・途中参加・復帰（resync）の、どの経路も
@@ -952,10 +1195,26 @@ fn number() -> decode.Decoder(Float) {
 /// 入室後の案内。探索時間はルーム一覧には出さず、ここで初めて伝える。広い屋敷では、骨格が決まった
 /// ときに、+80 秒した探索時間で送り直す（issue-65）。
 fn room_info(exploration_seconds: Int) -> Dynamic {
-  dynamic.properties([
-    #(dynamic.string("type"), dynamic.string("room-info")),
-    #(dynamic.string("explorationSeconds"), dynamic.int(exploration_seconds)),
-  ])
+  room_info_with(exploration_seconds, False)
+}
+
+/// ルーム情報。観戦ルームでは spectate: true を足す（issue-67。画面は、これを見て観戦の画面にする）。
+fn room_info_with(exploration_seconds: Int, spectate: Bool) -> Dynamic {
+  dynamic.properties(
+    list.flatten([
+      [
+        #(dynamic.string("type"), dynamic.string("room-info")),
+        #(
+          dynamic.string("explorationSeconds"),
+          dynamic.int(exploration_seconds),
+        ),
+      ],
+      case spectate {
+        True -> [#(dynamic.string("spectate"), dynamic.bool(True))]
+        False -> []
+      },
+    ]),
+  )
 }
 
 /// フェーズの開始のときのフェーズの通知（長さ = フェーズの長さ）。

@@ -96,6 +96,15 @@
 					"capacity": 5,
 					"status": "playing",
 					"name": "user1のルーム"
+				},
+				{
+					"roomId": "room-5",
+					"gameType": "veryare",
+					"playerCount": 2,
+					"capacity": 20,
+					"status": "playing",
+					"name": "user2のルーム",
+					"spectate": true
 				}
 			]
 		},

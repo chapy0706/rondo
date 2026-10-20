@@ -37,6 +37,8 @@ pub type RoomSummary {
     status: RoomStatus,
     /// ルーム名（issue-58）。このサーバーは常に Some で送る。古い形の電文では省略される。
     name: Option(String),
+    /// 観戦ルームか（issue-67）。True のときだけ電文に載せる（spectate: true）。省略は False。
+    spectate: Bool,
   )
 }
 
@@ -297,6 +299,10 @@ fn room_summary_json(room: RoomSummary) -> Json {
         ),
       ],
       optional_string("name", room.name),
+      case room.spectate {
+        True -> [#("spectate", json.bool(True))]
+        False -> []
+      },
     ]),
   )
 }
@@ -567,6 +573,7 @@ fn room_summary_decoder() -> Decoder(RoomSummary) {
     None,
     decode.map(decode.string, Some),
   )
+  use spectate <- decode.optional_field("spectate", False, decode.bool)
   decode.success(RoomSummary(
     room_id:,
     game_type:,
@@ -574,6 +581,7 @@ fn room_summary_decoder() -> Decoder(RoomSummary) {
     capacity:,
     status:,
     name:,
+    spectate:,
   ))
 }
 

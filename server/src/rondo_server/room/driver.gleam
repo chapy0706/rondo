@@ -37,6 +37,8 @@ pub opaque type Driver(id) {
     over: fn() -> Bool,
     /// 送信先を登録した人（途中参加・再接続）へ送る、今の状態（issue-29a）。
     subscribed: fn(id) -> List(Effect(id)),
+    /// 同じ設定で、次の試合を作る（観戦ルーム / issue-67）。作れないゲームは Error。
+    restart: fn() -> Result(#(Driver(id), List(Effect(id))), Nil),
   )
 }
 
@@ -57,7 +59,24 @@ pub fn new(
     accepts: accepts_join,
     over: is_over,
     subscribed: fn(_player) { [] },
+    restart: fn() { Error(Nil) },
   )
+}
+
+/// 同じ設定で、次の試合を作る口を足す（観戦ルーム / issue-67）。次の試合の箱は、前の試合の状態
+/// （タイマーの token を含む）を持ち越さないこと。既定は作れない（Error）。
+pub fn on_restart(
+  driver: Driver(id),
+  restart: fn() -> Result(#(Driver(id), List(Effect(id))), Nil),
+) -> Driver(id) {
+  Driver(..driver, restart:)
+}
+
+/// 次の試合の箱と、最初の指示。作れなければ Error。
+pub fn restart(
+  driver: Driver(id),
+) -> Result(#(Driver(id), List(Effect(id))), Nil) {
+  driver.restart()
 }
 
 /// 送信先を登録した人へ送る、今の状態を決める（例: veryare のステージの通知）。

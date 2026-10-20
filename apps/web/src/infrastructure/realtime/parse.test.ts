@@ -136,3 +136,39 @@ describe("parseServerMessage - game-ended の閉じるまでの残り（issue-70
 		}
 	});
 });
+
+describe("parseServerMessage - 観戦ルームの印（issue-67）", () => {
+	const room = {
+		roomId: "room-5",
+		gameType: "veryare",
+		playerCount: 2,
+		capacity: 20,
+		status: "playing",
+	};
+
+	it("spectate: true を通す", () => {
+		expect(
+			parseServerMessage({
+				type: "room-list",
+				gameType: "veryare",
+				rooms: [{ ...room, spectate: true }],
+			}),
+		).toEqual({
+			type: "room-list",
+			gameType: "veryare",
+			rooms: [{ ...room, spectate: true }],
+		});
+	});
+
+	it("無い古い形と、true でない値は、印なし（人間の対戦）", () => {
+		for (const spectate of [undefined, false, "true", 1]) {
+			expect(
+				parseServerMessage({
+					type: "room-list",
+					gameType: "veryare",
+					rooms: [spectate === undefined ? room : { ...room, spectate }],
+				}),
+			).toEqual({ type: "room-list", gameType: "veryare", rooms: [room] });
+		}
+	});
+});

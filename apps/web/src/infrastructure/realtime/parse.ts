@@ -65,7 +65,11 @@ function toRoomSummary(value: unknown): RoomSummary | null {
 	const name = optionalString(value.name);
 	if (name === null) return null;
 	const summary = { roomId, gameType, playerCount, capacity, status };
-	return name === undefined ? summary : { ...summary, name };
+	const named = name === undefined ? summary : { ...summary, name };
+	// 観戦ルーム（issue-67）。true のときだけ載せる（ほかの値は、省略と同じ扱い）。
+	return value.spectate === true
+		? { ...named, spectate: true as const }
+		: named;
 }
 
 function toPlayerInfo(value: unknown): PlayerInfo | null {

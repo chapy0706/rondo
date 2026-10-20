@@ -4,13 +4,16 @@ import gleam/list
 import gleam/otp/actor
 import gleam/otp/factory_supervisor as factory
 import gleam/otp/supervision
-import rondo_server/room/room_actor.{type Message, type RoomSpec}
+import rondo_server/room/room_actor.{
+  type Message, type RoomKind, type RoomSpec, Match,
+}
 
 /// ルームを動的に生成・監視するスーパーバイザーへの参照。
 /// ルームは実行中に必要に応じて立ち上がる（ADR 0016 の一覧/新規作成）ため、
 /// 固定子ではなく factory（simple_one_for_one 相当）で扱う。
+/// 子の引数は、ルームの設定と種類（対戦・観戦 / issue-67）の組。
 pub type RoomSupervisor =
-  factory.Supervisor(RoomSpec, Subject(Message))
+  factory.Supervisor(#(RoomSpec, RoomKind), Subject(Message))
 
 /// スーパーバイザーを起動する。
 ///
@@ -19,7 +22,9 @@ pub type RoomSupervisor =
 /// 入っていた人の接続にもつながらず、数え漏れと、誰も入れないルームが残るだけだったため。入っていた
 /// 人には、接続が room-closed を送る（session_actor）。
 pub fn start() -> actor.StartResult(RoomSupervisor) {
-  factory.worker_child(room_actor.start)
+  factory.worker_child(fn(start: #(RoomSpec, RoomKind)) {
+    room_actor.start_with(start.0, start.1)
+  })
   |> factory.restart_strategy(supervision.Temporary)
   |> factory.start
 }
@@ -30,7 +35,16 @@ pub fn open_room(
   supervisor: RoomSupervisor,
   spec: RoomSpec,
 ) -> actor.StartResult(Subject(Message)) {
-  factory.start_child(supervisor, spec)
+  open_room_with(supervisor, spec, Match)
+}
+
+/// 種類を決めて、ルームを1つ立ち上げる（観戦ルーム / issue-67）。
+pub fn open_room_with(
+  supervisor: RoomSupervisor,
+  spec: RoomSpec,
+  kind: RoomKind,
+) -> actor.StartResult(Subject(Message)) {
+  factory.start_child(supervisor, #(spec, kind))
 }
 
 @external(erlang, "supervisor", "which_children")

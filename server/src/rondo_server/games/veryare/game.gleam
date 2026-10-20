@@ -37,7 +37,7 @@ import gleam/list
 import gleam/option.{type Option, None, Some}
 import gleam/set.{type Set}
 import rondo_server/games/veryare/grid.{type Edge, type Grid}
-import rondo_server/games/veryare/hider_cpu.{type Placement}
+import rondo_server/games/veryare/hider_cpu.{type Placement, type Walk}
 import rondo_server/games/veryare/hiraya
 import rondo_server/games/veryare/missed
 import rondo_server/games/veryare/oni_cpu.{type OniCpu, type Strength}
@@ -207,6 +207,11 @@ pub type Game(id) {
     cpus: Cpus(id),
     /// 準備移動の終わりに確定した、隠れ CPU の状態。
     cpu_states: Dict(id, Placement),
+    /// 隠れ CPU が、準備移動の間に、玄関から隠れ場所へ歩くか（観戦ルームだけ / issue-67）。False なら、
+    /// これまでどおり準備移動の終わりに直接置く（人間の対戦）。
+    walking_cpus: Bool,
+    /// 歩く隠れ CPU の、隠れ場所と道（準備移動の始めに決める / issue-67）。walking_cpus のときだけ入る。
+    cpu_walks: Dict(id, Walk),
     /// 探索中の鬼 CPU。鬼が CPU のときだけ、探索の開始時に作る。
     oni_cpu: Option(OniCpu),
     /// 直前の tick で鬼 CPU の視界に入っていた隠れ側（見逃しポイント / issue-32 で使う）。
@@ -331,6 +336,8 @@ fn start_on(
     ground:,
     cpus:,
     cpu_states: dict.new(),
+    walking_cpus: False,
+    cpu_walks: dict.new(),
     grid:,
     open_doors: grid.fusuma(grid),
     oni_cpu: None,
@@ -950,6 +957,7 @@ fn select_oni(game: Game(id), pick: fn(Int) -> Int) -> Game(id) {
         still_hiding: set.from_list(hiders),
         counting: False,
       )
+      |> plan_cpu_walks(pick)
     }
     // 不成立は答え合わせを挟まずに終了する。
     _, _ -> end(game, NotEnoughPlayers)
@@ -978,9 +986,79 @@ fn end_preparation(game: Game(id)) -> Game(id) {
   }
 }
 
+/// 鬼選出を飛ばして、いま鬼を決め、準備移動から始める（観戦ルーム / issue-67。参加者は CPU だけで、
+/// 鬼希望エリアに触れる人がいない）。鬼の決め方は、カウントの満了と同じ（鬼 CPU がいれば、その CPU）。
+pub fn begin_without_selection(
+  game: Game(id),
+  pick: fn(Int) -> Int,
+) -> Game(id) {
+  case game.phase {
+    OniSelection -> select_oni(Game(..game, counting: True), pick)
+    _ -> game
+  }
+}
+
+/// step を、前の試合の続きの番号から始める（観戦ルームの次の試合 / issue-67）。タイマーの token は
+/// どれも step から作るので、前の試合のタイマーは、次の試合のどの step とも一致しない。
+pub fn continue_from(game: Game(id), step: Int) -> Game(id) {
+  Game(..game, step:)
+}
+
+/// 隠れ CPU を、準備移動の間に歩かせる（観戦ルーム / issue-67）。walking_cpus のときだけ、準備移動の
+/// 始めに、隠れ場所と玄関からの道を決める（準備移動の時間の内に、被らずに着く場所 / hider_cpu.plan_walks）。
+pub fn with_walking_cpus(game: Game(id)) -> Game(id) {
+  Game(..game, walking_cpus: True)
+}
+
+/// 歩く隠れ CPU の、隠れ場所と道。歩かない CPU・CPU でない人は Error。
+pub fn cpu_walk(game: Game(id), id: id) -> Result(Walk, Nil) {
+  dict.get(game.cpu_walks, id)
+}
+
+fn plan_cpu_walks(game: Game(id), pick: fn(Int) -> Int) -> Game(id) {
+  let cpus =
+    list.filter(game.cpus.hiders, fn(id) { set.contains(game.still_hiding, id) })
+  case game.walking_cpus, cpus, game.ground {
+    True, [_, ..], Skeleton(layout:, ..) -> {
+      let walks =
+        hider_cpu.plan_walks(
+          layout,
+          list.length(cpus),
+          pick(cpu_seed_range),
+          hider_cpu.reach_ms(game.durations.preparation_ms),
+        )
+      Game(..game, cpu_walks: dict.from_list(list.zip(cpus, walks)))
+    }
+    _, _, _ -> game
+  }
+}
+
 /// 準備移動の終わりに、まだ隠れている隠れ CPU の位置・ポーズ・ペイントを確定させる。
 /// 人間の隠れ側の今の位置とも、CPU どうしとも被らないマスに置く（被り判定の直前）。
+/// 歩いた CPU（観戦ルーム / issue-67）は、準備移動の始めに決めた隠れ場所に置く。
 fn settle_cpus(game: Game(id), pick: fn(Int) -> Int) -> Game(id) {
+  case dict.is_empty(game.cpu_walks) {
+    False -> settle_walked_cpus(game)
+    True -> place_cpus(game, pick)
+  }
+}
+
+fn settle_walked_cpus(game: Game(id)) -> Game(id) {
+  game.cpu_walks
+  |> dict.to_list
+  |> list.filter(fn(pair) { set.contains(game.still_hiding, pair.0) })
+  |> list.fold(game, fn(game, pair) {
+    let #(id, walk) = pair
+    let p = walk.placement
+    Game(
+      ..game,
+      positions: dict.insert(game.positions, id, Position(Stage, p.x, p.z)),
+      cpu_states: dict.insert(game.cpu_states, id, p),
+    )
+  })
+}
+
+fn place_cpus(game: Game(id), pick: fn(Int) -> Int) -> Game(id) {
   let #(cpus, humans) =
     game.players
     |> list.filter(fn(id) { set.contains(game.still_hiding, id) })

@@ -135,30 +135,47 @@ fn set_name(session: Session, raw: String) -> Session {
 }
 
 /// ルーム一覧。人数・定員・参加できるかだけを載せ、探索時間などの設定は載せない。
-/// 終わったルームは出さない。
+/// 終わったルームは出さない。観戦ルームは、試合の合間（結果を見せている間）も出す（issue-67）。
 fn list_rooms(deps: Deps, game_type: String) -> ServerMessage {
   // 落ちている・答えないルームは飛ばす（一覧を返すのを止めない / ADR 0047）。
   let rooms =
     room_directory.rooms(deps.directory, game_type)
     |> list.filter_map(room_actor.try_snapshot(_, snapshot_timeout_ms))
-    |> list.filter(fn(state) { state.status != room_actor.Finished })
+    |> list.filter(fn(state) {
+      state.spectate || state.status != room_actor.Finished
+    })
     |> list.map(summary)
   RoomList(game_type:, rooms:)
 }
 
 fn summary(state: RoomState) -> message.RoomSummary {
   let RoomId(room_id) = state.id
-  RoomSummary(
-    room_id:,
-    game_type: state.game_type,
-    player_count: list.length(state.players),
-    capacity: state.max_players,
-    status: case state.joinable {
-      True -> Waiting
-      False -> Playing
-    },
-    name: Some(state.name),
-  )
+  case state.spectate {
+    // 観戦ルーム（issue-67）。人数と定員は、観戦者の数と、その上限。試合は、いつも進んでいる。
+    True ->
+      RoomSummary(
+        room_id:,
+        game_type: state.game_type,
+        player_count: state.spectators,
+        capacity: state.max_spectators,
+        status: Playing,
+        name: Some(state.name),
+        spectate: True,
+      )
+    False ->
+      RoomSummary(
+        room_id:,
+        game_type: state.game_type,
+        player_count: list.length(state.players),
+        capacity: state.max_players,
+        status: case state.joinable {
+          True -> Waiting
+          False -> Playing
+        },
+        name: Some(state.name),
+        spectate: False,
+      )
+  }
 }
 
 fn create(
@@ -171,15 +188,17 @@ fn create(
   use <- not_in_room(session)
   let id = RoomId("room-" <> random_hex(8))
   let name = room_name.normalize(raw_name, session.name)
-  case catalog.spec_for(game_type, id, settings, deps.timing) {
+  case catalog.room_for(game_type, id, settings, deps.timing) {
     Error(UnknownGame) -> #(session, [
       error("unknown-game", "そのゲームはありません。"),
     ])
     Error(InvalidSettings) -> #(session, [
       error("invalid-settings", "ルームの設定が正しくありません。"),
     ])
-    Ok(#(spec, policy)) ->
-      case room_directory.open(deps.directory, RoomSpec(..spec, name:)) {
+    Ok(#(spec, policy, kind)) ->
+      case
+        room_directory.open_with(deps.directory, RoomSpec(..spec, name:), kind)
+      {
         Error(LimitReached) -> #(session, [
           error("room-limit", "いま作れるルームの数が上限に達しています。"),
         ])

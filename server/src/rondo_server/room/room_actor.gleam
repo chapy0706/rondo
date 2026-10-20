@@ -65,6 +65,28 @@ pub type RoomSpec {
   )
 }
 
+/// ルームの種類（issue-67）。起動のときに決め、あとから変えない。
+pub type RoomKind {
+  /// 人間が参加する対戦（これまでのルーム）。
+  Match
+  /// 観戦ルーム。参加者は CPU だけで、入る人は、すべて観戦者（定員に数えない）。試合が終わると、
+  /// 結果を見せたあと、同じ設定で次の試合を始める。観戦者が 0 人のまま一定時間たつと閉じる。
+  Spectate(config: SpectateConfig)
+}
+
+/// 観戦ルームの時間と上限（issue-67）。
+pub type SpectateConfig {
+  SpectateConfig(
+    /// 観戦者の上限。
+    max_spectators: Int,
+    /// 結果を見せてから、次の試合を始めるまで（ミリ秒）。
+    next_game_ms: Int,
+    /// 観戦者が 0 人のまま、これだけたったら閉じる（ミリ秒）。切断の猶予（ADR 0013）の間は、
+    /// 接続がまだ離脱を伝えていないので、観戦者に数えたまま。
+    idle_close_ms: Int,
+  )
+}
+
 /// ルームの生存段階。ルームは「作る → 遊ぶ → 終わる → 解散」で単純に閉じる（ADR 0017）。
 pub type Status {
   /// 参加受付中。ゲーム開始前。
@@ -112,6 +134,11 @@ pub type RoomState {
     /// 今参加できるか。開始前か、ゲームが参加を受け付けている間（veryare の鬼選出中）。
     /// ルーム一覧の waiting / playing に使う。定員は別に見る。
     joinable: Bool,
+    /// 観戦ルームか（issue-67）。
+    spectate: Bool,
+    /// 観戦者の数と上限（観戦ルームのときだけ意味を持つ。対戦のルームでは 0）。
+    spectators: Int,
+    max_spectators: Int,
   )
 }
 
@@ -151,6 +178,12 @@ pub type Message {
   NotifyWhenFinished(watcher: Subject(String))
   /// ゲームが WakeAfter で頼んだタイマーの満了（内部用）。
   Wake(token: Int)
+  /// 観戦ルームの、次の試合を始める時刻（内部用 / issue-67）。game は、張ったときの試合の番号。
+  /// 古いもの（番号が違う）は無視する。
+  NextGame(game: Int)
+  /// 観戦ルームの、観戦者が 0 人になってから閉じる時刻（内部用 / issue-67）。round は、張ったときの
+  /// 「空になった回」の番号。その後に誰かが入れば、番号が進み、古いものは無視される。
+  IdleClose(round: Int)
 }
 
 type State {
@@ -180,12 +213,29 @@ type State {
     /// 送った結果（game-ended の result）。結果のあとに送信先を登録し直した人へ、残りつきで
     /// 送り直す（issue-70）。ゲーム進行の差し込み口（driver）が結果を出したときだけ Some。
     ended: Option(message.RealtimeResult),
+    /// ルームの種類（issue-67）。
+    kind: RoomKind,
+    /// 観戦者と、その送信先（観戦ルームだけ / issue-67）。参加者（players）とは別に持ち、定員に
+    /// 数えない。対戦のルームでは、いつも空。
+    spectators: Dict(PlayerId, Subject(ServerMessage)),
+    /// 観戦ルームの試合の番号（1 から）。次の試合の時刻の、古いものを見分ける。
+    games: Int,
+    /// 観戦者が 0 人になった回の番号。閉じる時刻の、古いものを見分ける。
+    idle_round: Int,
   )
 }
 
 /// ルームアクターを起動する。room_supervisor の子テンプレートとして呼ばれる。
-/// 戻り値の Started.data がこのルームへ送るための Subject。
+/// 戻り値の Started.data がこのルームへ送るための Subject。対戦のルーム（Match）。
 pub fn start(spec: RoomSpec) -> actor.StartResult(Subject(Message)) {
+  start_with(spec, Match)
+}
+
+/// 種類を決めて、ルームアクターを起動する（観戦ルーム / issue-67）。
+pub fn start_with(
+  spec: RoomSpec,
+  kind: RoomKind,
+) -> actor.StartResult(Subject(Message)) {
   actor.new_with_initialiser(1000, fn(self) {
     State(
       self:,
@@ -205,7 +255,12 @@ pub fn start(spec: RoomSpec) -> actor.StartResult(Subject(Message)) {
       finish_watchers: [],
       finished_at: None,
       ended: None,
+      kind:,
+      spectators: dict.new(),
+      games: 1,
+      idle_round: 0,
     )
+    |> arm_idle_at_start
     |> actor.initialised
     |> actor.returning(self)
     |> Ok
@@ -318,16 +373,42 @@ pub fn dissolve(room: Subject(Message)) -> Nil {
 
 fn handle(state: State, message: Message) -> actor.Next(State, Message) {
   case message {
-    Join(player, reply) -> handle_join(state, player, None, reply)
+    // 観戦ルームでは、入る人は、すべて観戦者（issue-67）。
+    Join(player, reply) ->
+      case state.kind {
+        Spectate(config) -> spectate_join(state, config, player, None, reply)
+        Match -> handle_join(state, player, None, reply)
+      }
 
     JoinAndSubscribe(player, outbox, reply) ->
-      handle_join(state, player, Some(outbox), reply)
+      case state.kind {
+        Spectate(config) ->
+          spectate_join(state, config, player, Some(outbox), reply)
+        Match -> handle_join(state, player, Some(outbox), reply)
+      }
 
-    Leave(player) -> handle_leave(state, player)
+    Leave(player) ->
+      case dict.has_key(state.spectators, player) {
+        True -> spectate_leave(state, player)
+        False -> handle_leave(state, player)
+      }
+
+    NextGame(game) -> next_game(state, game)
+
+    IdleClose(round) ->
+      case round == state.idle_round && dict.is_empty(state.spectators) {
+        True -> actor.stop()
+        False -> actor.continue(state)
+      }
 
     StartGame(reply) -> handle_start_game(state, reply)
 
-    GameEvent(player, payload) -> handle_game_event(state, player, payload)
+    // 観戦者は、ゲームに操作を送れない（送っても捨てる / issue-67）。
+    GameEvent(player, payload) ->
+      case dict.has_key(state.spectators, player) {
+        True -> actor.continue(state)
+        False -> handle_game_event(state, player, payload)
+      }
 
     Subscribe(player, outbox) -> handle_subscribe(state, player, outbox)
 
@@ -354,7 +435,11 @@ fn handle(state: State, message: Message) -> actor.Next(State, Message) {
     Resync(player) -> {
       case dict.get(state.outboxes, player) {
         Ok(outbox) -> welcome(state, player, outbox)
-        Error(Nil) -> Nil
+        Error(Nil) ->
+          case dict.get(state.spectators, player) {
+            Ok(outbox) -> welcome(state, player, outbox)
+            Error(Nil) -> Nil
+          }
       }
       actor.continue(state)
     }
@@ -601,7 +686,7 @@ fn deliver_to(state: State, targets: List(PlayerId), payload: Dynamic) -> Nil {
   targets
   |> list.unique
   |> list.each(fn(target) {
-    case dict.get(state.outboxes, target) {
+    case outbox_of(state, target) {
       Ok(outbox) -> {
         let PlayerId(to) = target
         process.send(
@@ -665,6 +750,15 @@ fn to_state(state: State) -> RoomState {
       Playing, Some(current) -> driver.accepts_join(current)
       _, _ -> False
     },
+    spectate: case state.kind {
+      Spectate(_) -> True
+      Match -> False
+    },
+    spectators: dict.size(state.spectators),
+    max_spectators: case state.kind {
+      Spectate(config) -> config.max_spectators
+      Match -> 0
+    },
   )
 }
 
@@ -673,11 +767,26 @@ fn room_id_of(state: State) -> String {
   id
 }
 
-/// 購読中の全員に送る（参加・離脱・開始の知らせ）。
+/// 購読中の全員に送る（参加・離脱・開始の知らせ）。観戦ルームでは、観戦者にも送る（issue-67。参加者は
+/// CPU だけで、秘密は無い。対戦のルームには観戦者がいない）。
 fn broadcast(state: State, message: ServerMessage) -> Nil {
   dict.each(state.outboxes, fn(_player, outbox) {
     process.send(outbox, message)
   })
+  dict.each(state.spectators, fn(_spectator, outbox) {
+    process.send(outbox, message)
+  })
+}
+
+/// 宛先の送信先（参加者か、観戦ルームの観戦者）。
+fn outbox_of(
+  state: State,
+  target: PlayerId,
+) -> Result(Subject(ServerMessage), Nil) {
+  case dict.get(state.outboxes, target) {
+    Ok(outbox) -> Ok(outbox)
+    Error(Nil) -> dict.get(state.spectators, target)
+  }
 }
 
 /// 参加を、すでにいる人に知らせる（参加した本人はまだ購読していない）。
@@ -727,12 +836,17 @@ fn drive(
 /// （issue-70。閉じるまでの時間は spec.close_after_ms）。
 fn enter_finished(state: State) -> State {
   announce_finished(state)
-  let _ =
-    process.send_after(
-      state.self,
-      state.spec.close_after_ms,
-      Wake(expiry.expire_token),
-    )
+  let _ = case state.kind {
+    // 観戦ルームは、3 分で閉じない。結果を見せたあと、次の試合を始める（issue-67）。
+    Spectate(config) ->
+      process.send_after(state.self, config.next_game_ms, NextGame(state.games))
+    Match ->
+      process.send_after(
+        state.self,
+        state.spec.close_after_ms,
+        Wake(expiry.expire_token),
+      )
+  }
   State(..state, status: Finished, finished_at: Some(monotonic_ms()))
 }
 
@@ -746,16 +860,17 @@ fn expire(state: State) -> actor.Next(State, Message) {
   actor.stop()
 }
 
-/// 閉じるまでの残り（ミリ秒）。結果が確定していなければ None。
+/// 閉じるまでの残り（ミリ秒）。結果が確定していなければ None。観戦ルームは、時間で閉じないので None。
 fn closes_in_ms(state: State) -> Option(Int) {
-  case state.finished_at {
-    Some(finished_at) ->
+  case state.kind, state.finished_at {
+    Spectate(_), _ -> None
+    Match, Some(finished_at) ->
       Some(expiry.remaining_ms(
         finished_at:,
         now: monotonic_ms(),
         close_ms: state.spec.close_after_ms,
       ))
-    None -> None
+    Match, None -> None
   }
 }
 
@@ -771,10 +886,7 @@ fn announce_finished(state: State) -> Nil {
 
 fn apply(state: State, effect: Effect(PlayerId)) -> Nil {
   case effect {
-    driver.Broadcast(payload) ->
-      dict.each(state.outboxes, fn(_player, outbox) {
-        process.send(outbox, game_state(state, payload))
-      })
+    driver.Broadcast(payload) -> broadcast(state, game_state(state, payload))
     driver.Deliver(targets, payload) -> deliver_to(state, targets, payload)
     driver.WakeAfter(ms, token) -> {
       let _ = process.send_after(state.self, ms, Wake(token))
@@ -788,8 +900,12 @@ fn apply(state: State, effect: Effect(PlayerId)) -> Nil {
           game_type: state.spec.game_type,
           room_id: room_id_of(state),
           result: realtime_result(state, order, standings),
-          // 結果を出した時点では、閉じるまでの時間が、まるごと残っている（issue-70）。
-          closes_in_ms: Some(state.spec.close_after_ms),
+          // 結果を出した時点では、閉じるまでの時間が、まるごと残っている（issue-70）。観戦ルームは、
+          // 時間で閉じないので載せない（issue-67）。
+          closes_in_ms: case state.kind {
+            Match -> Some(state.spec.close_after_ms)
+            Spectate(_) -> None
+          },
         ),
       )
   }
@@ -832,4 +948,105 @@ fn realtime_result(
 fn game_state(state: State, payload: Dynamic) -> ServerMessage {
   let RoomId(room_id) = state.spec.id
   GameState(game_type: state.spec.game_type, room_id:, payload:)
+}
+
+// --- 観戦ルーム（issue-67） ---------------------------------------------------------
+
+/// 観戦者として入る。参加者（定員）には数えず、上限（max_spectators）を超えたら満員。入った人には、
+/// 入室後の案内と、ゲームの今の状態を送る（参加者の途中参加と同じ welcome）。
+fn spectate_join(
+  state: State,
+  config: SpectateConfig,
+  player: Player,
+  outbox: Option(Subject(ServerMessage)),
+  reply: Subject(Result(Nil, JoinError)),
+) -> actor.Next(State, Message) {
+  let already = dict.has_key(state.spectators, player.id)
+  let full = dict.size(state.spectators) >= config.max_spectators
+  case already, full, outbox {
+    True, _, _ -> {
+      process.send(reply, Error(AlreadyJoined))
+      actor.continue(state)
+    }
+    False, True, _ -> {
+      process.send(reply, Error(RoomFull))
+      actor.continue(state)
+    }
+    // 送信先の無い観戦者は、何も受け取れないので入れない（実接続は、いつも送信先を持つ）。
+    False, False, None -> {
+      process.send(reply, Error(RoomFull))
+      actor.continue(state)
+    }
+    False, False, Some(outbox) -> {
+      process.send(reply, Ok(Nil))
+      let state =
+        State(
+          ..state,
+          spectators: dict.insert(state.spectators, player.id, outbox),
+          // 空になってから張った、閉じる時刻を無効にする。
+            idle_round: state.idle_round + 1,
+        )
+      welcome(state, player.id, outbox)
+      actor.continue(state)
+    }
+  }
+}
+
+/// 観戦者が出る（退出か、切断の猶予切れ）。0 人になったら、閉じる時刻を張る。
+fn spectate_leave(
+  state: State,
+  player: PlayerId,
+) -> actor.Next(State, Message) {
+  let state = State(..state, spectators: dict.delete(state.spectators, player))
+  case state.kind, dict.is_empty(state.spectators) {
+    Spectate(config), True -> {
+      let round = state.idle_round + 1
+      let _ =
+        process.send_after(state.self, config.idle_close_ms, IdleClose(round))
+      actor.continue(State(..state, idle_round: round))
+    }
+    _, _ -> actor.continue(state)
+  }
+}
+
+/// 次の試合を始める（観戦ルーム）。同じ設定で、ゲームの側が作り直した箱に替え、前の試合の結果を
+/// 捨てる。古い時刻（試合の番号が違う）と、終わっていないときは、何もしない。
+fn next_game(state: State, game: Int) -> actor.Next(State, Message) {
+  case game == state.games, state.status, state.driver {
+    True, Finished, Some(current) ->
+      case driver.restart(current) {
+        Ok(step) -> {
+          let state =
+            State(
+              ..state,
+              status: Playing,
+              result: None,
+              ended: None,
+              finished_at: None,
+              games: state.games + 1,
+            )
+          broadcast(state, GameStarted(state.spec.game_type, room_id_of(state)))
+          run_driver(state, step)
+        }
+        Error(Nil) -> actor.continue(state)
+      }
+    _, _, _ -> actor.continue(state)
+  }
+}
+
+/// 観戦ルームは、作った時点から、観戦者が 0 人のまま閉じる時刻を張る（作った人が入る前に接続が
+/// 切れても、ルームを残さない）。誰かが入れば、回の番号が進み、無効になる。
+fn arm_idle_at_start(state: State) -> State {
+  case state.kind {
+    Spectate(config) -> {
+      let _ =
+        process.send_after(
+          state.self,
+          config.idle_close_ms,
+          IdleClose(state.idle_round),
+        )
+      state
+    }
+    Match -> state
+  }
 }

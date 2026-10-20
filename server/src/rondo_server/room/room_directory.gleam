@@ -6,11 +6,17 @@
 /// ゲームが終わったルーム（Finished。結果画面の人が残っている間）は、ルームからの知らせで
 /// 印を付け、同時ルーム数に数えない（issue-51。参加できず、一覧にも出ないため）。ID では引ける。
 /// 実接続（issue-31）のために、ルーム ID からルームを引く find と、種別ごとの列挙も持つ。
+///
+/// 観戦ルーム（issue-67 / ADR 0051）は、人間用の枠（limits。veryare は 3）とは別の枠で数え、種別ごとに
+/// 同時に max_spectate_rooms（1）まで。観戦ルームは、試合が終わっても次の試合を始めるので、終わった
+/// 知らせがあっても数えたまま（閉じるまで）。
 import gleam/dict.{type Dict}
 import gleam/erlang/process.{type Pid, type Subject}
 import gleam/list
 import gleam/otp/actor
-import rondo_server/room/room_actor.{type RoomSpec}
+import rondo_server/room/room_actor.{
+  type RoomKind, type RoomSpec, Match, Spectate,
+}
 import rondo_server/room/room_supervisor.{type RoomSupervisor}
 
 /// 作成が断られる理由。
@@ -21,9 +27,13 @@ pub type OpenError {
   StartFailed
 }
 
+/// 種別ごとの、観戦ルームの同時の上限（issue-67。人間用の枠とは別）。
+pub const max_spectate_rooms = 1
+
 pub opaque type Message {
   Open(
     spec: RoomSpec,
+    kind: RoomKind,
     reply: Subject(Result(Subject(room_actor.Message), OpenError)),
   )
   ActiveCount(game_type: String, reply: Subject(Int))
@@ -43,8 +53,10 @@ type Entry {
     game_type: String,
     room_id: String,
     room: Subject(room_actor.Message),
-    /// ゲームが終わったか。終わったルームは、同時ルーム数に数えない。
+    /// ゲームが終わったか。終わったルームは、同時ルーム数に数えない（対戦のルームだけ）。
     finished: Bool,
+    /// 観戦ルームか（issue-67）。観戦ルームは、終わっても数えたまま。
+    spectate: Bool,
   )
 }
 
@@ -87,7 +99,17 @@ pub fn open(
   directory: Subject(Message),
   spec: RoomSpec,
 ) -> Result(Subject(room_actor.Message), OpenError) {
-  process.call(directory, 1000, Open(spec, _))
+  open_with(directory, spec, Match)
+}
+
+/// 種類を決めて、ルームを作る（観戦ルーム / issue-67）。対戦は人間用の枠、観戦は観戦ルームの枠
+/// （max_spectate_rooms）で数え、上限に達していれば LimitReached。
+pub fn open_with(
+  directory: Subject(Message),
+  spec: RoomSpec,
+  kind: RoomKind,
+) -> Result(Subject(room_actor.Message), OpenError) {
+  process.call(directory, 1000, Open(spec, kind, _))
 }
 
 /// ルーム ID からルームを引く。無ければ Error。
@@ -106,15 +128,15 @@ pub fn rooms(
   process.call(directory, 1000, Rooms(game_type, _))
 }
 
-/// その種別の、いま数えているルーム数（生きていて、ゲームが終わっていないもの）。
+/// その種別の、いま数えているルーム数（生きていて、ゲームが終わっていない対戦のルームと、観戦ルーム）。
 pub fn active_count(directory: Subject(Message), game_type: String) -> Int {
   process.call(directory, 1000, ActiveCount(game_type, _))
 }
 
 fn handle(state: State, message: Message) -> actor.Next(State, Message) {
   case message {
-    Open(spec, reply) -> {
-      let #(state, result) = open_room(state, spec)
+    Open(spec, kind, reply) -> {
+      let #(state, result) = open_room(state, spec, kind)
       process.send(reply, result)
       actor.continue(state)
     }
@@ -170,15 +192,21 @@ fn handle(state: State, message: Message) -> actor.Next(State, Message) {
 fn open_room(
   state: State,
   spec: RoomSpec,
+  kind: RoomKind,
 ) -> #(State, Result(Subject(room_actor.Message), OpenError)) {
-  let full = case dict.get(state.limits, spec.game_type) {
-    Ok(limit) -> count(state, spec.game_type) >= limit
-    Error(Nil) -> False
+  let spectate = case kind {
+    Spectate(_) -> True
+    Match -> False
+  }
+  let full = case spectate, dict.get(state.limits, spec.game_type) {
+    True, _ -> count_spectate(state, spec.game_type) >= max_spectate_rooms
+    False, Ok(limit) -> count_match(state, spec.game_type) >= limit
+    False, Error(Nil) -> False
   }
   case full {
     True -> #(state, Error(LimitReached))
     False ->
-      case room_supervisor.open_room(state.supervisor, spec) {
+      case room_supervisor.open_room_with(state.supervisor, spec, kind) {
         Ok(started) -> {
           let _ = process.monitor(started.pid)
           let room_actor.RoomId(room_id) = spec.id
@@ -188,6 +216,7 @@ fn open_room(
               room_id:,
               room: started.data,
               finished: False,
+              spectate:,
             )
           // ゲームが終わったら、知らせてもらう（終わったルームは数えない）。
           room_actor.notify_when_finished(started.data, state.finished)
@@ -200,7 +229,21 @@ fn open_room(
 }
 
 fn count(state: State, game_type: String) -> Int {
+  count_match(state, game_type) + count_spectate(state, game_type)
+}
+
+/// 人間用の枠で数える、終わっていない対戦のルーム。
+fn count_match(state: State, game_type: String) -> Int {
   state.active
   |> dict.values
-  |> list.count(fn(entry) { entry.game_type == game_type && !entry.finished })
+  |> list.count(fn(entry) {
+    entry.game_type == game_type && !entry.spectate && !entry.finished
+  })
+}
+
+/// 観戦ルームの枠で数える、観戦ルーム（閉じるまで数える）。
+fn count_spectate(state: State, game_type: String) -> Int {
+  state.active
+  |> dict.values
+  |> list.count(fn(entry) { entry.game_type == game_type && entry.spectate })
 }

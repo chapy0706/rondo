@@ -42,6 +42,11 @@ export interface RoomSummary {
 	 * 解釈しない。名前を持たない古いサーバーでは省略される。
 	 */
 	readonly name?: string;
+	/**
+	 * 観戦ルームか（issue-67）。観戦ルームのときだけ true で載る。省略は、人間が参加する対戦のルーム。
+	 * 観戦ルームの playerCount と capacity は、観戦者の数と、その上限。
+	 */
+	readonly spectate?: true;
 }
 
 /**

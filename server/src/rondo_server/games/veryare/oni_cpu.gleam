@@ -429,13 +429,25 @@ fn result_is_ok(result: Result(a, b)) -> Bool {
   }
 }
 
-/// from から各マスまでの歩数と、経路を辿るための1つ前のマス（幅優先探索）。
-fn search(map: Map, from: Cell) -> #(Dict(Cell, Int), Dict(Cell, Cell)) {
+/// a から b へ、1 歩で進めるか（隣のマスで、同じ領域か、襖のある境）。観戦ルームの隠れ CPU の歩き
+/// （hider_cpu.plan_walks / issue-67）の確かめにも使う。
+pub fn passable(map: Map, a: Cell, b: Cell) -> Bool {
+  list.contains(neighbours(map, a), b)
+}
+
+/// from から各マスまでの歩数と、経路を辿るための1つ前のマス（幅優先探索）。観戦ルームの隠れ CPU の
+/// 歩き（hider_cpu.plan_walks / issue-67）も、この探索を使う。
+pub fn search(map: Map, from: Cell) -> #(Dict(Cell, Int), Dict(Cell, Cell)) {
   bfs(map, [from], 0, dict.from_list([#(from, 0)]), dict.new())
 }
 
 /// trace は from から to までの経路（from を含まず、to を含む）。着けなければ空。
-fn trace(parents: Dict(Cell, Cell), from: Cell, cell: Cell, acc: List(Cell)) {
+pub fn trace(
+  parents: Dict(Cell, Cell),
+  from: Cell,
+  cell: Cell,
+  acc: List(Cell),
+) {
   case cell == from {
     True -> acc
     False ->

@@ -287,6 +287,7 @@ pub fn room_list_hides_exploration_time_test() {
       capacity: 5,
       status: Waiting,
       name: Some("たのしい部屋"),
+      spectate: False,
     ),
   ])
 

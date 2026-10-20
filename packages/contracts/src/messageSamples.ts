@@ -77,6 +77,16 @@ export const serverMessageSamples = [
 				status: "playing",
 				name: "user1のルーム",
 			},
+			{
+				// 観戦ルーム（issue-67）。人数と定員は、観戦者の数と、その上限。
+				roomId: "room-5",
+				gameType: "veryare",
+				playerCount: 2,
+				capacity: 20,
+				status: "playing",
+				name: "user2のルーム",
+				spectate: true,
+			},
 		],
 	},
 	{

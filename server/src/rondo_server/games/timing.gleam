@@ -63,3 +63,12 @@ pub fn finished_close_ms(timing: Timing) -> Int {
     Faster(divisor) -> int.max(1, expiry.default_close_ms / divisor)
   }
 }
+
+/// 時間（ミリ秒）に、短縮を当てはめる（1 ミリ秒より短くはしない）。観戦ルームの、結果を見せる時間と、
+/// 閉じるまでの時間に使う（issue-67）。
+pub fn scale_ms(ms: Int, timing: Timing) -> Int {
+  case timing {
+    Normal -> ms
+    Faster(divisor) -> int.max(1, ms / divisor)
+  }
+}
