@@ -187,7 +187,7 @@ import {
 	parseStageNotice,
 	reconcile,
 } from "./stage";
-import { controlSizes } from "./viewLayout";
+import { clampPanel, controlSizes } from "./viewLayout";
 
 /** 「見つけた！」を出しておく時間（ミリ秒 / issue-27）。 */
 const FOUND_NOTICE_MS = 1500;
@@ -1235,9 +1235,64 @@ export default function Veryare() {
 			? "reveal"
 			: null;
 	const [sheetOpen, setSheetOpen] = useState(true);
+	/**
+	 * 動かしたシートの左上の位置（3D の画面の中の px）。null なら、既定の左下。見出しのつまみを引いて
+	 * 動かす（塗りたい所を、シートが隠さないように）。位置は clampPanel で画面の内側に収める。
+	 */
+	const [sheetAt, setSheetAt] = useState<{ x: number; y: number } | null>(null);
+	const sheetRef = useRef<HTMLDivElement | null>(null);
+	const sheetDragRef = useRef<{
+		pointerId: number;
+		dx: number;
+		dy: number;
+	} | null>(null);
 	useEffect(() => {
-		if (sheet !== null) setSheetOpen(true);
+		if (sheet !== null) {
+			setSheetOpen(true);
+			setSheetAt(null);
+		}
 	}, [sheet]);
+	// シートの幅は、既定の位置と同じ（左の余白 8 px、視点パッドの分 + 16 px を空ける）。
+	const sheetWidth = Math.max(viewSize.width - padSize - 24, 0);
+	const sheetPlace =
+		sheetAt === null
+			? null
+			: clampPanel(
+					sheetAt,
+					{
+						width: sheetWidth,
+						height: sheetRef.current?.offsetHeight ?? 0,
+					},
+					viewSize,
+				);
+	const onSheetGrab = (event: React.PointerEvent<HTMLElement>) => {
+		const panel = sheetRef.current;
+		if (panel === null) return;
+		const rect = panel.getBoundingClientRect();
+		sheetDragRef.current = {
+			pointerId: event.pointerId,
+			dx: event.clientX - rect.left,
+			dy: event.clientY - rect.top,
+		};
+		event.currentTarget.setPointerCapture(event.pointerId);
+	};
+	const onSheetDrag = (event: React.PointerEvent<HTMLElement>) => {
+		const drag = sheetDragRef.current;
+		const view = viewRef.current;
+		if (drag === null || drag.pointerId !== event.pointerId || view === null) {
+			return;
+		}
+		const rect = view.getBoundingClientRect();
+		setSheetAt({
+			x: event.clientX - rect.left - drag.dx,
+			y: event.clientY - rect.top - drag.dy,
+		});
+	};
+	const onSheetRelease = (event: React.PointerEvent<HTMLElement>) => {
+		if (sheetDragRef.current?.pointerId === event.pointerId) {
+			sheetDragRef.current = null;
+		}
+	};
 	const paintPanel = (
 		<PaintPanel
 			editable={paintEditable}
@@ -1621,14 +1676,41 @@ export default function Veryare() {
 				{sheet !== null ? (
 					sheetOpen ? (
 						<div
-							className="absolute bottom-2 left-2 flex max-h-[calc(50%-1rem)] flex-col rounded-xl bg-ink/85 ring-1 ring-line ring-inset"
-							style={{ right: padSize + 16 }}
+							ref={sheetRef}
+							className={`absolute flex max-h-[calc(50%-1rem)] flex-col rounded-xl bg-ink/85 ring-1 ring-line ring-inset ${sheetPlace === null ? "bottom-2 left-2" : ""}`}
+							style={
+								sheetPlace === null
+									? { right: padSize + 16 }
+									: {
+											left: sheetPlace.x,
+											top: sheetPlace.y,
+											width: sheetWidth,
+										}
+							}
 							data-testid="veryare-sheet"
+							data-moved={sheetPlace !== null}
 						>
-							<div className="flex shrink-0 items-center gap-2 pt-1 pl-3">
-								<span className="min-w-0 flex-1 truncate font-semibold text-fg-muted text-xs">
-									{sheet === "paint" ? "ペイント" : "答え合わせ"}
-								</span>
+							<div className="flex shrink-0 items-center gap-1 pt-1">
+								{/* つまみ: 引くと、シートを 3D の画面の中で動かせる（塗りたい所を空ける）。 */}
+								<button
+									type="button"
+									aria-label="シートを動かす（引いて動かす。2 回押すと元の位置）"
+									data-testid="veryare-sheet-move"
+									onPointerDown={onSheetGrab}
+									onPointerMove={onSheetDrag}
+									onPointerUp={onSheetRelease}
+									onPointerCancel={onSheetRelease}
+									onLostPointerCapture={onSheetRelease}
+									onDoubleClick={() => setSheetAt(null)}
+									className="flex h-9 min-w-0 flex-1 cursor-grab touch-none items-center gap-1.5 pl-2 text-left active:cursor-grabbing"
+								>
+									<span aria-hidden="true" className="text-fg-muted">
+										⠿
+									</span>
+									<span className="truncate font-semibold text-fg-muted text-xs">
+										{sheet === "paint" ? "ペイント" : "答え合わせ"}
+									</span>
+								</button>
 								{sheet === "paint" ? (
 									<PaintConfirmButton
 										editable={paintEditable}

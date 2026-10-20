@@ -8,6 +8,7 @@ import gleeunit/should
 import rondo_server/games/veryare/game
 import rondo_server/games/veryare/oni_cpu
 import rondo_server/games/veryare/room as veryare
+import rondo_server/room/expiry
 import rondo_server/room/room_actor.{
   type RoomSpec, Player, PlayerId, RoomId, RoomSpec,
 }
@@ -39,6 +40,7 @@ fn other_spec(n: Int) -> RoomSpec {
     driver: None,
     member_info: None,
     bots: [],
+    close_after_ms: expiry.default_close_ms,
   )
 }
 

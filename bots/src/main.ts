@@ -10,7 +10,7 @@
 
 import { formatTable } from "./expect.ts";
 import { runScenario } from "./runner.ts";
-import { allScenarios } from "./scenarios.ts";
+import { allScenarios, expiryScenarios } from "./scenarios.ts";
 
 const url = process.env.RONDO_BOTS_URL ?? "ws://localhost:3300/ws";
 const args = process.argv.slice(2);
@@ -21,7 +21,7 @@ const option = (name: string): string | undefined => {
 const seed = Number(option("--seed") ?? Date.now() % 1_000_000);
 const only = option("--only");
 
-const chosen = allScenarios.filter(
+const chosen = [...allScenarios, ...expiryScenarios].filter(
 	(s) => only === undefined || s.name.includes(only),
 );
 if (chosen.length === 0) {

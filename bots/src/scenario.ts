@@ -15,6 +15,8 @@
  *   一覧（list-rooms）に、整えた名前が載ることを確かめる。無ければ送らない（既定の名前）
  * - waitingSync: 待機ルームの同期（issue-59）の確かめをするか。鬼選出の後に、どのボットにも待機の
  *   通知（members）が届かないことを確かめる
+ * - expiry: 結果のあと、ルームが閉じるまで待つか（issue-70）。game-ended に、閉じるまでの残り
+ *   （縮めた 3 分）が載り、その時間のあとに、受け手の全員へ error の room-expired が届くことを確かめる
  */
 
 import type { VeryareModelPose } from "@rondo/contracts";
@@ -168,6 +170,8 @@ export interface Scenario {
 	readonly settings?: Readonly<Record<string, number>>;
 	readonly roomName?: string;
 	readonly waitingSync?: boolean;
+	/** 結果のあと、ルームが閉じるまで待つ（issue-70）。 */
+	readonly expiry?: boolean;
 }
 
 /** 隠れ側・鬼の details（サーバーの games/veryare/result.gleam の写し方）。 */

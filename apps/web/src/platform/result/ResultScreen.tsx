@@ -16,9 +16,10 @@
  */
 
 import type { GameManifest, PlayerId, RealtimeResult } from "@rondo/contracts";
-import type { ReactNode } from "react";
+import { type ReactNode, useEffect, useState } from "react";
 import { GameLogo } from "../brand/GameLogo";
 import { displayName } from "../brand/gameBrand";
+import { closingText, secondsUntil } from "./closing";
 
 export function ResultScreen({
 	result,
@@ -26,6 +27,7 @@ export function ResultScreen({
 	onLeave,
 	game,
 	fill = false,
+	closesAt = null,
 	children,
 }: {
 	result: RealtimeResult;
@@ -35,6 +37,11 @@ export function ResultScreen({
 	onLeave: () => void;
 	/** 画面いっぱいの枠の中に置く（一覧の中だけスクロールし、ボタンを下に固定する）。 */
 	fill?: boolean;
+	/**
+	 * ルームが閉じる時刻（Date.now() の時計 / issue-70）。あれば、「あと ○ 秒で、ロビーへ戻ります」を
+	 * 小さく出す（表示だけ。閉じる判断はサーバー）。null なら出さない。
+	 */
+	closesAt?: number | null;
 	children?: ReactNode;
 }) {
 	const ranked = [...result.rankings].sort((a, b) => a.rank - b.rank);
@@ -110,10 +117,30 @@ export function ResultScreen({
 				退出する
 			</button>
 
+			{closesAt === null ? null : <ClosingNote closesAt={closesAt} />}
+
 			<p className="max-w-xs shrink-0 text-center text-slate-500 text-xs">
 				この結果は保存されません（ADR 0019）。退出するとルームは解散します（ADR
 				0017）。
 			</p>
 		</section>
+	);
+}
+
+/** ルームが閉じるまでの残り（1 秒ごとに数え直す / issue-70）。 */
+function ClosingNote({ closesAt }: { closesAt: number }) {
+	const [now, setNow] = useState(() => Date.now());
+	useEffect(() => {
+		const timer = setInterval(() => setNow(Date.now()), 1000);
+		return () => clearInterval(timer);
+	}, []);
+	return (
+		<p
+			className="max-w-xs shrink-0 text-center text-slate-400 text-xs"
+			data-testid="result-closing"
+			aria-live="polite"
+		>
+			{closingText(secondsUntil(closesAt, now))}
+		</p>
 	);
 }

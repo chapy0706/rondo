@@ -158,6 +158,12 @@ export type ServerMessage =
 			readonly gameType: GameType;
 			readonly roomId: RoomId;
 			readonly result: RealtimeResult;
+			/**
+			 * ルームが閉じるまでの残り（ミリ秒 / issue-70・ADR 0050）。通知を作った時点からの残り
+			 * （ADR 0046 と同じ考え方）。結果が確定してから一定の時間がたつと、サーバーはルームを閉じ、
+			 * 残っている人へ error の room-expired を送る。省略できる（無ければ、残りを出さない）。
+			 */
+			readonly closesInMs?: number;
 	  }
 	| { readonly type: "error"; readonly code: string; readonly message: string }
 	| {

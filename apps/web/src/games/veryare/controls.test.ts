@@ -183,6 +183,20 @@ const CASES: readonly Case[] = [
 	["答え合わせ・鬼", [phase("reveal", { oni: "a" })], "a", ["look"]],
 	["答え合わせ・隠れ側", [phase("reveal", { oni: "a" })], "b", ["look"]],
 	["終了", [phase("ended", { oni: "a" })], "b", ["look"]],
+	// 結果のあと（issue-70）。復帰で、終了のフェーズと、隠れ側の一覧・まだ隠れている人が届く。
+	// 結果画面（基盤）が出るので、ゲームの操作部品は、視点パッドだけ（動けない・撃てない・塗れない）。
+	[
+		"結果のあと・鬼（復帰）",
+		[phase("ended", { oni: "a" }), hiding(["b"])],
+		"a",
+		["look"],
+	],
+	[
+		"結果のあと・隠れ側（復帰）",
+		[phase("ended", { oni: "a" }), hiding(["b"])],
+		"b",
+		["look"],
+	],
 	[
 		"鬼 CPU の準備移動・人間の隠れ側",
 		[phase("preparation", { oni: "cpu-1" })],

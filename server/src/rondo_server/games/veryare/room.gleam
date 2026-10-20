@@ -69,6 +69,7 @@ import rondo_server/games/veryare/stage
 import rondo_server/games/veryare/stage_notice
 import rondo_server/games/veryare/stage_timing
 import rondo_server/room/driver.{type Driver, type Effect}
+import rondo_server/room/expiry
 import rondo_server/room/room_actor.{
   type Player, type PlayerId, type RoomId, type RoomSpec, Player, PlayerId,
   RoomSpec,
@@ -298,13 +299,17 @@ pub fn spec_on(
   stage: StageChoice,
   timing: Timing,
 ) -> RoomSpec {
-  spec_with_stage(
-    id,
-    settings,
-    stage,
-    game.durations(exploration_ms: settings.exploration_seconds * 1000)
-      |> timing.apply(timing),
-    int.random,
+  RoomSpec(
+    ..spec_with_stage(
+      id,
+      settings,
+      stage,
+      game.durations(exploration_ms: settings.exploration_seconds * 1000)
+        |> timing.apply(timing),
+      int.random,
+    ),
+    // 結果のあと、ルームを閉じるまでの時間（issue-70）。フェーズ時間と同じく短縮する。
+    close_after_ms: timing.finished_close_ms(timing),
   )
 }
 
@@ -360,6 +365,7 @@ pub fn spec_with_clock(
     }),
     member_info: Some(room_info(settings.exploration_seconds)),
     bots: cpu_players(settings.cpu),
+    close_after_ms: expiry.default_close_ms,
   )
 }
 

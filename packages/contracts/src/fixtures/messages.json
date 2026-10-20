@@ -202,6 +202,28 @@
 			}
 		},
 		{
+			"type": "game-ended",
+			"gameType": "veryare",
+			"roomId": "room-3",
+			"result": {
+				"order": "higher-is-better",
+				"rankings": [
+					{
+						"playerId": "p-1",
+						"name": "user1",
+						"rank": 1,
+						"result": {
+							"score": 1,
+							"details": {
+								"役割": "隠れる側"
+							}
+						}
+					}
+				]
+			},
+			"closesInMs": 180000
+		},
+		{
 			"type": "error",
 			"code": "room-full",
 			"message": "そのルームは満員です。"

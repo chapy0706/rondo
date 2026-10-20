@@ -4,7 +4,10 @@
  * 変えない。知らない種類は、既定の文言に落とす。
  */
 
-/** サーバーが返すエラーの種類の全部（server/src/rondo_server/connection/ / ADR 0047）。 */
+/**
+ * サーバーが返すエラーの種類の全部（server/src/rondo_server/connection/ / ADR 0047。room-expired は
+ * room/expiry.gleam / issue-70）。
+ */
 export const SERVER_ERROR_CODES = [
 	"room-limit",
 	"room-full",
@@ -14,6 +17,7 @@ export const SERVER_ERROR_CODES = [
 	"already-in-room",
 	"reconnect-failed",
 	"room-closed",
+	"room-expired",
 	"unknown-game",
 	"invalid-settings",
 	"server-error",
@@ -84,6 +88,8 @@ const TABLE: Readonly<
 		"ルームが閉じました。ロビーへ戻って、もう一度ルームに入ってください",
 		["lobby"],
 	),
+	// 結果のあと、時間がたってルームが閉じた（issue-70）。ゲーム画面はロビーへ戻し、ロビーに短く出す。
+	"room-expired": notice("前のルームは、閉じられました", [], true),
 	"unknown-game": notice(
 		"そのルームは作れませんでした。設定を変えて、もう一度お試しください",
 		[],

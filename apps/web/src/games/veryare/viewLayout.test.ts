@@ -9,6 +9,7 @@ import {
 	FOV_MAX,
 	REFERENCE_ASPECT,
 	SIGHT_ASPECT,
+	clampPanel,
 	controlSizes,
 	fovForAspect,
 } from "./viewLayout";
@@ -87,5 +88,34 @@ describe("controlSizes - パッドと撃つボタンの大きさは、3D の画�
 
 	it("大きさが分からない間（0）は、これまでの大きさ", () => {
 		expect(controlSizes(0, 0)).toEqual({ pad: 120, shoot: 80 });
+	});
+});
+
+describe("clampPanel - 動かしたシート（ペイントの板など）を、3D の画面の内側に収める", () => {
+	const view = { width: 375, height: 450 };
+	const panel = { width: 250, height: 200 };
+
+	it("内側なら、そのまま", () => {
+		expect(clampPanel({ x: 40, y: 100 }, panel, view)).toEqual({
+			x: 40,
+			y: 100,
+		});
+	});
+
+	it("外へ出そうなら、端から 8 px の内側で止める", () => {
+		expect(clampPanel({ x: -50, y: -30 }, panel, view)).toEqual({
+			x: 8,
+			y: 8,
+		});
+		expect(clampPanel({ x: 300, y: 400 }, panel, view)).toEqual({
+			x: 375 - 250 - 8,
+			y: 450 - 200 - 8,
+		});
+	});
+
+	it("シートが画面より大きければ、左上に寄せる", () => {
+		expect(
+			clampPanel({ x: 100, y: 100 }, { width: 500, height: 600 }, view),
+		).toEqual({ x: 8, y: 8 });
 	});
 });

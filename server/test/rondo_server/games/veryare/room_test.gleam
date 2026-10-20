@@ -632,7 +632,8 @@ pub fn human_oni_state_is_broadcast_during_exploration_test() {
 /// 次に届く game-ended の結果。それまでの通知は読み飛ばす。
 fn next_ended(outbox: Subject(ServerMessage)) -> message.RealtimeResult {
   case process.receive(outbox, 2000) {
-    Ok(message.GameEnded(game_type: "veryare", room_id: "v", result:)) -> result
+    Ok(message.GameEnded(game_type: "veryare", room_id: "v", result:, ..)) ->
+      result
     Ok(_) -> next_ended(outbox)
     Error(Nil) -> panic as "game-ended が届かない"
   }

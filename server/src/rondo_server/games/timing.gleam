@@ -9,6 +9,7 @@
 import gleam/int
 import gleam/string
 import rondo_server/games/veryare/game.{type Durations, Durations}
+import rondo_server/room/expiry
 
 /// 環境変数の名前。
 pub const env_name = "RONDO_TEST_PHASE_DIVISOR"
@@ -51,5 +52,14 @@ pub fn apply(durations: Durations, timing: Timing) -> Durations {
         reload_ms: scale(durations.reload_ms),
       )
     }
+  }
+}
+
+/// 結果が確定してから、ルームを閉じるまでの時間（ミリ秒 / issue-70）。本番は 3 分。短縮のときは、
+/// フェーズ時間と同じく divisor で割る（1 ミリ秒より短くはしない）。
+pub fn finished_close_ms(timing: Timing) -> Int {
+  case timing {
+    Normal -> expiry.default_close_ms
+    Faster(divisor) -> int.max(1, expiry.default_close_ms / divisor)
   }
 }

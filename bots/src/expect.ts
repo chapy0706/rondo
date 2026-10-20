@@ -299,3 +299,34 @@ export function checkMembersStopped(
 		? []
 		: [`${name} に、鬼選出の後で待機の通知が ${late.length} 通届いた`];
 }
+
+/** 結果のあと、ルームが閉じるまでの確かめ（issue-70）の、ボットごとの受け取り。 */
+export interface ExpiryLog {
+	readonly name: string;
+	/** 届いた game-ended（届かなければ undefined）。 */
+	readonly ended: ServerMessage | undefined;
+	/** 閉じる時刻のあとに、error の room-expired が届いたか。 */
+	readonly expired: boolean;
+}
+
+/**
+ * 結果（game-ended）に、閉じるまでの残り（closesInMs）が expectedCloseMs で載り、時間がたつと
+ * room-expired が届いたか（issue-70）。問題の一覧。
+ */
+export function checkExpiry(
+	expectedCloseMs: number,
+	logs: readonly ExpiryLog[],
+): string[] {
+	return logs.flatMap(({ name, ended, expired }) => {
+		const problems: string[] = [];
+		if (ended?.type !== "game-ended") {
+			problems.push(`${name}: 結果が届かない`);
+		} else if (ended.closesInMs !== expectedCloseMs) {
+			problems.push(
+				`${name}: 結果の閉じるまでの残りが ${ended.closesInMs ?? "なし"}（${expectedCloseMs} ms のはず）`,
+			);
+		}
+		if (!expired) problems.push(`${name}: room-expired が届かない`);
+		return problems;
+	});
+}

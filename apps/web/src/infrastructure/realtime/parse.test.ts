@@ -106,3 +106,33 @@ describe("parseServerMessage - ルーム名（issue-58）", () => {
 		expect(parseServerMessage({ ...joined, roomName: null })).toBeNull();
 	});
 });
+
+describe("parseServerMessage - game-ended の閉じるまでの残り（issue-70）", () => {
+	const ended = {
+		type: "game-ended",
+		gameType: "veryare",
+		roomId: "room-1",
+		result: { order: "lower-is-better", rankings: [] },
+	};
+
+	it("closesInMs（0 以上の数）を通す", () => {
+		expect(parseServerMessage({ ...ended, closesInMs: 180000 })).toEqual({
+			...ended,
+			closesInMs: 180000,
+		});
+		expect(parseServerMessage({ ...ended, closesInMs: 0 })).toEqual({
+			...ended,
+			closesInMs: 0,
+		});
+	});
+
+	it("無い古い形も読める", () => {
+		expect(parseServerMessage(ended)).toEqual(ended);
+	});
+
+	it("数でない・負の・有限でない closesInMs は捨てる（結果は読む）", () => {
+		for (const closesInMs of ["180000", -1, Number.NaN, null]) {
+			expect(parseServerMessage({ ...ended, closesInMs })).toEqual(ended);
+		}
+	});
+});

@@ -502,6 +502,25 @@ export const wideScenarios: readonly Scenario[] = [
 ];
 
 /** make bots で流す、すべてのシナリオ（既存のシナリオの後に、広い屋敷）。 */
+/**
+ * 結果のあと、ルームが閉じる（issue-70）。時間切れで結果まで進め、結果のあと、閉じるまで（縮めた 3 分 =
+ * 9 秒）待つ。既存のシナリオの一覧（scenarios.test.ts）を変えないよう、別の配列に置く。make bots は、
+ * allScenarios の後に流す（main.ts）。
+ */
+export const expiryScenarios: readonly Scenario[] = [
+	{
+		name: "結果のあと、ルームが閉じる",
+		bots: ["bot-a", "bot-b"],
+		expiry: true,
+		steps: [
+			{ on: "joined", bot: "bot-a", action: { type: "touch-area" } },
+			...hide(["bot-b"]),
+		],
+		receivers: ["bot-a", "bot-b"],
+		rankings: [hider("bot-b", true), oni("bot-a", false)],
+	},
+];
+
 export const allScenarios: readonly Scenario[] = [
 	...scenarios,
 	...wideScenarios,

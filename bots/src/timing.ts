@@ -15,6 +15,8 @@ export const SERVER_DEFAULTS = {
 	explorationMs: 40_000,
 	/** 撃つ間隔（issue-27）。 */
 	reloadMs: 3_000,
+	/** 結果が確定してから、ルームを閉じるまで（issue-70。server/src/rondo_server/room/expiry.gleam）。 */
+	finishedCloseMs: 180_000,
 } as const;
 
 /** 縮めた時間（サーバーの timing.apply と同じく、割って切り捨て、1 より小さくしない）。 */

@@ -3,6 +3,7 @@ import gleam/option.{None, Some}
 import gleeunit/should
 import rondo_server/games/tilt_maze/authority as tilt_maze
 import rondo_server/room/authority.{Outcome, Ranking}
+import rondo_server/room/expiry
 import rondo_server/room/room_actor.{
   Finished, Player, PlayerId, Playing, RoomId, RoomSpec,
 }
@@ -28,6 +29,7 @@ pub fn room_ranks_goals_in_receive_order_test() {
       driver: None,
       member_info: None,
       bots: [],
+      close_after_ms: expiry.default_close_ms,
     )
   let assert Ok(started) = room_actor.start(spec)
   let room = started.data
@@ -62,6 +64,7 @@ pub fn room_stays_playing_until_all_finish_test() {
       driver: None,
       member_info: None,
       bots: [],
+      close_after_ms: expiry.default_close_ms,
     )
   let assert Ok(started) = room_actor.start(spec)
   let room = started.data

@@ -50,7 +50,9 @@ export default defineConfig({
 			// 名前を付けない（基準画像の名前を、これまでと変えない）。
 			use: { ...devices["Desktop Chrome"] },
 			// 拡張の E2E（テスト用の口と、素材の差し替えが要る）は、playwright.extended.config.ts で流す。
-			testIgnore: ["extended/**", LAYOUT_TEST],
+			// 終わったルームの自動閉鎖（expiry.e2e.ts）は、時間を縮めたサーバーで、playwright.expiry.config.ts
+			// から流す。
+			testIgnore: ["extended/**", LAYOUT_TEST, "expiry.e2e.ts"],
 		},
 		{
 			name: "iphone-webkit",

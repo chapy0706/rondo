@@ -143,6 +143,24 @@ export const serverMessageSamples = [
 			],
 		},
 	},
+	{
+		// 結果のあと、ルームが閉じるまでの残り（issue-70。通知を作った時点からの残り）。
+		type: "game-ended",
+		gameType: "veryare",
+		roomId: "room-3",
+		result: {
+			order: "higher-is-better",
+			rankings: [
+				{
+					playerId: "p-1",
+					name: "user1",
+					rank: 1,
+					result: { score: 1, details: { 役割: "隠れる側" } },
+				},
+			],
+		},
+		closesInMs: 180000,
+	},
 	{ type: "error", code: "room-full", message: "そのルームは満員です。" },
 	{ type: "session", playerId: "p-2", resumeToken: "secret-token" },
 	{ type: "ping" },

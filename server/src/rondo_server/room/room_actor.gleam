@@ -10,6 +10,7 @@ import rondo_server/protocol/message.{
 }
 import rondo_server/room/authority.{type Authority, type Outcome}
 import rondo_server/room/driver.{type Driver, type Effect}
+import rondo_server/room/expiry
 
 /// ルームを一意に識別するID。ロビーがルーム一覧で扱う単位（ADR 0016）。
 pub type RoomId {
@@ -58,6 +59,9 @@ pub type RoomSpec {
     /// 接続を持たない参加者（CPU / ADR 0038）。作成時から参加者で、定員と人数の判定に
     /// 数える。送信先を持たないので、限定配信・全体配信は届かない。
     bots: List(Player),
+    /// 結果が確定してから、ルームを閉じるまでの時間（ミリ秒 / issue-70・ADR 0050）。本番は
+    /// 3 分（expiry.default_close_ms）。テスト用の短縮は games/timing の finished_close_ms。
+    close_after_ms: Int,
   )
 }
 
@@ -171,6 +175,11 @@ type State {
     names: Dict(PlayerId, String),
     /// ゲームが終わったときに、ルーム ID を知らせる先（issue-51 / ルーム台帳）。
     finish_watchers: List(Subject(String)),
+    /// 結果が確定した時刻（単調な時計のミリ秒 / issue-70）。閉じるまでの残りを計るのに使う。
+    finished_at: Option(Int),
+    /// 送った結果（game-ended の result）。結果のあとに送信先を登録し直した人へ、残りつきで
+    /// 送り直す（issue-70）。ゲーム進行の差し込み口（driver）が結果を出したときだけ Some。
+    ended: Option(message.RealtimeResult),
   )
 }
 
@@ -194,6 +203,8 @@ pub fn start(spec: RoomSpec) -> actor.StartResult(Subject(Message)) {
         |> list.map(fn(bot) { #(bot.id, bot.name) })
         |> dict.from_list,
       finish_watchers: [],
+      finished_at: None,
+      ended: None,
     )
     |> actor.initialised
     |> actor.returning(self)
@@ -326,9 +337,13 @@ fn handle(state: State, message: Message) -> actor.Next(State, Message) {
     }
 
     Wake(token) ->
-      case state.status, state.driver {
-        Playing, Some(current) -> run_driver(state, driver.wake(current, token))
-        _, _ -> actor.continue(state)
+      case expiry.is_expire_token(token), state.status, state.driver {
+        // 結果が確定してから、閉じるまでの時間がたった（issue-70）。進行中のルームは閉じない。
+        True, Finished, _ -> expire(state)
+        True, _, _ -> actor.continue(state)
+        False, Playing, Some(current) ->
+          run_driver(state, driver.wake(current, token))
+        False, _, _ -> actor.continue(state)
       }
 
     Snapshot(reply) -> {
@@ -482,17 +497,14 @@ fn handle_game_event(
     Playing, None, Some(current) -> {
       let updated = authority.record(current, player, payload)
       case authority.is_over(updated) {
-        True -> {
-          announce_finished(state)
+        True ->
           actor.continue(
             State(
-              ..state,
-              status: Finished,
+              ..enter_finished(state),
               authority: Some(updated),
               result: Some(authority.outcome(updated)),
             ),
           )
-        }
         False -> actor.continue(State(..state, authority: Some(updated)))
       }
     }
@@ -548,6 +560,20 @@ fn welcome(
         apply(state, effect)
       })
     None -> Nil
+  }
+  // 結果のあとに登録し直した人（復帰）へ、結果を、閉じるまでの残りつきで送り直す（issue-70）。
+  case state.status, state.ended {
+    Finished, Some(result) ->
+      process.send(
+        outbox,
+        GameEnded(
+          game_type: state.spec.game_type,
+          room_id: room_id_of(state),
+          result:,
+          closes_in_ms: closes_in_ms(state),
+        ),
+      )
+    _, _ -> Nil
   }
 }
 
@@ -681,16 +707,60 @@ fn drive(
 ) -> State {
   let #(next, effects) = step
   list.each(effects, fn(effect) { apply(state, effect) })
-  let status = case driver.is_over(next) {
-    True -> Finished
-    False -> state.status
+  // 送った結果を控える（結果のあとに送信先を登録し直した人へ、送り直すため / issue-70）。
+  let ended =
+    list.fold(effects, state.ended, fn(ended, effect) {
+      case effect {
+        driver.Finish(order, standings) ->
+          Some(realtime_result(state, order, standings))
+        _ -> ended
+      }
+    })
+  let state = State(..state, driver: Some(next), ended:)
+  case state.status != Finished && driver.is_over(next) {
+    True -> enter_finished(state)
+    False -> state
   }
-  case state.status != Finished && status == Finished {
-    True -> announce_finished(state)
-    False -> Nil
-  }
-  State(..state, driver: Some(next), status:)
 }
+
+/// 結果が確定した（Finished に移る）。台帳へ知らせ、確定した時刻を控え、閉じるタイマーを張る
+/// （issue-70。閉じるまでの時間は spec.close_after_ms）。
+fn enter_finished(state: State) -> State {
+  announce_finished(state)
+  let _ =
+    process.send_after(
+      state.self,
+      state.spec.close_after_ms,
+      Wake(expiry.expire_token),
+    )
+  State(..state, status: Finished, finished_at: Some(monotonic_ms()))
+}
+
+/// 閉じる（issue-70）。残っている参加者へ room-expired を送ってから、ふつうに終わる。接続は、
+/// ルームの監視でルームを外し（終わり方が normal なので room-closed は送らない / ADR 0047）、
+/// 台帳は、監視でルームを外す。
+fn expire(state: State) -> actor.Next(State, Message) {
+  dict.each(state.outboxes, fn(_player, outbox) {
+    process.send(outbox, expiry.expired_notice())
+  })
+  actor.stop()
+}
+
+/// 閉じるまでの残り（ミリ秒）。結果が確定していなければ None。
+fn closes_in_ms(state: State) -> Option(Int) {
+  case state.finished_at {
+    Some(finished_at) ->
+      Some(expiry.remaining_ms(
+        finished_at:,
+        now: monotonic_ms(),
+        close_ms: state.spec.close_after_ms,
+      ))
+    None -> None
+  }
+}
+
+@external(erlang, "rondo_server_ffi", "monotonic_ms")
+fn monotonic_ms() -> Int
 
 /// ゲームが終わった（Finished に移る）ことを、登録された先へ知らせる（issue-51）。
 fn announce_finished(state: State) -> Nil {
@@ -718,6 +788,8 @@ fn apply(state: State, effect: Effect(PlayerId)) -> Nil {
           game_type: state.spec.game_type,
           room_id: room_id_of(state),
           result: realtime_result(state, order, standings),
+          // 結果を出した時点では、閉じるまでの時間が、まるごと残っている（issue-70）。
+          closes_in_ms: Some(state.spec.close_after_ms),
         ),
       )
   }

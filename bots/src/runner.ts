@@ -25,6 +25,7 @@ import { normalizeRoomName } from "../../packages/contracts/src/roomName.ts";
 import { Bot, type CreateSocket } from "./client.ts";
 import {
 	type ScenarioResult,
+	checkExpiry,
 	checkGameEnded,
 	checkMembers,
 	checkMembersStopped,
@@ -46,6 +47,7 @@ import {
 	readStageNotice,
 	spreadSpots,
 } from "./stage.ts";
+import { SERVER_DEFAULTS, scaled } from "./timing.ts";
 
 export interface RunOptions {
 	readonly url: string;
@@ -58,6 +60,9 @@ export interface RunOptions {
 }
 
 const GAME_TYPE = "veryare";
+
+/** 閉じる時刻のあと、room-expired を待つ余裕（ミリ秒 / issue-70）。 */
+const EXPIRY_MARGIN_MS = 5_000;
 
 export async function runScenario(
 	scenario: Scenario,
@@ -189,6 +194,28 @@ export async function runScenario(
 			...context.problems,
 			...checkGameEnded(scenario, ids, got),
 		];
+		// 結果のあと、ルームが閉じるまで待つ（issue-70）。結果に閉じるまでの残りが載り、その時間のあとに、
+		// 受け手の全員へ room-expired が届くこと。
+		if (scenario.expiry === true) {
+			const closeMs = scaled(SERVER_DEFAULTS.finishedCloseMs);
+			const logs = await Promise.all(
+				scenario.receivers.map(async (name) => {
+					const bot = bots.get(name) as Bot;
+					const expired = await bot
+						.waitFor(
+							(m) => m.type === "error" && m.code === "room-expired",
+							closeMs + EXPIRY_MARGIN_MS,
+							"room-expired",
+						)
+						.then(
+							() => true,
+							() => false,
+						);
+					return { name, ended: got.get(name), expired };
+				}),
+			);
+			problems.push(...checkExpiry(closeMs, logs));
+		}
 		// 退出したボットには、game-ended が届かないこと（参加者でない接続には送らない）。
 		for (const [name, bot] of bots) {
 			if (scenario.receivers.includes(name)) continue;

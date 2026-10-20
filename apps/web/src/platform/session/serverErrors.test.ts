@@ -3,7 +3,8 @@ import { DEFAULT_NOTICE, SERVER_ERROR_CODES, noticeFor } from "./serverErrors";
 
 describe("noticeFor - サーバーのエラーの種類を、やさしい文言と次の行動に直す（issue-60）", () => {
 	it("サーバーが返す種類は、すべて、既定ではない文言を持つ", () => {
-		// server/src/rondo_server/connection/（session.gleam・connection.gleam・websocket.gleam）が返す全部。
+		// server/src/rondo_server/connection/（session.gleam・connection.gleam・websocket.gleam）と、
+		// room/expiry.gleam（issue-70）が返す全部。
 		expect([...SERVER_ERROR_CODES].sort()).toEqual(
 			[
 				"already-in-room",
@@ -13,6 +14,7 @@ describe("noticeFor - サーバーのエラーの種類を、やさしい文言�
 				"invalid-settings",
 				"reconnect-failed",
 				"room-closed",
+				"room-expired",
 				"room-full",
 				"room-limit",
 				"room-not-found",
@@ -65,5 +67,13 @@ describe("noticeFor - サーバーのエラーの種類を、やさしい文言�
 		expect(noticeFor("already-in-room").actions).toEqual(["reload"]);
 		expect(noticeFor("room-closed").actions).toEqual(["lobby"]);
 		expect(noticeFor("reconnect-failed").actions).toEqual(["lobby"]);
+	});
+});
+
+describe("noticeFor - 結果のあとにルームが閉じた（room-expired / issue-70）", () => {
+	it("ロビーに「前のルームは、閉じられました」と短く出す（ボタンは出さない）", () => {
+		const notice = noticeFor("room-expired");
+		expect(notice.text).toBe("前のルームは、閉じられました");
+		expect(notice.actions).toEqual([]);
 	});
 });

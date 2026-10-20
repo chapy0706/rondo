@@ -51,9 +51,10 @@ import { LaunchGate } from "../launch/LaunchGate";
 import { needsLaunchScreen } from "../launch/launch";
 import { SoloGameLinks, soloGames } from "../lobby/soloGames";
 import { ResultScreen } from "../result/ResultScreen";
+import { closingDeadline } from "../result/closing";
 import { ConnectionFailed } from "../session/ConnectionFailed";
 import { type ErrorNotice, noticeFor } from "../session/serverErrors";
-import { playEntry, playStatus } from "../session/session";
+import { playEntry, playStatus, roomExpired } from "../session/session";
 import {
 	getRealtimeSession,
 	useSessionState,
@@ -65,6 +66,10 @@ import { resultView } from "./resultView";
 interface RealtimeSession {
 	readonly realtime: RealtimeHost | null;
 	readonly result: RealtimeResult | null;
+	/** 結果のあと、ルームが閉じる時刻（Date.now() の時計 / issue-70）。分からなければ null。 */
+	readonly closesAt: number | null;
+	/** 結果のあとにルームが閉じた（room-expired / issue-70）。ゲーム画面はロビーへ戻す。 */
+	readonly expired: boolean;
 	readonly you: PlayerId | null;
 	/** 参加中のルームの名前（issue-58）。名前を持たない古いサーバーでは null。 */
 	readonly roomName: string | null;
@@ -141,12 +146,19 @@ function useRealtimeSession(gameType: string | null): RealtimeSession {
 		enterRoom(gameType);
 	}, [gameType]);
 
+	// 閉じる時刻は、残りを受け取った時点から数える（復帰で送り直された残りでも、数え直す / issue-70）。
+	const closesAt = useMemo(
+		() => closingDeadline(state.closesInMs, Date.now()),
+		[state.closesInMs],
+	);
 	const waiting = gameType !== null && playEntry(state, gameType) === "waiting";
 	const failed = gameType !== null && playStatus(state, gameType) === "failed";
 
 	return {
 		realtime,
 		result: room === null ? null : state.result,
+		closesAt: room === null ? null : closesAt,
+		expired: gameType !== null && roomExpired(state),
 		you,
 		roomName: room?.roomName ?? null,
 		notice:
@@ -171,8 +183,18 @@ export function PlayHost({ manifest }: { manifest: GameManifest }) {
 
 	const isRealtime = manifest.kind === "realtime";
 	// ルームへの接続は起動してから始める（起動画面で待つ間に部屋を作らない）。
-	const { realtime, result, you, roomName, notice, failed, retry, leave } =
-		useRealtimeSession(isRealtime && launched ? manifest.id : null);
+	const {
+		realtime,
+		result,
+		closesAt,
+		expired,
+		you,
+		roomName,
+		notice,
+		failed,
+		retry,
+		leave,
+	} = useRealtimeSession(isRealtime && launched ? manifest.id : null);
 
 	const reportResult = useCallback((value: PlayResult) => {
 		setSoloResult(value);
@@ -208,6 +230,12 @@ export function PlayHost({ manifest }: { manifest: GameManifest }) {
 		leave();
 		router.push(lobbyPathOf(manifest.id));
 	}, [leave, router, manifest.id]);
+
+	// 結果のあと、時間がたってルームが閉じたら、ロビーへ戻す（ロビーに「前のルームは、閉じられました」が
+	// 出る / issue-70）。閉じる判断はサーバーが持ち、画面は通知を受けて動くだけ。
+	useEffect(() => {
+		if (expired) router.push(lobbyPathOf(manifest.id));
+	}, [expired, router, manifest.id]);
 
 	const connecting = isRealtime && realtime === null;
 	const view = resultView(manifest, result);
@@ -294,6 +322,7 @@ export function PlayHost({ manifest }: { manifest: GameManifest }) {
 							you={you}
 							onLeave={leaveRoom}
 							game={manifest}
+							closesAt={closesAt}
 							fill
 						/>
 					) : (
@@ -324,6 +353,7 @@ export function PlayHost({ manifest }: { manifest: GameManifest }) {
 						you={you}
 						onLeave={leaveRoom}
 						game={manifest}
+						closesAt={closesAt}
 					/>
 				) : (
 					game
@@ -335,6 +365,7 @@ export function PlayHost({ manifest }: { manifest: GameManifest }) {
 						you={you}
 						onLeave={leaveRoom}
 						game={manifest}
+						closesAt={closesAt}
 					/>
 				)}
 

@@ -7,7 +7,7 @@
  * subscriber_snapshot で直した）。同じ種類の見落としを、組み合わせで見つける。
  *
  * 軸: CPU（なし・隠れ側 1 体・隠れ側 2 体・鬼 CPU）、参加の順番（作った人・2 人目・3 人目）、参加の
- * 時機（待機・鬼選出のカウント中・準備移動・ペイント・探索・答え合わせ）。実際に起こりうる組み合わせ
+ * 時機（待機・鬼選出のカウント中・準備移動・ペイント・探索・答え合わせ・結果のあと / issue-70）。実際に起こりうる組み合わせ
  * だけを並べる（カウントは 2 人以上でしか始まらない。鬼選出の後の参加は、サーバーが断る）。
  */
 
@@ -19,7 +19,9 @@ export type Moment =
 	| "preparation"
 	| "painting"
 	| "exploration"
-	| "reveal";
+	| "reveal"
+	/** 結果が確定したあと、ルームが閉じる前（issue-70）。 */
+	| "ended";
 
 /** ルーム作成の設定の cpu の値（サーバーの room.gleam と揃える）。 */
 export const CPU_SETTING: Readonly<Record<CpuSetup, number>> = {
@@ -56,6 +58,7 @@ export const MOMENT_LABEL: Readonly<Record<Moment, string>> = {
 	painting: "ペイント",
 	exploration: "探索",
 	reveal: "答え合わせ",
+	ended: "結果のあと",
 };
 
 /** サーバーのフェーズの名前（phase の通知の phase）。 */
@@ -66,6 +69,7 @@ export const MOMENT_PHASE: Readonly<Record<Moment, string>> = {
 	painting: "painting",
 	exploration: "exploration",
 	reveal: "reveal",
+	ended: "ended",
 };
 
 export interface JoinCase {
@@ -96,6 +100,7 @@ const MOMENTS: readonly Moment[] = [
 	"painting",
 	"exploration",
 	"reveal",
+	"ended",
 ];
 
 /** 実際に起こりうる組み合わせ。 */
@@ -275,6 +280,22 @@ export function judgeArrival(input: {
 		}
 	}
 	return problems;
+}
+
+/**
+ * 結果のあとに戻った人へ、結果（game-ended）が、閉じるまでの残り（closesInMs。0 より大きい数）つきで
+ * 送り直されたか（issue-70）。messages は、届いた電文（エンベロープ）。問題が無ければ空。
+ */
+export function resentResult(messages: readonly unknown[]): string[] {
+	const ended = messages.filter(
+		(m) => isRecord(m) && m.type === "game-ended",
+	) as Record<string, unknown>[];
+	if (ended.length === 0) return ["結果（game-ended）が送り直されない"];
+	const last = ended[ended.length - 1];
+	const closesInMs = last?.closesInMs;
+	return typeof closesInMs === "number" && closesInMs > 0
+		? []
+		: ["結果に、閉じるまでの残り（closesInMs）が無い"];
 }
 
 /** 最後に届いたメンバーの通知に、ids の全員が載っているか。メンバーの通知が無ければ false。 */

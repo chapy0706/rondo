@@ -56,6 +56,8 @@ pub fn spec_for(
           driver: None,
           member_info: None,
           bots: [],
+          // 結果のあと、ルームを閉じるまでの時間（issue-70）。
+          close_after_ms: timing.finished_close_ms(timing),
         ),
         StartAtMinimum,
       ))

@@ -106,7 +106,14 @@ pub type ServerMessage {
   /// 特定のプレイヤーだけに宛てた状態配信（contracts: "game-state-to" / ADR 0021）。
   /// 宛先の接続にだけ送る。to は受け取る本人の ID。
   GameStateTo(game_type: String, room_id: String, to: String, payload: Dynamic)
-  GameEnded(game_type: String, room_id: String, result: RealtimeResult)
+  /// 結果（ADR 0017）。closes_in_ms は、ルームが閉じるまでの残り（通知を作った時点から / issue-70）。
+  /// 省略できる（None なら、電文に載せない）。
+  GameEnded(
+    game_type: String,
+    room_id: String,
+    result: RealtimeResult,
+    closes_in_ms: Option(Int),
+  )
   ErrorMessage(code: String, message: String)
   /// 接続直後に本人にだけ送る。resume_token は再接続の復帰キーで、本人以外に送らない。
   Session(player_id: String, resume_token: String)
@@ -206,11 +213,15 @@ fn server_json(message: ServerMessage) -> Json {
         #("to", json.string(to)),
         #("payload", json_of_dynamic(payload)),
       ])
-    GameEnded(game_type, room_id, result) ->
+    GameEnded(game_type, room_id, result, closes_in_ms) ->
       typed(kind, [
         #("gameType", json.string(game_type)),
         #("roomId", json.string(room_id)),
         #("result", realtime_result_json(result)),
+        ..case closes_in_ms {
+          Some(ms) -> [#("closesInMs", json.int(ms))]
+          None -> []
+        }
       ])
     ErrorMessage(code, text) ->
       typed(kind, [
@@ -523,7 +534,12 @@ fn server_decoder() -> Decoder(ServerMessage) {
       use game_type <- decode.field("gameType", decode.string)
       use room_id <- decode.field("roomId", decode.string)
       use result <- decode.field("result", realtime_result_decoder())
-      decode.success(GameEnded(game_type:, room_id:, result:))
+      use closes_in_ms <- decode.optional_field(
+        "closesInMs",
+        None,
+        decode.map(decode.int, Some),
+      )
+      decode.success(GameEnded(game_type:, room_id:, result:, closes_in_ms:))
     }
     "error" -> {
       use code <- decode.field("code", decode.string)

@@ -8,6 +8,7 @@ import {
 	playEntry,
 	playStatus,
 	reduceSession,
+	roomExpired,
 	roomJoinedAction,
 } from "./session";
 
@@ -187,6 +188,55 @@ describe("reduceSession - ルームの状態の遷移（issue-40）", () => {
 		expect(closed.room).toBeNull();
 		expect(closed.result).toBeNull();
 		expect(closed.errorCode).toBe("room-closed");
+	});
+
+	it("game-ended の閉じるまでの残り（closesInMs / issue-70）を持つ。無ければ null（これまでと同じ）", () => {
+		const result = { order: "lower-is-better" as const, rankings: [] };
+		const ended = server(inRoom(), {
+			type: "game-ended",
+			gameType: "veryare",
+			roomId: "room-1",
+			result,
+			closesInMs: 180000,
+		});
+		expect(ended.result).toEqual(result);
+		expect(ended.closesInMs).toBe(180000);
+		const old = server(inRoom(), {
+			type: "game-ended",
+			gameType: "veryare",
+			roomId: "room-1",
+			result,
+		});
+		expect(old.result).toEqual(result);
+		expect(old.closesInMs).toBeNull();
+	});
+
+	it("結果のあとにルームが閉じた（room-expired / issue-70）ら、ルームと結果を忘れ、ロビーへ戻る印になる", () => {
+		const ended = server(inRoom(), {
+			type: "game-ended",
+			gameType: "veryare",
+			roomId: "room-1",
+			result: { order: "lower-is-better", rankings: [] },
+			closesInMs: 1000,
+		});
+		expect(roomExpired(ended)).toBe(false);
+		const expired = server(ended, {
+			type: "error",
+			code: "room-expired",
+			message: "閉じた",
+		});
+		expect(expired.room).toBeNull();
+		expect(expired.result).toBeNull();
+		expect(expired.closesInMs).toBeNull();
+		expect(expired.errorCode).toBe("room-expired");
+		expect(roomExpired(expired)).toBe(true);
+		// 落ちたとき（room-closed）は、これまでどおり、自動では戻さない。
+		const closed = server(inRoom(), {
+			type: "error",
+			code: "room-closed",
+			message: "閉じた",
+		});
+		expect(roomExpired(closed)).toBe(false);
 	});
 
 	it("退出で、ルーム・結果・待ちを消す", () => {

@@ -2,11 +2,14 @@ import { describe, expect, it } from "vitest";
 import {
 	CPU_SETTING,
 	type JoinCase,
+	MOMENT_LABEL,
+	MOMENT_PHASE,
 	expectedKinds,
 	joinCases,
 	judgeArrival,
 	latestPhase,
 	membersListed,
+	resentResult,
 } from "./joinMatrix.ts";
 
 const phase = (
@@ -59,8 +62,14 @@ describe("joinCases - 実際に起こりうる組み合わせだけを並べる"
 		expect(find("none", "third", "counting")?.outcome).toBe("same-state");
 	});
 
-	it("鬼選出の後（準備移動・ペイント・探索・答え合わせ）の参加は、サーバーが断る", () => {
-		for (const moment of ["preparation", "painting", "exploration", "reveal"]) {
+	it("鬼選出の後（準備移動・ペイント・探索・答え合わせ・結果のあと）の参加は、サーバーが断る", () => {
+		for (const moment of [
+			"preparation",
+			"painting",
+			"exploration",
+			"reveal",
+			"ended",
+		]) {
 			const refused = cases.filter((c) => c.moment === moment);
 			expect(refused.length, moment).toBeGreaterThan(0);
 			for (const c of refused) expect(c.outcome, c.name).toBe("refused");
@@ -228,5 +237,45 @@ describe("作った人（作成の時点）と、メンバーの通知", () => {
 		expect(membersListed([{ type: "members", members: "x" }], ["a"])).toBe(
 			false,
 		);
+	});
+});
+
+describe("結果のあと（issue-70）", () => {
+	it("時機の名前と、サーバーのフェーズ（ended）", () => {
+		expect(MOMENT_LABEL.ended).toBe("結果のあと");
+		expect(MOMENT_PHASE.ended).toBe("ended");
+	});
+
+	it("結果のあとに届くべき状態: ステージ・襖・フェーズ・ルーム情報", () => {
+		expect(expectedKinds("ended")).toEqual([
+			"doors",
+			"phase",
+			"room-info",
+			"stage",
+		]);
+	});
+
+	const ended = (closesInMs?: unknown) => ({
+		type: "game-ended",
+		gameType: "veryare",
+		roomId: "room-1",
+		result: { order: "lower-is-better", rankings: [] },
+		...(closesInMs === undefined ? {} : { closesInMs }),
+	});
+
+	it("結果のあとに戻った人へ、結果が、閉じるまでの残りつきで送り直される", () => {
+		expect(resentResult([of("phase"), ended(8000)])).toEqual([]);
+	});
+
+	it("結果が届かない・残りが無い・残りが 0 以下なら、問題として返す", () => {
+		expect(resentResult([of("phase")])).toEqual([
+			"結果（game-ended）が送り直されない",
+		]);
+		expect(resentResult([ended()])).toEqual([
+			"結果に、閉じるまでの残り（closesInMs）が無い",
+		]);
+		expect(resentResult([ended(0)])).toEqual([
+			"結果に、閉じるまでの残り（closesInMs）が無い",
+		]);
 	});
 });

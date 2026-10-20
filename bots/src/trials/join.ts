@@ -41,6 +41,7 @@ import {
 	joinCases,
 	judgeArrival,
 	membersListed,
+	resentResult,
 	wideJoinCases,
 } from "./joinMatrix.ts";
 
@@ -232,6 +233,14 @@ async function runCase(c: JoinCase): Promise<Check> {
 						reference: before,
 					}).map((p) => `作った人の復帰: ${p}`),
 				);
+				// 結果のあと（issue-70）: 戻った人へ、結果が、閉じるまでの残りつきで送り直される。
+				if (c.moment === "ended") {
+					problems.push(
+						...resentResult(back.bot.received.map((r) => r.message)).map(
+							(p) => `作った人の復帰: ${p}`,
+						),
+					);
+				}
 				if (c.order === "third") {
 					problems.push(
 						...judgeArrival({

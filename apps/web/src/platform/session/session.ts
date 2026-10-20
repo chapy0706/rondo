@@ -43,6 +43,11 @@ export interface SessionState {
 	readonly pending: PendingRequest | null;
 	/** 参加中のルームの確定結果（game-ended）。 */
 	readonly result: RealtimeResult | null;
+	/**
+	 * 結果のあと、ルームが閉じるまでの残り（ミリ秒。game-ended の closesInMs / issue-70）。受け取った
+	 * 時点からの残り。無ければ null（残りを出さない）。
+	 */
+	readonly closesInMs: number | null;
 	readonly error: string | null;
 	/**
 	 * 最後のエラーの種類（error の code / issue-60）。画面は、これから文言を決める（serverErrors.ts）。
@@ -71,6 +76,7 @@ export const INITIAL_SESSION: SessionState = {
 	room: null,
 	pending: null,
 	result: null,
+	closesInMs: null,
 	error: null,
 	errorCode: null,
 	failure: null,
@@ -129,6 +135,9 @@ function reduceServer(
 				},
 				pending: null,
 				result: state.room?.roomId === message.roomId ? state.result : null,
+				// 同じルームへの復帰なら、残りも保つ（送り直しの game-ended で、新しい残りに置き換わる）。
+				closesInMs:
+					state.room?.roomId === message.roomId ? state.closesInMs : null,
 				error: null,
 				errorCode: null,
 				failure: null,
@@ -157,15 +166,23 @@ function reduceServer(
 		}
 		case "game-ended":
 			if (state.room?.roomId !== message.roomId) return state;
-			return { ...state, result: message.result };
+			return {
+				...state,
+				result: message.result,
+				closesInMs: message.closesInMs ?? null,
+			};
 		case "error": {
-			// 戻れなかったルームと、閉じた（落ちた / ADR 0047）ルームは、もう自分のルームではない。
+			// 戻れなかったルームと、閉じた（落ちた / ADR 0047、結果のあとの時間切れ / issue-70）ルームは、
+			// もう自分のルームではない。
 			const gone =
-				message.code === "reconnect-failed" || message.code === "room-closed";
+				message.code === "reconnect-failed" ||
+				message.code === "room-closed" ||
+				message.code === "room-expired";
 			return {
 				...state,
 				room: gone ? null : state.room,
 				result: gone ? null : state.result,
+				closesInMs: gone ? null : state.closesInMs,
 				pending: null,
 				error: message.message,
 				errorCode: message.code,
@@ -200,6 +217,14 @@ export function playStatus(
 	if (state.room?.gameType === gameType) return "joined";
 	if (state.failure !== null) return "failed";
 	return "connecting";
+}
+
+/**
+ * 結果のあとに、ルームが閉じた（room-expired / issue-70）か。ゲーム画面は、ロビーへ戻す（ロビーには、
+ * 「前のルームは、閉じられました」が出る）。落ちたとき（room-closed）は、これまでどおり案内だけ。
+ */
+export function roomExpired(state: SessionState): boolean {
+	return state.room === null && state.errorCode === "room-expired";
 }
 
 /** ロビーが、このゲームの画面へ移るべきか（このゲームのルームに参加中）。 */

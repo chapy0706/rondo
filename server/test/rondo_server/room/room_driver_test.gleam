@@ -5,6 +5,7 @@ import gleam/option.{None, Some}
 import gleeunit/should
 import rondo_server/protocol/message.{type ServerMessage, GameState, GameStateTo}
 import rondo_server/room/driver.{type Driver, type Effect}
+import rondo_server/room/expiry
 import rondo_server/room/room_actor.{
   type Message, type PlayerId, Finished, Open, Player, PlayerId, Playing, RoomId,
   RoomSpec,
@@ -63,6 +64,7 @@ fn open_room(min: Int, ids: List(String)) -> #(Subject(Message), process.Pid) {
       driver: Some(start_echo),
       member_info: Some(text("welcome")),
       bots: [],
+      close_after_ms: expiry.default_close_ms,
     )
   let assert Ok(started) = room_actor.start(spec)
   list.each(ids, fn(id) {

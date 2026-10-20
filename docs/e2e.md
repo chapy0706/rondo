@@ -73,6 +73,18 @@ pnpm --filter @rondo/e2e e2e:layout 2>&1 | grep "^\[layout\]"   # 数字の行�
 - 襖を開けるボタンは、鬼が襖の前に立ったときだけ出るので、この E2E では出ない（実機で確かめる）。セーフエリア（ノッチ・ホームインジケータ）は、Playwright では再現できない（実機で確かめる）
 - ゲーム画面の上部バー: 「⋯」（`play-menu`）に、退出（`play-leave` → 確認の `play-leave-confirm`）とゲーム選択へ戻る（`play-back-to-select`）。横向きの案内の帯は `play-rotate-hint`
 
+## 終わったルームの自動閉鎖（issue-70 / ADR 0050）
+
+結果のあと、一定の時間（3 分）がたつと、サーバーがルームを閉じ、画面はロビーへ戻る。E2E は、サーバーの時間を 1/20 に縮めて（閉じるまで 9 秒）、別のポートで起動して流す（`e2e/playwright.expiry.config.ts`。サーバー 3004・web 3104。`make dev-all` は止めておく）。`make e2e` には入れない。
+
+```bash
+pnpm --filter @rondo/e2e e2e:expiry
+```
+
+- 結果画面に、閉じるまでの残り（`result-closing`。「あと ○ 秒で、ロビーへ戻ります」）が出て、時間がたつと、両方のタブがロビーへ戻り、案内の枠（`lobby-notice`、`data-code="room-expired"`。「前のルームは、閉じられました」）が出る
+- 結果のあと、全員が「退出する」（`result-leave`）で出たときは、これまでどおり（閉じる時刻を過ぎても、案内は出ない）
+- 落ちたとき（`room-closed`）の動きは変わらない（自動では戻さず、案内とロビーへの導線を出す）
+
 ## 拡張の E2E（issue-52）
 
 スマホの端末設定・WebKit・素材の失敗・テスト用の口・タッチ・見た目の比較。`make e2e` とは別に動かす（Makefile には入れていない）。

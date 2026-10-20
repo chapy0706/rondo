@@ -1,6 +1,7 @@
 import gleam/erlang/process
 import gleam/option.{None}
 import gleeunit/should
+import rondo_server/room/expiry
 import rondo_server/room/room_actor.{
   type RoomSpec, Player, PlayerId, RoomId, RoomSpec,
 }
@@ -17,6 +18,7 @@ fn spec(id: String) -> RoomSpec {
     driver: None,
     member_info: None,
     bots: [],
+    close_after_ms: expiry.default_close_ms,
   )
 }
 

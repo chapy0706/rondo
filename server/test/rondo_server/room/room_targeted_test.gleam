@@ -3,6 +3,7 @@ import gleam/erlang/process.{type Subject}
 import gleam/option.{None}
 import gleeunit/should
 import rondo_server/protocol/message.{type ServerMessage, GameStateTo}
+import rondo_server/room/expiry
 import rondo_server/room/room_actor.{
   type Message, Player, PlayerId, RoomId, RoomSpec,
 }
@@ -23,6 +24,7 @@ fn open_room(ids: List(String)) -> Subject(Message) {
       driver: None,
       member_info: None,
       bots: [],
+      close_after_ms: expiry.default_close_ms,
     )
   let assert Ok(started) = room_actor.start(spec)
   let room = started.data

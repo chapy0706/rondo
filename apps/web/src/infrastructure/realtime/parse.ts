@@ -172,7 +172,13 @@ export function parseServerMessage(value: unknown): ServerMessage | null {
 			if (!isString(gameType) || !isString(roomId)) return null;
 			const result = toRealtimeResult(value.result);
 			if (result === null) return null;
-			return { type, gameType, roomId, result };
+			// ルームが閉じるまでの残り（issue-70）。0 以上の有限の数のときだけ通す（違えば捨て、結果は読む）。
+			const closesInMs = value.closesInMs;
+			return typeof closesInMs === "number" &&
+				Number.isFinite(closesInMs) &&
+				closesInMs >= 0
+				? { type, gameType, roomId, result, closesInMs }
+				: { type, gameType, roomId, result };
 		}
 		case "error": {
 			const { code, message } = value;

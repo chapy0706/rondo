@@ -61,3 +61,23 @@ export function controlSizes(
 	const shoot = clamp(SHOOT_MIN, Math.round(pad * 0.68), SHOOT_MAX);
 	return { pad, shoot };
 }
+
+/** 動かしたシートを、3D の画面の端から離す距離（px）。 */
+const PANEL_MARGIN = 8;
+
+/**
+ * 動かしたシート（ペイントの板・答え合わせの切り替え）の左上の位置 position を、3D の画面 view の
+ * 内側（端から 8 px）に収める。シートが画面より大きければ、左上に寄せる。
+ */
+export function clampPanel(
+	position: { readonly x: number; readonly y: number },
+	panel: { readonly width: number; readonly height: number },
+	view: { readonly width: number; readonly height: number },
+): { readonly x: number; readonly y: number } {
+	const axis = (value: number, size: number, room: number) =>
+		Math.max(PANEL_MARGIN, Math.min(value, room - size - PANEL_MARGIN));
+	return {
+		x: axis(position.x, panel.width, view.width),
+		y: axis(position.y, panel.height, view.height),
+	};
+}
