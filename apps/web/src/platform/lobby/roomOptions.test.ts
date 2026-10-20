@@ -1,6 +1,12 @@
 import type { RoomOption } from "@rondo/contracts";
 import { describe, expect, it } from "vitest";
-import { choiceLabel, chooseOption, initialSettings } from "./roomOptions";
+import {
+	choiceLabel,
+	chooseOption,
+	initialSettings,
+	settingsToSend,
+	visibleOptions,
+} from "./roomOptions";
 
 const exploration: RoomOption = {
 	key: "explorationSeconds",
@@ -51,5 +57,44 @@ describe("choiceLabel - プルダウンの表示名", () => {
 
 	it("送る値は数値のまま（表示名は送らない）", () => {
 		expect(chooseOption({ cpu: 0 }, cpu, "4")).toEqual({ cpu: 4 });
+	});
+});
+
+describe("visibleOptions / settingsToSend - ほかの選択肢によって出さない選択肢", () => {
+	const stage: RoomOption = {
+		key: "stage",
+		label: "ステージ",
+		choices: [0, 1],
+		default: 0,
+	};
+	const cpu: RoomOption = {
+		key: "cpu",
+		label: "CPU",
+		choices: [0, 1, 4],
+		default: 0,
+	};
+	const options = [stage, exploration, cpu];
+
+	it("出さない key を除いて、宣言の順のまま並べる", () => {
+		expect(visibleOptions(options, ["cpu"]).map((o) => o.key)).toEqual([
+			"stage",
+			"explorationSeconds",
+		]);
+		expect(visibleOptions(options, [])).toEqual(options);
+	});
+
+	it("出さない選択肢は、選んでいた値ではなく、既定値を送る（選んでいた値は手元に残る）", () => {
+		const settings = { stage: 1, explorationSeconds: 80, cpu: 4 };
+		expect(settingsToSend(options, settings, ["cpu"])).toEqual({
+			stage: 1,
+			explorationSeconds: 80,
+			cpu: 0,
+		});
+		expect(settings.cpu).toBe(4);
+	});
+
+	it("出さない選択肢が無ければ、選んだ値のまま送る", () => {
+		const settings = { stage: 0, explorationSeconds: 80, cpu: 4 };
+		expect(settingsToSend(options, settings, [])).toEqual(settings);
 	});
 });

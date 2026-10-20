@@ -1,14 +1,14 @@
 import type { GameManifest, RoomOption } from "@rondo/contracts";
 
 /**
- * 平屋（issue-44〜46）をロビーの選択肢に出してよいか。射撃の見通しは、平屋でも入った（issue-45 の
- * 段階 1・2）が、CPU の一般化（段階 3〜5）が残るので、issue-45 を閉じるまでは false にしておく
- * （通っていない機能は選択画面に出さない）。issue-45 を閉じるときに true にする。
+ * 平屋（issue-44〜46）をロビーの選択肢に出してよいか。素材の配信がつながったので true にした
+ * （ロビーの選択肢は、ランダム間取り（既定）と平屋の 2 つ）。平屋を選んだときは、CPU の選択肢を
+ * 出さない（veryareHiddenOptions。サーバーが平屋と CPU の組み合わせを断るため）。
  *
- * 手で確かめるときだけ、開発用の環境変数 NEXT_PUBLIC_VERYARE_HIRAYA=1 で出せる（docs/e2e.md）。
- * 本番のビルド（apps/web/Dockerfile）は、この変数を渡さない。
+ * 出すのをやめるときは、false に戻す（手順は docs/e2e.md の「平屋のステージ」）。false の間も、
+ * 手で確かめるときだけ、開発用の環境変数 NEXT_PUBLIC_VERYARE_HIRAYA=1 で出せる。
  */
-export const HIRAYA_READY = false;
+export const HIRAYA_READY = true;
 
 /** 開発用の指定（NEXT_PUBLIC_VERYARE_HIRAYA=1）。平屋の選択肢と、屋根の切り替えボタンを出す。 */
 export const HIRAYA_DEV = process.env.NEXT_PUBLIC_VERYARE_HIRAYA === "1";
@@ -37,6 +37,17 @@ const STAGE_OPTION: RoomOption = {
 	default: 0,
 	choiceLabels: { 0: "ランダム間取り", 1: "平屋" },
 };
+
+/**
+ * いまの選び方では、ロビーに出さない選択肢の key。平屋（stage 1）では、隠れ側 CPU と鬼 CPU の強さを
+ * 出さない（サーバーの room.gleam は、平屋と CPU の組み合わせを断る）。出さない選択肢は、既定値
+ * （CPU なし）で送る（platform/lobby/roomOptions の settingsToSend）。
+ */
+export function veryareHiddenOptions(
+	settings: Readonly<Record<string, number>>,
+): readonly string[] {
+	return settings.stage === 1 ? ["cpu", "cpuStrength"] : [];
+}
 
 /** ルーム作成の選択肢。hiraya なら、先頭にステージ（ランダム間取り / 平屋）を足す。 */
 export function veryareRoomOptions(hiraya: boolean): RoomOption[] {
@@ -74,6 +85,13 @@ const BASE_OPTIONS: readonly RoomOption[] = [
 		choiceLabels: { 0: "よわい", 1: "ふつう", 2: "つよい" },
 	},
 ];
+
+/**
+ * ゲーム画面を、画面いっぱいの 1 枚にするか（上部バー・状態の行・3D の画面。スマホの縦画面で、
+ * スクロールなしで収める）。共通の入れ物（platform/host/PlayHost.tsx）が、games/registry の
+ * isFullscreenGame を通して読む。契約の型（GameManifest）には足さない。
+ */
+export const VERYARE_FULLSCREEN = true;
 
 /**
  * veryare の自己記述（ADR 0003 / 0023）。

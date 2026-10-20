@@ -5,7 +5,11 @@ import { minichessManifest } from "./minichess/manifest";
 import { nikakuKeshiManifest } from "./nikaku-keshi/manifest";
 import { tetrisManifest } from "./tetris/manifest";
 import { tiltMazeManifest } from "./tilt-maze/manifest";
-import { veryareManifest } from "./veryare/manifest";
+import {
+	VERYARE_FULLSCREEN,
+	veryareHiddenOptions,
+	veryareManifest,
+} from "./veryare/manifest";
 
 /**
  * 全ゲームのマニフェストの集約点（ADR 0003）。
@@ -64,6 +68,38 @@ export function prefetchForLobby(id: string): void {
 			console.info(`[lobby] ${id} の先読みを始められない`, error);
 		}
 	});
+}
+
+/**
+ * ほかの選択肢によって、ロビーに出さない選択肢（issue-46。平屋では CPU を出さない）。何を出さないかは、
+ * ゲームの側が決める。登録の無いゲームは、すべて出す。
+ */
+const roomOptionRules: Record<
+	string,
+	(settings: Readonly<Record<string, number>>) => readonly string[]
+> = {
+	[veryareManifest.id]: veryareHiddenOptions,
+};
+
+/** ロビーが呼ぶ。いまの選び方 settings で、出さない選択肢の key。 */
+export function hiddenRoomOptions(
+	id: string,
+	settings: Readonly<Record<string, number>>,
+): readonly string[] {
+	return roomOptionRules[id]?.(settings) ?? [];
+}
+
+/**
+ * ゲーム画面を、画面いっぱいの 1 枚にするゲーム（各ゲームの manifest.ts の印）。登録の無いゲームは、
+ * これまでの形（縦に積む）のまま。
+ */
+const fullscreenGames: Record<string, boolean> = {
+	[veryareManifest.id]: VERYARE_FULLSCREEN,
+};
+
+/** 共通の入れ物（PlayHost）が呼ぶ。id のゲームを、画面いっぱいの 1 枚にするか。 */
+export function isFullscreenGame(id: string): boolean {
+	return fullscreenGames[id] ?? false;
 }
 
 /**

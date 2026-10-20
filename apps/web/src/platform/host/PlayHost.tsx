@@ -30,6 +30,7 @@ import {
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import {
+	type ReactNode,
 	Suspense,
 	lazy,
 	useCallback,
@@ -39,6 +40,7 @@ import {
 } from "react";
 import {
 	findGameLoader,
+	isFullscreenGame,
 	isRealtimeMatch,
 	lobbyPathOf,
 	registry,
@@ -56,6 +58,7 @@ import {
 	getRealtimeSession,
 	useSessionState,
 } from "../session/useRealtimeSession";
+import { GameFrame } from "./GameFrame";
 import { RoomNameLabel } from "./RoomNameLabel";
 import { resultView } from "./resultView";
 
@@ -208,6 +211,98 @@ export function PlayHost({ manifest }: { manifest: GameManifest }) {
 
 	const connecting = isRealtime && realtime === null;
 	const view = resultView(manifest, result);
+	const fullscreen = isFullscreenGame(manifest.id);
+	// 画面いっぱいの枠では、文字だけの表示（接続中など）を、ゲームの中身の場所の中央に置く。
+	const statusBox = (node: ReactNode) =>
+		fullscreen ? (
+			<div className="flex flex-1 flex-col items-center justify-center gap-3 px-6">
+				{node}
+			</div>
+		) : (
+			node
+		);
+
+	const game = (
+		<VirtualPadProvider>
+			<LaunchGate manifest={manifest} launched={launched} onStart={start}>
+				{Game === null ? (
+					statusBox(
+						<p className="text-slate-400">
+							このゲームはまだ起動できません（本体が未登録）。
+						</p>,
+					)
+				) : connecting && failed ? (
+					statusBox(
+						<ConnectionFailed
+							onRetry={retry}
+							onLobby={isRealtimeMatch(manifest.id) ? toLobby : undefined}
+							onSelect={backToSelect}
+						/>,
+					)
+				) : connecting && notice !== null ? (
+					statusBox(
+						<div
+							className="flex flex-col items-center gap-3"
+							data-testid="room-error"
+							data-code={notice.code}
+						>
+							<p className="text-red-200 text-sm">{notice.text}</p>
+							{/* ルームを作れないときは、ひとり用のゲームへの導線（issue-60）。 */}
+							{notice.actions.includes("solo") ? (
+								<SoloGameLinks games={soloGames(registry)} />
+							) : null}
+							<Link
+								href={lobbyPathOf(manifest.id)}
+								className="text-indigo-400 text-sm underline"
+							>
+								ロビーへ
+							</Link>
+						</div>,
+					)
+				) : connecting ? (
+					statusBox(<p className="text-slate-400">ルームに接続中...</p>)
+				) : (
+					<Suspense
+						fallback={statusBox(
+							<p className="text-slate-400">読み込み中...</p>,
+						)}
+					>
+						<Game key={playKey} />
+					</Suspense>
+				)}
+			</LaunchGate>
+		</VirtualPadProvider>
+	);
+
+	if (fullscreen) {
+		// 画面いっぱいの 1 枚（GameFrame.tsx）。退出とゲーム選択へ戻るは、上部バーのメニューに置く。
+		return (
+			<GameHostProvider value={host}>
+				<GameFrame
+					manifest={manifest}
+					roomName={roomName}
+					onLeave={
+						isRealtime && realtime !== null && result === null
+							? leaveRoom
+							: null
+					}
+					onBackToSelect={backToSelect}
+				>
+					{view === "instead-of-game" && result !== null ? (
+						<ResultScreen
+							result={result}
+							you={you}
+							onLeave={leaveRoom}
+							game={manifest}
+							fill
+						/>
+					) : (
+						game
+					)}
+				</GameFrame>
+			</GameHostProvider>
+		);
+	}
 
 	return (
 		<GameHostProvider value={host}>
@@ -231,47 +326,7 @@ export function PlayHost({ manifest }: { manifest: GameManifest }) {
 						game={manifest}
 					/>
 				) : (
-					<VirtualPadProvider>
-						<LaunchGate manifest={manifest} launched={launched} onStart={start}>
-							{Game === null ? (
-								<p className="text-slate-400">
-									このゲームはまだ起動できません（本体が未登録）。
-								</p>
-							) : connecting && failed ? (
-								<ConnectionFailed
-									onRetry={retry}
-									onLobby={isRealtimeMatch(manifest.id) ? toLobby : undefined}
-									onSelect={backToSelect}
-								/>
-							) : connecting && notice !== null ? (
-								<div
-									className="flex flex-col items-center gap-3"
-									data-testid="room-error"
-									data-code={notice.code}
-								>
-									<p className="text-red-200 text-sm">{notice.text}</p>
-									{/* ルームを作れないときは、ひとり用のゲームへの導線（issue-60）。 */}
-									{notice.actions.includes("solo") ? (
-										<SoloGameLinks games={soloGames(registry)} />
-									) : null}
-									<Link
-										href={lobbyPathOf(manifest.id)}
-										className="text-indigo-400 text-sm underline"
-									>
-										ロビーへ
-									</Link>
-								</div>
-							) : connecting ? (
-								<p className="text-slate-400">ルームに接続中...</p>
-							) : (
-								<Suspense
-									fallback={<p className="text-slate-400">読み込み中...</p>}
-								>
-									<Game key={playKey} />
-								</Suspense>
-							)}
-						</LaunchGate>
-					</VirtualPadProvider>
+					game
 				)}
 
 				{view === "below-game" && result !== null && (

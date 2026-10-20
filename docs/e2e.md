@@ -56,6 +56,23 @@ make e2e/result   # シナリオ5（鬼選出から結果画面まで。約2分�
 - 画面の属性: ゲームの画面（`data-testid="veryare"`）に、フェーズ（`data-phase`）、空間（`data-space`。`waiting-room`・`stage`）、いま出している操作部品の一覧（`data-controls`。空白で区切る。`pending`・`move`・`look`・`area`・`open-door`・`shoot`・`waiting-pose`・`game-pose`・`paint`・`waiting-paint` / `apps/web/src/games/veryare/controls.ts`）を出す。フェーズの通知が届くまでは `pending`（画面に「接続中…」）
 - `make e2e` は素材なし（仮のカプセル）で起動するので、待機ルームの「ポーズを変える」ボタンは出ない。待機ポーズの変更は、そのタブの接続から `waiting-pose` の電文を送って代える
 
+## iPhone の縦画面の収まり（ADR 0049）
+
+すごくアレのゲーム画面が、iPhone の縦画面で、スクロールなしで収まるかを、WebKit で確かめる（`e2e/tests/layout-fit.e2e.ts`。`e2e/playwright.config.ts` の `iphone-webkit`）。初回だけ、WebKit の取得が要る（`pnpm --filter @rondo/e2e exec playwright install webkit`。ネットワークを使う）。
+
+```bash
+make e2e                                   # 代表の 2 画面（待機ルームと探索）。大きさごとに約 1 分
+pnpm --filter @rondo/e2e e2e:layout        # すべての画面（@layout）。大きさごとに約 2 分
+pnpm --filter @rondo/e2e e2e:layout 2>&1 | grep "^\[layout\]"   # 数字の行だけ
+```
+
+- 大きさ（幅 x 高さ。ツールバーが出ている、実際に見える高さ）: 375 x 553（SE）、390 x 675（12〜14）、393 x 682（15・16）、430 x 745（Plus・Pro Max）、402 x 874（16 Pro の全高。ツールバーが引っ込んだとき）
+- 画面: 待機ルーム、準備移動（鬼・隠れ側）、ペイント（隠れ側）、探索（鬼・隠れ側）、答え合わせ（鬼・隠れ側）、結果（鬼・隠れ側）。2 人（A が鬼、B が隠れ側）で、フェーズの時間は本番の既定のまま。素材なし（カプセル）
+- 確かめること: (a) `document.documentElement.scrollHeight` が `window.innerHeight` 以下、(b) 横のスクロールなし、(c) 主な部品（data-testid: `veryare-move-pad`・`veryare-look-pad`・`veryare-shoot`・`veryare-open-door`・`veryare-waiting-pose`・`veryare-game-pose`・`veryare-sheet`（ペイントの板と答え合わせの切り替えを入れる左下のシート。中だけスクロールするので、シートを測る）・`veryare-paint-done`・`veryare-status`・`veryare-area`・`veryare-view`・`result-screen`）が、表示領域の内側に完全に収まる、(d) 部品どうしが重ならない（片方がもう片方の中にある組と、下地の 3D の画面は除く）
+- 数字は `[layout]` の行で標準出力に出る。画面の画像と数字（JSON）は、どの画面もレポート（`e2e/playwright-report/`）に添付する。確かめは soft で、失敗しても最後の画面まで測ってから失敗にする
+- 襖を開けるボタンは、鬼が襖の前に立ったときだけ出るので、この E2E では出ない（実機で確かめる）。セーフエリア（ノッチ・ホームインジケータ）は、Playwright では再現できない（実機で確かめる）
+- ゲーム画面の上部バー: 「⋯」（`play-menu`）に、退出（`play-leave` → 確認の `play-leave-confirm`）とゲーム選択へ戻る（`play-back-to-select`）。横向きの案内の帯は `play-rotate-hint`
+
 ## 拡張の E2E（issue-52）
 
 スマホの端末設定・WebKit・素材の失敗・テスト用の口・タッチ・見た目の比較。`make e2e` とは別に動かす（Makefile には入れていない）。
@@ -130,7 +147,18 @@ pnpm --filter @rondo/e2e e2e:extended --project mobile-webkit   # 端末設定�
 
 ### 平屋のステージ（issue-46）
 
-平屋は、見通しの一般化（issue-45）が通るまで、ロビーの選択肢に出さない（`apps/web/src/games/veryare/manifest.ts` の `HIRAYA_READY`）。手で確かめるときだけ、開発用の環境変数 `NEXT_PUBLIC_VERYARE_HIRAYA=1` で選択肢を出す（本番のビルドには渡さない）。
+平屋は、ロビーの選択肢に出す（`apps/web/src/games/veryare/manifest.ts` の `HIRAYA_READY` が `true`）。ステージの選択肢は「ランダム間取り」（既定）と「平屋」の 2 つ。平屋を選ぶと、CPU の選択肢（「CPU」と「鬼 CPU の強さ」）は出ない（サーバーが平屋と CPU の組み合わせを断るため。送る設定は CPU なし）。ランダム間取りへ戻すと、前に選んでいた CPU の選択肢が、また使える。自動の確かめは `make e2e` の `e2e/tests/lobby-stage.e2e.ts`（data-testid の `lobby-option-stage`・`lobby-option-cpu`・`lobby-option-cpuStrength` で探す）。
+
+`HIRAYA_READY` の扱い:
+
+- `true`（いま）: 本番のロビーに、ステージの選択肢が出る。ロビーを開いた時点で、平屋の glb の先読みが始まる（来場者の端末でも、素材の配信から読み込む）
+- `false` に戻す手順（平屋を本番から外すとき）:
+  1. `manifest.ts` の `HIRAYA_READY` を `false` にする
+  2. `manifest.test.ts` の「本番の選択肢に、ステージ（ランダム間取り / 平屋）を出す」のテストを、出さない期待（`HIRAYA_READY` が `false`、`veryareManifest.roomOptions` の key に `stage` が無い）に戻す
+  3. `e2e/tests/lobby-stage.e2e.ts` は、旗が `false` だと選択肢が出ず失敗するので、`test.skip` にするか外す
+  4. 見た目の比較（`make e2e` の外。拡張の E2E）のロビーの基準画像を、`--update-snapshots` で作り直す
+  5. `make verify` と `make e2e` を通す
+- `false` の間も、手で確かめるときだけ、開発用の環境変数 `NEXT_PUBLIC_VERYARE_HIRAYA=1` で選択肢を出せる（本番のビルドには渡さない）。屋根の切り替えボタンと開発中の記録は、旗に関わらず、この変数（か URL の `?roof=1`）のときだけ出る
 
 配るフォルダ `assets-src/delivery/`（manifest.json と、版付きのパスの glb）が無ければ、先に作る（素材はコミットしない。`docs/assets.md` の「manifest.json を作る」と同じ）。
 
@@ -165,7 +193,7 @@ node tools/make_manifest.mjs assets-src/delivery
 - `serve-assets.mjs` の引数: `--dir`（配るフォルダ。既定 `assets-src/delivery`）、`--origin`（CORS で許可するオリジン。既定 `http://localhost:3100`。本番の `ASSET_ALLOWED_ORIGIN` と同じく、この1つを返す）、`--port`（既定 8081）
 - 本番の rondo-assets と同じく、配るのは `/manifest.json`（キャッシュ 60 秒）と `/v<数字>/…/*.glb`（1年・immutable）だけ。GET と HEAD だけで、ディレクトリの一覧は出さない。要求ごとに「方法 パス 状態」の1行を出す
 - 本番と同じ nginx で確かめたいときは、これまでどおり Docker でも起こせる（`docker build -t rondo-assets deploy/assets` の後、`docker run --rm -p 8081:3000 -e ASSET_ALLOWED_ORIGIN=http://localhost:3100 -v "$PWD/assets-src/delivery:/srv/assets:ro" rondo-assets`）
-- `NEXT_PUBLIC_VERYARE_HIRAYA=1` のときは、ロビーを開いた時点で平屋の glb の先読みが始まる（ロビーを離れても止めない）。Network に、ロビーの画面で `hiraya-indoor-512.glb` などが出る
+- ステージの選択肢を出すとき（`HIRAYA_READY` が `true` か、`NEXT_PUBLIC_VERYARE_HIRAYA=1`）は、ロビーを開いた時点で平屋の glb の先読みが始まる（ロビーを離れても止めない）。Network に、ロビーの画面で `hiraya-indoor-512.glb` などが出る
 - 屋根の切り替えボタンは開発用だけ。`NEXT_PUBLIC_VERYARE_HIRAYA=1` のときか、ゲームの画面の URL に `?roof=1` を付けたときだけ出る（来場者の画面には出さない。屋根は隠したまま）
 - manifest.json の取得に失敗したときは、5 秒たったあとの次の読み込みで取り直す（失敗を覚え続けない）。serve-assets を後から起動したときは、5 秒以上待ってからロビーを開き直す（またはページを読み直す）
 
@@ -179,14 +207,14 @@ node tools/make_manifest.mjs assets-src/delivery
 
 `[veryare-assets]` の行が1つも出ないとき、または途中で止まるときに、まず疑う点:
 
-- 変数: 「ロビー: 先読みしない（HIRAYA_ENABLED が false…）」なら、`NEXT_PUBLIC_VERYARE_HIRAYA=1` が web に届いていない。行が1つも出ないときも同じ。変数を付けて `make dev-all` を起動し直す（ロビーにステージの選択肢が出ていれば、変数は届いている）
+- 変数: 「ロビー: 先読みしない（HIRAYA_ENABLED が false…）」なら、`HIRAYA_READY` が `false` で、`NEXT_PUBLIC_VERYARE_HIRAYA=1` も web に届いていない。行が1つも出ないときは、記録を出す合図（`NEXT_PUBLIC_VERYARE_HIRAYA=1` か `?roof=1`）が届いていない。変数を付けて `make dev-all` を起動し直す
 - 素材の URL: 「manifest.json: 取りに行かない（NEXT_PUBLIC_ASSET_BASE_URL が未設定）」なら、`NEXT_PUBLIC_ASSET_BASE_URL` が届いていない
 - オリジン: 「manifest.json: 取得できない」と、ブラウザの CORS のエラーが出たら、アドレスが `http://localhost:3100` か、serve-assets の `--origin` と合っているかを見る
 - serve-assets の起動順: serve-assets を後から起動したなら、5 秒以上待ってからロビーを開き直す。serve-assets のターミナルに `GET /manifest.json 200` が出ているかも見る
 - ルームが平屋か: 「ステージ: 箱のまま（平屋の通知ではない（ランダム間取り））」なら、ロビーでステージを「平屋」にせずに作った（または、選択画面の「新しく遊ぶ」から作った。こちらは、いつもランダム間取り）
 - 間に合わなかった: 「ステージ: 箱のまま（待機ルームの間に読み終わらなかった…）」なら、読み込みがステージに入るまでに終わらなかった。その回は箱のままで、次の対戦で使われる
 
-平屋のルームの作り方: ロビー（`http://localhost:3100/lobby/veryare`。選択画面の「ルームに参加する」からも行ける）で、ステージを「平屋」、CPU を「なし」にして作る。選択画面の「新しく遊ぶ」は設定を送らずに作るので、いつもランダム間取りになる。送る設定の形は `{ stage: 1, cpu: 0 }`（create-room の settings。`stage` は 0 = ランダム間取り、1 = 平屋）。平屋と CPU の組み合わせは、issue-45 までサーバーが拒む。ボットで通すときは `make bots ARGS="--only 平屋"`。
+平屋のルームの作り方: ロビー（`http://localhost:3100/lobby/veryare`。選択画面の「ルームに参加する」からも行ける）で、ステージを「平屋」にして作る（CPU の選択肢は出ず、CPU なしで作られる）。選択画面の「新しく遊ぶ」は設定を送らずに作るので、いつもランダム間取りになる。送る設定の形は `{ stage: 1, cpu: 0 }`（create-room の settings。`stage` は 0 = ランダム間取り、1 = 平屋）。平屋と CPU の組み合わせは、サーバーが拒む（ロビーでは作れない）。ボットで通すときは `make bots ARGS="--only 平屋"`。
 
 素材の無い表示で確かめるときは、`NEXT_PUBLIC_ASSET_BASE_URL` を付けずに起動する（箱の表示になる）。
 

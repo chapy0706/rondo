@@ -126,6 +126,7 @@ import {
 	surfaceColor,
 } from "./surfaceColor";
 import type { TestableScene } from "./testHooks";
+import { SIGHT_ASPECT, fovForAspect } from "./viewLayout";
 
 /** テーマの色（globals.css のトークンと揃える）。 */
 const COLORS = {
@@ -1365,6 +1366,13 @@ export function createScene(
 		sightedHiders() {
 			placeCamera();
 			camera.updateMatrixWorld();
+			// 視界は、画面の形に関わらず、これまでの 3:4 の枠（縦の画角 CAMERA_FOV）で見る（見逃し
+			// ポイントの点数を、端末の画面の形で変えない / ADR 0036・viewLayout.ts の SIGHT_ASPECT）。
+			const sight = camera.clone();
+			sight.aspect = SIGHT_ASPECT;
+			sight.fov = CAMERA_FOV;
+			sight.updateProjectionMatrix();
+			sight.updateMatrixWorld();
 			const origin = camera.position.clone();
 			const raycaster = new THREE.Raycaster();
 			const seen: string[] = [];
@@ -1376,7 +1384,7 @@ export function createScene(
 						body.feet + BODY_HEIGHT * ratio,
 						body.z,
 					);
-					const ndc = point.clone().project(camera);
+					const ndc = point.clone().project(sight);
 					if (
 						ndc.z < -1 ||
 						ndc.z > 1 ||
@@ -1439,6 +1447,8 @@ export function createScene(
 		resize(width, height) {
 			renderer.setSize(width, height, false);
 			camera.aspect = width / Math.max(height, 1);
+			// 縦に長い画面でも、横の画角を、これまでの 3:4 のときと同じに保つ（viewLayout.ts）。
+			camera.fov = fovForAspect(camera.aspect);
 			camera.updateProjectionMatrix();
 		},
 		render() {

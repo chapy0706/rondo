@@ -8,6 +8,9 @@
  * ゲームが描いたものをそのまま差し込める（基盤はゲームの中身を知らない）。
  * 結果は保存しない（ADR 0019）。退出でルームの解散へ繋ぐ。
  *
+ * 画面いっぱいの枠（fill。すごくアレ）では、一覧の中だけをスクロールし（ページ全体は引っ張らない）、
+ * 退出のボタンは一覧の外（下）に固定する。
+ *
  * 各行の details（表示用の補助。例: 役割・結果・状態）は、あるときだけ「キー 値」で並べる
  * （issue-42）。キーはゲームが画面に出す短い語として送るので、基盤は意味を知らずに出す。
  */
@@ -22,6 +25,7 @@ export function ResultScreen({
 	you,
 	onLeave,
 	game,
+	fill = false,
 	children,
 }: {
 	result: RealtimeResult;
@@ -29,13 +33,19 @@ export function ResultScreen({
 	game?: GameManifest;
 	you: PlayerId | null;
 	onLeave: () => void;
+	/** 画面いっぱいの枠の中に置く（一覧の中だけスクロールし、ボタンを下に固定する）。 */
+	fill?: boolean;
 	children?: ReactNode;
 }) {
 	const ranked = [...result.rankings].sort((a, b) => a.rank - b.rank);
 
 	return (
 		<section
-			className="flex w-full flex-col items-center gap-5"
+			className={
+				fill
+					? "flex min-h-0 w-full flex-1 flex-col items-center gap-3 px-6 pt-3 pb-3"
+					: "flex w-full flex-col items-center gap-5"
+			}
 			data-testid="result-screen"
 		>
 			{game !== undefined ? (
@@ -52,13 +62,20 @@ export function ResultScreen({
 
 			{children}
 
-			<ol className="flex w-full max-w-xs flex-col gap-2">
+			<ol
+				className={
+					fill
+						? "flex min-h-0 w-full max-w-xs flex-1 flex-col gap-2 overflow-y-auto overscroll-contain"
+						: "flex w-full max-w-xs flex-col gap-2"
+				}
+				data-testid="result-list"
+			>
 				{ranked.map((entry) => {
 					const details = Object.entries(entry.result.details ?? {});
 					return (
 						<li
 							key={entry.playerId}
-							className="flex flex-col gap-1 rounded-xl bg-slate-800 px-4 py-3"
+							className="flex shrink-0 flex-col gap-1 rounded-xl bg-slate-800 px-4 py-3"
 						>
 							<div className="flex items-center gap-3">
 								<span className="w-10 shrink-0 font-bold text-indigo-400 text-lg">
@@ -87,12 +104,13 @@ export function ResultScreen({
 			<button
 				type="button"
 				onClick={onLeave}
-				className="w-full max-w-xs rounded-xl bg-indigo-600 px-4 py-3 font-semibold text-white"
+				data-testid="result-leave"
+				className="w-full max-w-xs shrink-0 rounded-xl bg-indigo-600 px-4 py-3 font-semibold text-white"
 			>
 				退出する
 			</button>
 
-			<p className="max-w-xs text-center text-slate-500 text-xs">
+			<p className="max-w-xs shrink-0 text-center text-slate-500 text-xs">
 				この結果は保存されません（ADR 0019）。退出するとルームは解散します（ADR
 				0017）。
 			</p>

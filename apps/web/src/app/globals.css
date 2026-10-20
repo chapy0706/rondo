@@ -59,3 +59,30 @@ body {
 	font-family: var(--font-sans);
 	-webkit-tap-highlight-color: transparent;
 }
+
+/*
+ * 画面いっぱいのゲーム画面（platform/host/GameFrame.tsx。すごくアレ）。スマホの縦画面で、スクロール
+ * なしで収める。高さは、ツールバーの出入りに合わせる dvh（使えない端末は 100vh）。ページ全体の
+ * スクロール（ラバーバンド）を止め、操作部品と表示はセーフエリアの内側に置く。長押しの選択・
+ * 二度タップの拡大・文字の選択も止める（パッドと 3D の画面を触る間に、iOS の癖が出ないよう）。
+ */
+.game-frame {
+	position: fixed;
+	inset: 0;
+	height: 100vh;
+	height: 100dvh;
+	overflow: hidden;
+	overscroll-behavior: none;
+	padding: env(safe-area-inset-top) env(safe-area-inset-right)
+		env(safe-area-inset-bottom) env(safe-area-inset-left);
+	-webkit-user-select: none;
+	user-select: none;
+	-webkit-touch-callout: none;
+	touch-action: manipulation;
+}
+
+html:has(.game-frame),
+html:has(.game-frame) body {
+	overflow: hidden;
+	overscroll-behavior: none;
+}

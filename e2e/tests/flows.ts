@@ -104,7 +104,7 @@ export async function joinFromLobby(tab: Tab, roomId: string): Promise<void> {
  * 表示名）ではなく、data-testid（lobby-option-<key>）と値で選ぶ。
  */
 export interface LobbySettings {
-	/** 0 = ランダム間取り、1 = 平屋（開発用の変数があるときだけ出る）。 */
+	/** 0 = ランダム間取り、1 = 平屋（平屋では、CPU の選択肢が出ない。cpu・cpuStrength は渡さない）。 */
 	readonly stage?: number;
 	readonly explorationSeconds?: number;
 	/** 0 = なし、1〜3 = 隠れ側 CPU の数、4 = 鬼 CPU。 */

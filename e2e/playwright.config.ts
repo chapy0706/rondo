@@ -1,7 +1,10 @@
 /**
  * 2タブの E2E スモーク（issue-48）。
  *
- * - make e2e: シナリオ1〜4（@result の付いていないもの）と、テスト用の口が無いことの確認（issue-52）
+ * - make e2e: シナリオ1〜4（@result の付いていないもの）と、テスト用の口が無いことの確認（issue-52）と、
+ *   iPhone の縦画面の収まりの代表の 2 画面（layout-fit.e2e.ts。WebKit。初回だけ
+ *   `pnpm --filter @rondo/e2e exec playwright install webkit` が要る）
+ * - pnpm --filter @rondo/e2e e2e:layout: iPhone の縦画面の収まりの、すべてのゲーム画面（@layout）
  * - make e2e/result: シナリオ5（鬼選出から結果画面まで。約2分。結果画面の見た目の比較を含む）
  *
  * スマホの端末設定・WebKit・素材の失敗・テスト用の口の E2E は、playwright.extended.config.ts（issue-52）。
@@ -17,11 +20,12 @@ import { WAIT_MS } from "./timeouts";
 const SERVER_PORT = 3000;
 const WEB_PORT = 3100;
 
+/** iPhone の縦画面の収まり（layout-fit.e2e.ts）。WebKit の iPhone で、大きさはテストの側で決める。 */
+const LAYOUT_TEST = "layout-fit.e2e.ts";
+
 export default defineConfig({
 	testDir: "./tests",
 	testMatch: "**/*.e2e.ts",
-	// 拡張の E2E（テスト用の口と、素材の差し替えが要る）は、playwright.extended.config.ts で流す。
-	testIgnore: "extended/**",
 	fullyParallel: false,
 	workers: 1,
 	retries: 0,
@@ -40,8 +44,20 @@ export default defineConfig({
 		actionTimeout: WAIT_MS,
 		baseURL: `http://localhost:${WEB_PORT}`,
 		trace: "retain-on-failure",
-		...devices["Desktop Chrome"],
 	},
+	projects: [
+		{
+			// 名前を付けない（基準画像の名前を、これまでと変えない）。
+			use: { ...devices["Desktop Chrome"] },
+			// 拡張の E2E（テスト用の口と、素材の差し替えが要る）は、playwright.extended.config.ts で流す。
+			testIgnore: ["extended/**", LAYOUT_TEST],
+		},
+		{
+			name: "iphone-webkit",
+			use: { ...devices["iPhone 13"] },
+			testMatch: LAYOUT_TEST,
+		},
+	],
 	webServer: [
 		{
 			command: "gleam run",

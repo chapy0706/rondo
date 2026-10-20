@@ -42,6 +42,28 @@ const TABLE = [
 const BUTTON =
 	"min-h-11 rounded-xl bg-surface px-3 font-semibold text-fg text-sm ring-1 ring-line ring-inset disabled:opacity-50 aria-pressed:ring-4 aria-pressed:ring-fg";
 
+/** 「塗り終わり」。塗ったか、ポーズを選んでいれば押せる。 */
+export function PaintConfirmButton(props: {
+	readonly editable: boolean;
+	readonly strokeCount: number;
+	readonly poseChosen: boolean;
+	readonly onConfirm: () => void;
+}) {
+	return (
+		<button
+			type="button"
+			disabled={
+				!props.editable || (props.strokeCount === 0 && !props.poseChosen)
+			}
+			onClick={props.onConfirm}
+			data-testid="veryare-paint-done"
+			className="min-h-11 shrink-0 rounded-xl bg-accent px-4 font-bold text-accent-fg text-sm disabled:opacity-50"
+		>
+			塗り終わり
+		</button>
+	);
+}
+
 export function PaintPanel(props: {
 	readonly editable: boolean;
 	readonly submitted: boolean;
@@ -59,6 +81,11 @@ export function PaintPanel(props: {
 	readonly onUndo: () => void;
 	readonly onClear: () => void;
 	readonly onConfirm: () => void;
+	/**
+	 * 「塗り終わり」を、板の外（シートの見出し）に出すか。出すなら、板の中には出さない
+	 * （板の中がスクロールしても、いつも押せるように）。
+	 */
+	readonly confirmOutside?: boolean;
 	/**
 	 * ポーズ（issue-56）。素材の体があるときだけ渡す（仮のカプセルでは、ボタンを出さない）。label は
 	 * いまのポーズの表示名、chosen はボタンを押したか（押していれば、塗っていなくても確定できる）。
@@ -191,15 +218,14 @@ export function PaintPanel(props: {
 						ポーズ（{props.pose.label}）
 					</button>
 				)}
-				<button
-					type="button"
-					disabled={!editable || (strokeCount === 0 && !props.pose?.chosen)}
-					onClick={props.onConfirm}
-					data-testid="veryare-paint-done"
-					className="min-h-11 rounded-xl bg-accent px-4 font-bold text-accent-fg text-sm disabled:opacity-50"
-				>
-					塗り終わり
-				</button>
+				{props.confirmOutside === true ? null : (
+					<PaintConfirmButton
+						editable={editable}
+						strokeCount={strokeCount}
+						poseChosen={props.pose?.chosen ?? false}
+						onConfirm={props.onConfirm}
+					/>
+				)}
 			</div>
 		</section>
 	);

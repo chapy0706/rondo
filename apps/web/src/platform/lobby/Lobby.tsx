@@ -20,14 +20,20 @@ import {
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useEffect, useState } from "react";
-import { prefetchForLobby } from "../../games/registry";
+import { hiddenRoomOptions, prefetchForLobby } from "../../games/registry";
 import { GameLogo } from "../brand/GameLogo";
 import { displayName } from "../brand/gameBrand";
 import { ConnectionFailed } from "../session/ConnectionFailed";
 import { LobbyNotice } from "./LobbyNotice";
 import { RoomListItem } from "./RoomListItem";
 import { roomNameHint } from "./roomName";
-import { choiceLabel, chooseOption, initialSettings } from "./roomOptions";
+import {
+	choiceLabel,
+	chooseOption,
+	initialSettings,
+	settingsToSend,
+	visibleOptions,
+} from "./roomOptions";
 import { useRealtimeLobby } from "./useRealtimeLobby";
 
 export function Lobby({
@@ -56,6 +62,8 @@ export function Lobby({
 	} = useRealtimeLobby(gameType);
 	const [settings, setSettings] = useState(() => initialSettings(roomOptions));
 	const [roomName, setRoomName] = useState("");
+	// いまの選び方で出さない選択肢（平屋では CPU など）。何を出さないかは、ゲームの側が決める。
+	const hidden = hiddenRoomOptions(gameType, settings);
 	const nameHint = roomNameHint(roomName);
 	// ロビーを開いた時点で、そのゲームの素材の先読みを始める（issue-46）。ロビーを離れても止めない。
 	useEffect(() => {
@@ -152,7 +160,7 @@ export function Lobby({
 						</span>
 					</label>
 
-					{roomOptions.map((option) => (
+					{visibleOptions(roomOptions, hidden).map((option) => (
 						<label
 							key={option.key}
 							className="flex items-center justify-between gap-3 text-slate-300 text-sm"
@@ -183,7 +191,9 @@ export function Lobby({
 						data-testid="lobby-create-room"
 						onClick={() =>
 							createRoom(
-								roomOptions.length > 0 ? settings : undefined,
+								roomOptions.length > 0
+									? settingsToSend(roomOptions, settings, hidden)
+									: undefined,
 								roomName,
 							)
 						}

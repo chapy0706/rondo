@@ -35,7 +35,12 @@ import {
 	useRef,
 	useState,
 } from "react";
-import { type BrushName, type Hsl, PaintPanel } from "./PaintPanel";
+import {
+	type BrushName,
+	type Hsl,
+	PaintConfirmButton,
+	PaintPanel,
+} from "./PaintPanel";
 import {
 	type Vec3,
 	createTapTracker,
@@ -182,6 +187,7 @@ import {
 	parseStageNotice,
 	reconcile,
 } from "./stage";
+import { controlSizes } from "./viewLayout";
 
 /** 「見つけた！」を出しておく時間（ミリ秒 / issue-27）。 */
 const FOUND_NOTICE_MS = 1500;
@@ -195,6 +201,9 @@ const TURN_SPEED = 2.2;
 /** アバターの既定の色（まだ塗っていない体の色。サーバーの palette.gleam と同じ）。 */
 const DEFAULT_COLOR = UNPAINTED_COLOR;
 /** 待機中ペイントで選べる色。本番のペイント（issue-25）とは別の簡易なもの。 */
+/** 3D の画面の上に重ねるボタン（半透明の地）。 */
+const OVERLAY_BUTTON =
+	"min-h-11 rounded-xl bg-ink/80 px-3 font-semibold text-fg text-sm ring-1 ring-line ring-inset disabled:opacity-50";
 const WAITING_COLORS = [
 	"#f5b841",
 	"#5fd3c4",
@@ -1201,9 +1210,137 @@ export default function Veryare() {
 		}
 	}, [space, grid]);
 
+	// 3D の画面の大きさ。パッドと撃つボタンの大きさを、これで決める（viewLayout.ts の controlSizes）。
+	const viewRef = useRef<HTMLDivElement | null>(null);
+	const [viewSize, setViewSize] = useState({ width: 0, height: 0 });
+	useEffect(() => {
+		const element = viewRef.current;
+		if (element === null) return;
+		const measure = () =>
+			setViewSize({ width: element.clientWidth, height: element.clientHeight });
+		measure();
+		const observer = new ResizeObserver(measure);
+		observer.observe(element);
+		return () => observer.disconnect();
+	}, []);
+	const { pad: padSize, shoot: shootSize } = controlSizes(
+		viewSize.width,
+		viewSize.height,
+	);
+	const outcomeShown = notice?.outcome != null && phase === "reveal";
+	// 左下のシートに出すもの（ペイントの板か、答え合わせの切り替え）。出すものが変わったら、開いて出す。
+	const sheet: "paint" | "reveal" | null = showPaintPanel
+		? "paint"
+		: phase === "reveal" && targets.length > 0
+			? "reveal"
+			: null;
+	const [sheetOpen, setSheetOpen] = useState(true);
+	useEffect(() => {
+		if (sheet !== null) setSheetOpen(true);
+	}, [sheet]);
+	const paintPanel = (
+		<PaintPanel
+			editable={paintEditable}
+			submitted={paintSubmitted}
+			locked={remainingMs <= PAINT_LOCK_MS}
+			strokeCount={draft.strokes.length}
+			color={brushColor}
+			here={here}
+			brush={brush}
+			eyedropper={eyedropper}
+			hsl={hsl}
+			onColor={setPaintColor}
+			onHsl={(next) => {
+				setHsl(next);
+				setPaintColor(hslToHex(next.h, next.s, next.l));
+			}}
+			onBrush={setBrush}
+			onEyedropper={() => setEyedropper((current) => !current)}
+			onUndo={() => setDraft(undoStroke)}
+			onClear={() => setDraft(clearPaint)}
+			onConfirm={() => setPaintConfirmed(true)}
+			confirmOutside
+			{...(bodyPosable
+				? {
+						pose: {
+							label: poseLabel(pose),
+							chosen: poseChosen,
+							// いまと違うポーズを、プールからランダムに選ぶ（issue-56）。
+							onNext: onNextGamePose,
+						},
+					}
+				: {})}
+		/>
+	);
+	const revealPanel = (
+		<div
+			className="flex flex-col gap-2 rounded-xl bg-surface px-3 py-2 ring-1 ring-line ring-inset"
+			data-testid="veryare-reveal"
+			data-reveal-target={revealTarget ?? ""}
+		>
+			<p className="text-fg text-sm">
+				{revealTarget === null
+					? "自分の視点"
+					: `${nameOf(revealTarget)}${revealTarget === you ? "（自分）" : ""}の隠れ場所`}
+				{revealTarget !== null
+					? ` ・いいね ${likes.get(revealTarget) ?? 0}`
+					: ""}
+			</p>
+			<div className="flex gap-2">
+				<button
+					type="button"
+					onClick={() =>
+						setRevealTarget((current) => stepRevealTarget(targets, current, -1))
+					}
+					className="min-h-11 flex-1 rounded-xl bg-ink px-3 font-semibold text-fg text-sm ring-1 ring-line ring-inset"
+				>
+					前の隠れ場所
+				</button>
+				<button
+					type="button"
+					onClick={() =>
+						setRevealTarget((current) => stepRevealTarget(targets, current, 1))
+					}
+					className="min-h-11 flex-1 rounded-xl bg-ink px-3 font-semibold text-fg text-sm ring-1 ring-line ring-inset"
+				>
+					次の隠れ場所
+				</button>
+			</div>
+			<div className="flex gap-2">
+				{revealTarget !== null ? (
+					<button
+						type="button"
+						onClick={() => setRevealTarget(null)}
+						className="min-h-11 flex-1 rounded-xl bg-ink px-3 font-semibold text-fg text-sm ring-1 ring-line ring-inset"
+					>
+						自分の視点
+					</button>
+				) : null}
+				{revealTarget !== null && revealTarget !== you ? (
+					<button
+						type="button"
+						data-testid="veryare-like"
+						disabled={!likeable}
+						onClick={onLike}
+						className="min-h-11 flex-1 rounded-xl bg-accent px-3 font-semibold text-accent-fg text-sm disabled:opacity-50"
+					>
+						{revealTarget !== null && liked.has(revealTarget)
+							? "いいね済み"
+							: "いいね"}
+					</button>
+				) : null}
+			</div>
+			{role === "hider" && you !== null ? (
+				<p className="text-fg-muted text-xs" data-testid="veryare-my-likes">
+					あなたへのいいね {likes.get(you) ?? 0}
+				</p>
+			) : null}
+		</div>
+	);
+
 	return (
 		<div
-			className="flex w-full flex-col gap-3"
+			className="flex min-h-0 w-full flex-1 flex-col"
 			data-testid="veryare"
 			data-phase={phase}
 			data-space={space}
@@ -1211,197 +1348,77 @@ export default function Veryare() {
 			data-open-doors={openDoors.size}
 			data-blinking={blink.others.length + (blink.self ? 1 : 0)}
 		>
-			<div className="flex items-center justify-between text-sm">
-				<span className="font-semibold text-fg">
-					{notice === null ? "開始を待っています" : PHASE_LABELS[phase]}
-					{remainingSeconds !== null ? ` ・残り ${remainingSeconds}秒` : ""}
-				</span>
-				{explorationSeconds !== null ? (
-					<span className="text-fg-muted">探索 {explorationSeconds}秒</span>
-				) : null}
-			</div>
-			<p className="text-fg-muted text-sm">
-				{ROLE_LABELS[role]}
-				{space === "waiting-room" ? "（待機ルーム）" : "（ステージ）"}
-				{phase === "oni-selection" ? " ・鬼になりたい人は中央の円へ" : ""}
-				{(phase === "painting" || phase === "exploration") && role === "hider"
-					? " ・その場から動けません"
-					: ""}
-				{phase === "exploration" && hiding !== null
-					? ` ・隠れている ${hiding.length}人`
-					: ""}
-			</p>
-			{area !== null && shown("area") ? (
-				<p
-					className="text-sm"
-					data-testid="veryare-area"
-					data-color={areaLook(area).color}
-				>
-					<span
-						className={`mr-2 inline-block size-3 rounded-full align-middle ${
-							{
-								red: "bg-red-500",
-								green: "bg-green-500",
-								blue: "bg-blue-500",
-							}[areaLook(area).color]
-						}`}
-						aria-hidden="true"
-					/>
-					<span className="font-semibold text-fg">{areaLook(area).label}</span>
-					<span className="text-fg-muted">
-						{area === "waiting"
-							? " ・あと1人そろうと始められます"
-							: area === "ready"
-								? " ・中央の円に触れると10秒のカウントが始まります"
-								: " ・今触れると鬼の立候補になります"}
-					</span>
-				</p>
-			) : null}
-			{waitingPoseShown ? (
-				<button
-					type="button"
-					data-testid="veryare-waiting-pose"
-					data-pose={poseChoice.waiting ?? ""}
-					disabled={waitingPoseCooling}
-					onClick={onWaitingPose}
-					className="min-h-11 rounded-xl bg-surface px-3 font-semibold text-fg text-sm ring-1 ring-line ring-inset disabled:opacity-50"
-				>
-					ポーズを変える
-					{poseChoice.waiting !== null
-						? `（いま: ${poseLabel(poseChoice.waiting)}）`
-						: ""}
-				</button>
-			) : null}
-
-			{gamePoseShown ? (
-				<button
-					type="button"
-					data-testid="veryare-game-pose"
-					data-pose={poseChoice.game ?? ""}
-					onClick={onNextGamePose}
-					className="min-h-11 rounded-xl bg-surface px-3 font-semibold text-fg text-sm ring-1 ring-line ring-inset"
-				>
-					ポーズを変える
-					{poseChosen ? `（いま: ${poseLabel(pose)}）` : ""}
-				</button>
-			) : null}
-			{poseNoticeShown && (gamePoseOpen || showPaintPanel) ? (
-				<output
-					data-testid="veryare-pose-notice"
-					className="block rounded-xl bg-accent px-3 py-2 text-center font-semibold text-accent-fg text-sm"
-				>
-					{poseLabel(pose)}
-				</output>
-			) : null}
-
-			{spectator ? (
-				<p className="rounded-xl bg-surface px-3 py-2 text-fg text-sm">
-					見つかりました。観戦中です
-					{view === "oni"
-						? "（鬼の視点・視点パッドで回せます）"
-						: "（探索が始まると鬼の視点になります）"}
-				</p>
-			) : null}
-			{roofToggle && modelShown && space === "stage" ? (
-				<button
-					type="button"
-					aria-pressed={roofVisible}
-					onClick={() => setRoofVisible((current) => !current)}
-					className="min-h-11 rounded-xl bg-surface px-3 font-semibold text-fg text-sm ring-1 ring-line ring-inset"
-				>
-					{roofVisible ? "屋根を隠す" : "屋根を表示する"}
-				</button>
-			) : null}
-			{phase === "reveal" && targets.length > 0 ? (
+			{/* 状態の行（1〜2 行、最大約 64 px）: フェーズ・残り時間・探索の時間と、ひとこと。 */}
+			<div className="flex max-h-16 shrink-0 flex-col gap-0.5 overflow-hidden px-3 pb-1.5">
 				<div
-					className="flex flex-col gap-2 rounded-xl bg-surface px-3 py-2 ring-1 ring-line ring-inset"
-					data-testid="veryare-reveal"
-					data-reveal-target={revealTarget ?? ""}
+					className="flex items-center justify-between gap-2 text-sm"
+					data-testid="veryare-status"
 				>
-					<p className="text-fg text-sm">
-						{revealTarget === null
-							? "自分の視点"
-							: `${nameOf(revealTarget)}${revealTarget === you ? "（自分）" : ""}の隠れ場所`}
-						{revealTarget !== null
-							? ` ・いいね ${likes.get(revealTarget) ?? 0}`
-							: ""}
-					</p>
-					<div className="flex gap-2">
-						<button
-							type="button"
-							onClick={() =>
-								setRevealTarget((current) =>
-									stepRevealTarget(targets, current, -1),
-								)
-							}
-							className="min-h-11 flex-1 rounded-xl bg-ink px-3 font-semibold text-fg text-sm ring-1 ring-line ring-inset"
-						>
-							前の隠れ場所
-						</button>
-						<button
-							type="button"
-							onClick={() =>
-								setRevealTarget((current) =>
-									stepRevealTarget(targets, current, 1),
-								)
-							}
-							className="min-h-11 flex-1 rounded-xl bg-ink px-3 font-semibold text-fg text-sm ring-1 ring-line ring-inset"
-						>
-							次の隠れ場所
-						</button>
-					</div>
-					<div className="flex gap-2">
-						{revealTarget !== null ? (
-							<button
-								type="button"
-								onClick={() => setRevealTarget(null)}
-								className="min-h-11 flex-1 rounded-xl bg-ink px-3 font-semibold text-fg text-sm ring-1 ring-line ring-inset"
-							>
-								自分の視点
-							</button>
-						) : null}
-						{revealTarget !== null && revealTarget !== you ? (
-							<button
-								type="button"
-								data-testid="veryare-like"
-								disabled={!likeable}
-								onClick={onLike}
-								className="min-h-11 flex-1 rounded-xl bg-accent px-3 font-semibold text-accent-fg text-sm disabled:opacity-50"
-							>
-								{revealTarget !== null && liked.has(revealTarget)
-									? "いいね済み"
-									: "いいね"}
-							</button>
-						) : null}
-					</div>
-					{role === "hider" && you !== null ? (
-						<p className="text-fg-muted text-xs" data-testid="veryare-my-likes">
-							あなたへのいいね {likes.get(you) ?? 0}
-						</p>
+					<span className="truncate font-semibold text-fg">
+						{notice === null ? "開始を待っています" : PHASE_LABELS[phase]}
+						{remainingSeconds !== null ? ` ・残り ${remainingSeconds}秒` : ""}
+					</span>
+					{explorationSeconds !== null ? (
+						<span className="shrink-0 text-fg-muted">
+							探索 {explorationSeconds}秒
+						</span>
 					) : null}
 				</div>
-			) : null}
-			{phase === "exploration" && role === "hider" && !spectator ? (
-				<button
-					type="button"
-					aria-pressed={choseOni}
-					disabled={oniState === null}
-					onClick={() => setChoseOni((current) => !current)}
-					className="min-h-11 rounded-xl bg-surface px-3 font-semibold text-fg text-sm ring-1 ring-line ring-inset disabled:opacity-50"
-				>
-					{choseOni ? "自分の視点に戻る" : "鬼の視点を見る"}
-				</button>
-			) : null}
+				{area !== null && shown("area") ? (
+					// 鬼選出の間は、鬼希望エリアの表示を、ひとことにする（役割の説明は、エリアの表示が兼ねる）。
+					<p
+						className="line-clamp-2 text-xs"
+						data-testid="veryare-area"
+						data-color={areaLook(area).color}
+					>
+						<span
+							className={`mr-1.5 inline-block size-2.5 rounded-full align-middle ${
+								{
+									red: "bg-red-500",
+									green: "bg-green-500",
+									blue: "bg-blue-500",
+								}[areaLook(area).color]
+							}`}
+							aria-hidden="true"
+						/>
+						<span className="font-semibold text-fg">
+							{areaLook(area).label}
+						</span>
+						<span className="text-fg-muted">
+							{area === "waiting"
+								? " ・あと1人そろうと始められます"
+								: area === "ready"
+									? " ・中央の円に触れると10秒のカウントが始まります"
+									: " ・今触れると鬼の立候補になります"}
+						</span>
+					</p>
+				) : (
+					<p className="line-clamp-2 text-fg-muted text-xs">
+						{ROLE_LABELS[role]}
+						{space === "waiting-room" ? "（待機ルーム）" : "（ステージ）"}
+						{phase === "oni-selection" ? " ・鬼になりたい人は中央の円へ" : ""}
+						{(phase === "painting" || phase === "exploration") &&
+						role === "hider"
+							? " ・その場から動けません"
+							: ""}
+						{phase === "exploration" && hiding !== null
+							? ` ・隠れている ${hiding.length}人`
+							: ""}
+					</p>
+				)}
+			</div>
 
+			{/* 残りの高さは、すべて 3D の画面。操作部品と表示は、この上に重ねる。 */}
 			<div
-				className="relative aspect-[3/4] w-full overflow-hidden rounded-2xl"
+				ref={viewRef}
+				className="relative min-h-0 flex-1 overflow-hidden"
 				data-testid="veryare-view"
 				data-visible-members={memberView.count}
 				data-member-poses={memberView.poses}
 			>
 				<canvas
 					ref={canvasRef}
-					className="block size-full"
+					className="absolute inset-0 block size-full"
 					style={paintEditable ? { touchAction: "none" } : undefined}
 					onPointerDown={(event) => {
 						onPaintDown(event);
@@ -1459,10 +1476,108 @@ export default function Veryare() {
 						</p>
 					</div>
 				) : null}
+
+				{/* 左上: ポーズ・観戦・視点の切り替えなど（右上の「設定」とは重ねない）。 */}
+				<div
+					className={`absolute left-2 flex max-w-[calc(100%-6rem)] flex-col items-start gap-1.5 ${outcomeShown ? "top-12" : "top-2"}`}
+				>
+					{waitingPoseShown ? (
+						<button
+							type="button"
+							data-testid="veryare-waiting-pose"
+							data-pose={poseChoice.waiting ?? ""}
+							disabled={waitingPoseCooling}
+							onClick={onWaitingPose}
+							className={OVERLAY_BUTTON}
+						>
+							ポーズを変える
+							{poseChoice.waiting !== null
+								? `（いま: ${poseLabel(poseChoice.waiting)}）`
+								: ""}
+						</button>
+					) : null}
+					{gamePoseShown ? (
+						<button
+							type="button"
+							data-testid="veryare-game-pose"
+							data-pose={poseChoice.game ?? ""}
+							onClick={onNextGamePose}
+							className={OVERLAY_BUTTON}
+						>
+							ポーズを変える
+							{poseChosen ? `（いま: ${poseLabel(pose)}）` : ""}
+						</button>
+					) : null}
+					{poseNoticeShown && (gamePoseOpen || showPaintPanel) ? (
+						<output
+							data-testid="veryare-pose-notice"
+							className="block rounded-xl bg-accent px-3 py-1.5 text-center font-semibold text-accent-fg text-sm"
+						>
+							{poseLabel(pose)}
+						</output>
+					) : null}
+					{spectator ? (
+						<p className="rounded-xl bg-ink/80 px-3 py-1.5 text-fg text-xs">
+							見つかりました。観戦中です
+							{view === "oni"
+								? "（鬼の視点・視点パッドで回せます）"
+								: "（探索が始まると鬼の視点になります）"}
+						</p>
+					) : null}
+					{roofToggle && modelShown && space === "stage" ? (
+						<button
+							type="button"
+							aria-pressed={roofVisible}
+							onClick={() => setRoofVisible((current) => !current)}
+							className={OVERLAY_BUTTON}
+						>
+							{roofVisible ? "屋根を隠す" : "屋根を表示する"}
+						</button>
+					) : null}
+					{phase === "exploration" && role === "hider" && !spectator ? (
+						<button
+							type="button"
+							aria-pressed={choseOni}
+							disabled={oniState === null}
+							onClick={() => setChoseOni((current) => !current)}
+							className={OVERLAY_BUTTON}
+						>
+							{choseOni ? "自分の視点に戻る" : "鬼の視点を見る"}
+						</button>
+					) : null}
+					{painting ? (
+						<fieldset className="flex flex-col gap-1 rounded-xl bg-ink/80 px-2 py-1.5">
+							<legend className="sr-only">
+								待つ間、自分の色を塗り替えられます（保存されません）
+							</legend>
+							<span aria-hidden="true" className="text-fg-muted text-xs">
+								待つ間の色（保存されません）
+							</span>
+							<div className="flex flex-wrap gap-1.5">
+								{WAITING_COLORS.map((color) => (
+									<button
+										key={color}
+										type="button"
+										aria-label={`色 ${color}`}
+										aria-pressed={waitingColor === color}
+										onClick={() => setWaitingColor(color)}
+										className={`size-9 rounded-full ring-inset ${
+											waitingColor === color
+												? "ring-4 ring-fg"
+												: "ring-1 ring-line"
+										}`}
+										style={{ backgroundColor: color }}
+									/>
+								))}
+							</div>
+						</fieldset>
+					) : null}
+				</div>
+
 				{space === "stage" ? (
 					// 画面の隅の設定（天井のあり・なし、視点の自動追従のあり・なし。ランダム間取りと平屋の両方）。
 					<div
-						className={`absolute right-2 flex flex-col items-end gap-1 ${notice?.outcome != null && phase === "reveal" ? "top-12" : "top-2"}`}
+						className={`absolute right-2 flex flex-col items-end gap-1 ${outcomeShown ? "top-12" : "top-2"}`}
 					>
 						<button
 							type="button"
@@ -1497,127 +1612,136 @@ export default function Veryare() {
 					</div>
 				) : null}
 				{/* 終了後の勝敗は、基盤の結果画面（game-ended）に任せる（issue-42）。 */}
-			</div>
 
-			{showPaintPanel ? (
-				<PaintPanel
-					editable={paintEditable}
-					submitted={paintSubmitted}
-					locked={remainingMs <= PAINT_LOCK_MS}
-					strokeCount={draft.strokes.length}
-					color={brushColor}
-					here={here}
-					brush={brush}
-					eyedropper={eyedropper}
-					hsl={hsl}
-					onColor={setPaintColor}
-					onHsl={(next) => {
-						setHsl(next);
-						setPaintColor(hslToHex(next.h, next.s, next.l));
-					}}
-					onBrush={setBrush}
-					onEyedropper={() => setEyedropper((current) => !current)}
-					onUndo={() => setDraft(undoStroke)}
-					onClear={() => setDraft(clearPaint)}
-					onConfirm={() => setPaintConfirmed(true)}
-					{...(bodyPosable
-						? {
-								pose: {
-									label: poseLabel(pose),
-									chosen: poseChosen,
-									// いまと違うポーズを、プールからランダムに選ぶ（issue-56）。
-									onNext: onNextGamePose,
-								},
-							}
-						: {})}
-				/>
-			) : null}
-			{painting ? (
-				<fieldset className="flex flex-col gap-2">
-					<legend className="mb-2 text-fg-muted text-sm">
-						待つ間、自分の色を塗り替えられます（保存されません）
-					</legend>
-					<div className="flex flex-wrap gap-2">
-						{WAITING_COLORS.map((color) => (
-							<button
-								key={color}
-								type="button"
-								aria-label={`色 ${color}`}
-								aria-pressed={waitingColor === color}
-								onClick={() => setWaitingColor(color)}
-								className={`size-11 rounded-full ring-inset ${
-									waitingColor === color ? "ring-4 ring-fg" : "ring-1 ring-line"
-								}`}
-								style={{ backgroundColor: color }}
-							/>
-						))}
-					</div>
-				</fieldset>
-			) : null}
-
-			<div className="flex items-center justify-between">
-				{movable ? (
-					<div className="flex flex-col items-center gap-1">
-						<div className="rounded-full bg-surface ring-1 ring-line ring-inset">
-							<VirtualPad name="move" size={120} deadZone={PAD_DEAD_ZONE} />
+				{/*
+				 * 左下のシート（ペイントの板・答え合わせの切り替え）。閉じられる。視点パッドの左に置き、
+				 * 3D の画面の中央（自分の体・照準）には掛からない高さ（半分）までにする。中は、シートの中だけ
+				 * スクロールする。
+				 */}
+				{sheet !== null ? (
+					sheetOpen ? (
+						<div
+							className="absolute bottom-2 left-2 flex max-h-[calc(50%-1rem)] flex-col rounded-xl bg-ink/85 ring-1 ring-line ring-inset"
+							style={{ right: padSize + 16 }}
+							data-testid="veryare-sheet"
+						>
+							<div className="flex shrink-0 items-center gap-2 pt-1 pl-3">
+								<span className="min-w-0 flex-1 truncate font-semibold text-fg-muted text-xs">
+									{sheet === "paint" ? "ペイント" : "答え合わせ"}
+								</span>
+								{sheet === "paint" ? (
+									<PaintConfirmButton
+										editable={paintEditable}
+										strokeCount={draft.strokes.length}
+										poseChosen={bodyPosable && poseChosen}
+										onConfirm={() => setPaintConfirmed(true)}
+									/>
+								) : null}
+								<button
+									type="button"
+									aria-label="シートを閉じる"
+									data-testid="veryare-sheet-close"
+									onClick={() => setSheetOpen(false)}
+									className="flex size-9 items-center justify-center font-bold text-fg"
+								>
+									×
+								</button>
+							</div>
+							<div className="min-h-0 overflow-y-auto overscroll-contain px-2 pb-2">
+								{sheet === "paint" ? paintPanel : revealPanel}
+							</div>
 						</div>
-						<span className="text-fg-muted text-xs">移動</span>
+					) : (
+						<button
+							type="button"
+							data-testid="veryare-sheet-open"
+							onClick={() => setSheetOpen(true)}
+							className={`absolute bottom-2 left-2 ${OVERLAY_BUTTON}`}
+						>
+							{sheet === "paint" ? "ペイントを開く" : "答え合わせを開く"}
+						</button>
+					)
+				) : null}
+
+				{/* 下: 移動パッド・襖を開ける・撃つ・視点パッド（3D の画面の上に、半透明で重ねる）。 */}
+				<div className="pointer-events-none absolute inset-x-2 bottom-2 flex items-end justify-between gap-2">
+					{movable ? (
+						<div
+							className="pointer-events-auto flex flex-col items-center gap-0.5"
+							data-testid="veryare-move-pad"
+						>
+							<div className="rounded-full bg-surface/60 ring-1 ring-line ring-inset">
+								<VirtualPad
+									name="move"
+									size={padSize}
+									deadZone={PAD_DEAD_ZONE}
+								/>
+							</div>
+							<span className="text-fg-muted text-xs">移動</span>
+						</div>
+					) : shown("pending") ? (
+						// フェーズの通知が届くまでは、黙って隠さず、待っていることを出す（届いたら、すぐ移動パッド）。
+						<output
+							data-testid="veryare-pending"
+							className="flex items-center justify-center rounded-full bg-ink/70 text-center text-fg-muted text-xs"
+							style={{ width: padSize, height: padSize }}
+						>
+							接続中…
+							<br />
+							ゲームの状態を待っています
+						</output>
+					) : (
+						// 動けない間（観戦中を含む）は移動パッドを出さない（左下は、シートのために空ける）。
+						<div aria-hidden="true" />
+					)}
+					<div className="flex min-w-0 flex-col items-center gap-2">
+						{door !== null && shown("open-door") ? (
+							<button
+								type="button"
+								onClick={openDoor}
+								data-testid="veryare-open-door"
+								className={`pointer-events-auto active:scale-95 ${OVERLAY_BUTTON}`}
+							>
+								襖を開ける
+							</button>
+						) : null}
+						{shootable ? (
+							<button
+								type="button"
+								onClick={shoot}
+								disabled={reloadMs > 0}
+								data-testid="veryare-shoot"
+								className="pointer-events-auto rounded-full bg-accent/90 font-bold text-accent-fg transition-transform active:scale-95 disabled:opacity-50"
+								style={{ width: shootSize, height: shootSize }}
+							>
+								{reloadMs > 0 ? `${Math.ceil(reloadMs / 1000)}` : "撃つ"}
+							</button>
+						) : null}
 					</div>
-				) : shown("pending") ? (
-					// フェーズの通知が届くまでは、黙って隠さず、待っていることを出す（届いたら、すぐ移動パッド）。
-					<output
-						data-testid="veryare-pending"
-						className="flex size-[120px] items-center justify-center text-center text-fg-muted text-xs"
-					>
-						接続中…
-						<br />
-						ゲームの状態を待っています
-					</output>
-				) : (
-					// 動けない間（観戦中を含む）は移動パッドを出さない。
-					<div aria-hidden="true" className="size-[120px]" />
-				)}
-				{door !== null && shown("open-door") ? (
-					<button
-						type="button"
-						onClick={openDoor}
-						data-testid="veryare-open-door"
-						className="min-h-11 rounded-xl bg-surface px-4 font-semibold text-fg text-sm ring-1 ring-line ring-inset active:scale-95"
-					>
-						襖を開ける
-					</button>
-				) : null}
-				{shootable ? (
-					<button
-						type="button"
-						onClick={shoot}
-						disabled={reloadMs > 0}
-						data-testid="veryare-shoot"
-						className="size-20 rounded-full bg-accent font-bold text-accent-fg transition-transform active:scale-95 disabled:opacity-50"
-					>
-						{reloadMs > 0 ? `${Math.ceil(reloadMs / 1000)}` : "撃つ"}
-					</button>
-				) : null}
-				<div className="flex flex-col items-center gap-1">
 					<div
-						className="rounded-full bg-surface ring-1 ring-line ring-inset"
-						// 押さえている間を知るため（自動追従を止める）。パッドの動きには関わらない。
-						onPointerDown={() => {
-							lookHeldRef.current = true;
-						}}
-						onPointerUp={() => {
-							lookHeldRef.current = false;
-						}}
-						onPointerCancel={() => {
-							lookHeldRef.current = false;
-						}}
-						onLostPointerCapture={() => {
-							lookHeldRef.current = false;
-						}}
+						className="pointer-events-auto flex flex-col items-center gap-0.5"
+						data-testid="veryare-look-pad"
 					>
-						<VirtualPad name="look" size={120} deadZone={PAD_DEAD_ZONE} />
+						<div
+							className="rounded-full bg-surface/60 ring-1 ring-line ring-inset"
+							// 押さえている間を知るため（自動追従を止める）。パッドの動きには関わらない。
+							onPointerDown={() => {
+								lookHeldRef.current = true;
+							}}
+							onPointerUp={() => {
+								lookHeldRef.current = false;
+							}}
+							onPointerCancel={() => {
+								lookHeldRef.current = false;
+							}}
+							onLostPointerCapture={() => {
+								lookHeldRef.current = false;
+							}}
+						>
+							<VirtualPad name="look" size={padSize} deadZone={PAD_DEAD_ZONE} />
+						</div>
+						<span className="text-fg-muted text-xs">視点</span>
 					</div>
-					<span className="text-fg-muted text-xs">視点</span>
 				</div>
 			</div>
 		</div>

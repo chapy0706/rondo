@@ -12,6 +12,9 @@ export const metadata: Metadata = {
 export const viewport: Viewport = {
 	width: "device-width",
 	initialScale: 1,
+	// 画面の端（ノッチ・ホームインジケータの下）まで描き、ゲーム画面の操作部品と表示は、セーフエリアの
+	// 内側に置く（globals.css の .game-frame）。拡大の禁止はしない。
+	viewportFit: "cover",
 	// globals.css の --color-ink と揃える
 	themeColor: "#13111f",
 };
