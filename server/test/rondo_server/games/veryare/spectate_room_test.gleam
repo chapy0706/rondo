@@ -55,10 +55,18 @@ pub fn without_spectate_it_is_a_match_room_test() {
   |> should.equal(Ok(None))
 }
 
-/// 受け付けるときは、隠れ CPU の数（1〜4。既定 3）・探索時間・ステージ（ランダム間取り）を読む。
+/// 観戦ルームの既定（make simulate の観戦ルームの表で決めた / issue-67 段階 ⑤）。鬼 CPU は「つよい」、探索は
+/// 100 秒。対戦のルームの既定（40 秒）は変えない。
+pub fn spectate_defaults_test() {
+  room.spectate_strength |> should.equal(oni_cpu.Strong)
+  room.spectate_default_exploration_seconds |> should.equal(100)
+  room.default_exploration_seconds |> should.equal(40)
+}
+
+/// 受け付けるときは、隠れ CPU の数（1〜4。既定 3）・探索時間（既定 100 秒）・ステージ（ランダム間取り）を読む。
 pub fn spectate_settings_are_read_when_allowed_test() {
   room.parse_spectate(spectate([]), True, False)
-  |> should.equal(Ok(Some(SpectateSettings(3, 40, RandomLayout))))
+  |> should.equal(Ok(Some(SpectateSettings(3, 100, RandomLayout))))
   room.parse_spectate(
     spectate([
       #("hiderCpus", dynamic.int(4)),
@@ -87,13 +95,13 @@ pub fn spectate_settings_are_read_when_allowed_test() {
 /// では cpu を読まない（あっても既定の 3 のまま）。対戦のルームの cpu の読み方は、これまでどおり。
 pub fn spectate_reads_hider_cpus_not_cpu_test() {
   room.parse_spectate(spectate([#("cpu", dynamic.int(1))]), True, False)
-  |> should.equal(Ok(Some(SpectateSettings(3, 40, RandomLayout))))
+  |> should.equal(Ok(Some(SpectateSettings(3, 100, RandomLayout))))
   room.parse_spectate(
     spectate([#("cpu", dynamic.int(4)), #("hiderCpus", dynamic.int(2))]),
     True,
     False,
   )
-  |> should.equal(Ok(Some(SpectateSettings(2, 40, RandomLayout))))
+  |> should.equal(Ok(Some(SpectateSettings(2, 100, RandomLayout))))
   room.parse_settings(settings([#("cpu", dynamic.int(4))]))
   |> should.equal(Ok(room.Settings(40, room.OniCpu, oni_cpu.Normal)))
 }
@@ -102,7 +110,7 @@ pub fn spectate_reads_hider_cpus_not_cpu_test() {
 /// おまかせ（2）は、観戦ルームでは選べない。
 pub fn spectate_stage_choices_test() {
   room.parse_spectate(spectate([#("stage", dynamic.int(3))]), True, True)
-  |> should.equal(Ok(Some(SpectateSettings(3, 40, WideOnly))))
+  |> should.equal(Ok(Some(SpectateSettings(3, 100, WideOnly))))
   room.parse_spectate(spectate([#("stage", dynamic.int(3))]), True, False)
   |> should.equal(Error(Nil))
   list.each([1, 2, 99], fn(stage) {

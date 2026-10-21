@@ -1,4 +1,4 @@
-import type { GameManifest } from "@rondo/contracts";
+import type { GameManifest, RoomOption } from "@rondo/contracts";
 import type { ComponentType } from "react";
 import { czzManifest } from "./czz/manifest";
 import { minichessManifest } from "./minichess/manifest";
@@ -7,6 +7,7 @@ import { tetrisManifest } from "./tetris/manifest";
 import { tiltMazeManifest } from "./tilt-maze/manifest";
 import {
 	VERYARE_FULLSCREEN,
+	VERYARE_SPECTATE_OPTIONS,
 	veryareHiddenOptions,
 	veryareManifest,
 } from "./veryare/manifest";
@@ -80,6 +81,16 @@ const roomOptionRules: Record<
 > = {
 	[veryareManifest.id]: veryareHiddenOptions,
 };
+
+/** 観戦ルームの作成の設定（issue-67）。持たないゲームは登録しない。 */
+const spectateOptions: Record<string, readonly RoomOption[]> = {
+	[veryareManifest.id]: VERYARE_SPECTATE_OPTIONS,
+};
+
+/** ロビー（運営の画面）が呼ぶ。id のゲームの観戦ルームの作成の設定。観戦ルームを持たなければ null。 */
+export function spectateRoomOptions(id: string): readonly RoomOption[] | null {
+	return spectateOptions[id] ?? null;
+}
 
 /** ロビーが呼ぶ。いまの選び方 settings で、出さない選択肢の key。 */
 export function hiddenRoomOptions(

@@ -7,10 +7,12 @@
 #   ./tools/load.sh garbage                   # 不正な入力（壊れた JSON・未知の種別・バイナリ・大量送信）
 #   ./tools/load.sh soak [--minutes 60]       # 長時間の放置（待機ルームで、つなぎ続ける）
 #   ./tools/load.sh join [--only 鬼 CPU]      # 参加・復帰の組み合わせ表（途中参加の人に、いまの状態が届くか）
+#   ./tools/load.sh spectate [--seconds 20]   # 観戦ルーム（観戦者 20 人）と人間の 3 ルーム × 5 人を同時に（issue-67）
 #
 # - 開発用のサーバー（3000番）と別に、3300番で Gleam サーバーを起動し、終わったら止める
 #   （tools/bots.sh と同じ）。フェーズ時間は 1/20 に縮める（再接続猶予とハートビートは縮まない）
 #   広い屋敷だけ（stage 3）を受け付ける（RONDO_WIDE_DEV=1。join の広い屋敷の構成 / issue-65）
+#   観戦ルームを受け付ける（RONDO_SPECTATE_DEV=1。spectate / issue-67。ほかの試験は観戦ルームを作らない）
 # - サーバーのプロセス（待ち受けのポートのプロセス）を調べて、RONDO_SERVER_PID で試験へ渡す。
 #   試験は、ps で RSS と CPU を読む
 # - サーバーの出力は一時ファイルに取り、終わったら、落ちた・警告の行の有無と末尾を出す
@@ -25,9 +27,9 @@ divisor="${RONDO_BOTS_PHASE_DIVISOR:-20}"
 
 kind="${1:-}"
 case "$kind" in
-	limits | load | chaos | garbage | soak | join) shift ;;
+	limits | load | chaos | garbage | soak | join | spectate) shift ;;
 	*)
-		echo "使い方: ./tools/load.sh limits|load|chaos|garbage|soak|join [引数]" >&2
+		echo "使い方: ./tools/load.sh limits|load|chaos|garbage|soak|join|spectate [引数]" >&2
 		exit 2
 		;;
 esac
@@ -49,7 +51,7 @@ fi
 
 server_log="$(mktemp -t rondo-load-log.XXXXXX)"
 echo "[load] サーバーの出力を ${server_log} に取ります"
-(cd "$repo_root/server" && RONDO_PORT="$port" RONDO_TEST_PHASE_DIVISOR="$divisor" RONDO_WIDE_DEV=1 exec gleam run) >"$server_log" 2>&1 &
+(cd "$repo_root/server" && RONDO_PORT="$port" RONDO_TEST_PHASE_DIVISOR="$divisor" RONDO_WIDE_DEV=1 RONDO_SPECTATE_DEV=1 exec gleam run) >"$server_log" 2>&1 &
 server_pid=$!
 
 echo "[load] サーバーの起動を待っています（${port} 番、フェーズ時間 1/${divisor}）"

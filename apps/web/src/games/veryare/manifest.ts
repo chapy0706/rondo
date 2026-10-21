@@ -54,6 +54,28 @@ export function veryareRoomOptions(hiraya: boolean): RoomOption[] {
 	return hiraya ? [STAGE_OPTION, ...BASE_OPTIONS] : [...BASE_OPTIONS];
 }
 
+/**
+ * 観戦ルームの作成の設定（issue-67。運営の画面 ?operator=1 のロビーだけで出す）。隠れ CPU の数（観戦ルーム
+ * では hiderCpus。対戦のルームの cpu とは意味が違う）と、探索の時間。既定は、make simulate の観戦ルームの表で
+ * 決めた値（サーバーの room.gleam の spectate_default_exploration_seconds と揃える）。ステージは、ランダム
+ * 間取りだけ（選ばせない）。
+ */
+export const VERYARE_SPECTATE_OPTIONS: readonly RoomOption[] = [
+	{
+		key: "hiderCpus",
+		label: "隠れ CPU",
+		choices: [1, 2, 3, 4],
+		default: 3,
+		choiceLabels: { 1: "1体", 2: "2体", 3: "3体", 4: "4体" },
+	},
+	{
+		key: "explorationSeconds",
+		label: "探索時間",
+		choices: [40, 60, 80, 100, 120],
+		default: 100,
+	},
+];
+
 const BASE_OPTIONS: readonly RoomOption[] = [
 	{
 		key: "explorationSeconds",

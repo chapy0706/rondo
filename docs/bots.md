@@ -25,7 +25,8 @@ make bots ARGS="--only 不成立"    # シナリオ名の一部で絞る
 | `RONDO_WIDE_DEV` | `1` のときだけ、ルーム作成の `stage: 3`（広い屋敷だけ / issue-65）を受け付ける。ほかの値・無しなら、`stage: 3` は `invalid-settings` で断る | 無し（受け付けない） |
 | `RONDO_SPECTATE_DEV` | `1` のときだけ、ルーム作成の `spectate: 1`（観戦ルーム / issue-67）を受け付ける（旗 `veryare.spectate_ready` が false の間）。ほかの値・無しなら、`invalid-settings` で断る。テスト用の短縮（`RONDO_TEST_PHASE_DIVISOR`）は、観戦ルームの、結果を見せる時間（10 秒）と、観戦者 0 人で閉じるまで（60 秒）も割る | 無し（受け付けない） |
 
-- 無い・正しくない値なら、短縮しない。本番（A1）では設定しない（`RONDO_WIDE_DEV` と `RONDO_SPECTATE_DEV` も、本番では設定しない）
+- 無い・正しくない値なら、短縮しない。本番（A1）では設定しない（`RONDO_WIDE_DEV` も、本番では設定しない）
+- `RONDO_SPECTATE_DEV` は、ふだんの本番では設定しない。発表会の当日に、観戦ルームを受け付けるときだけ、A1 の env ファイルに足して ws を作り直す（`docs/runbook.md`。戻し方も同じ）
 - 縮めるのは、フェーズのタイマーと、撃つ間隔（issue-27）だけ。判定（状態機械）と、再接続猶予（10 秒 / ADR 0013）、ハートビート（issue-41）の時間は変わらない。撃つ間隔は、どれだけ縮めても 0 にはならない
 - 縮めても、フェーズの順序と勝敗が変わらないことは、`server/test/rondo_server/games/timing_test.gleam` で確かめている
 
@@ -84,7 +85,17 @@ make bots ARGS="--only 不成立"    # シナリオ名の一部で絞る
 
 ## 負荷・長時間・乱れた通信・不正な入力（issue-51）
 
-同じボットの仕組みで、上限・同時負荷・乱れた通信・不正な入力・長時間の放置を試す。動かし方と結果は `docs/load-tests.md`（`./tools/load.sh limits|load|chaos|garbage|soak`）。
+同じボットの仕組みで、上限・同時負荷・乱れた通信・不正な入力・長時間の放置を試す。動かし方と結果は `docs/load-tests.md`（`./tools/load.sh limits|load|chaos|garbage|soak|join|spectate`）。
+
+## 観戦者のボット（issue-67）
+
+ボットは、ふつうの電文（`create-room` の `settings: { spectate: 1, hiderCpus: 4 }`、`join-room`）で、観戦ルームに観戦者として入る（作った人も観戦者）。`./tools/load.sh spectate` が、観戦者 20 人で、次を確かめる（確かめの関数は `bots/src/spectate.ts`。単体テストは `make verify` で動く）。
+
+- 観戦用の通知（`spectate`）の、全員の位置（参加者の CPU だけ、ステージの中）・色（`looks` の数が隠れ CPU の数、`#rrggbb`）・ポーズ（着いた隠れ CPU のポーズが、見た目のポーズと同じ）
+- 間隔（全員宛ての通知が、80 ms 未満で届かない。入室・復帰の本人宛ての 1 通は数えない）
+- 次の試合が始まっても（`game-started`）、色とポーズつきの最初の 1 通と、そのあとの通知を、受け取り続ける
+
+サーバーは、`tools/load.sh` が `RONDO_SPECTATE_DEV=1` で起動する（ほかの試験は、観戦ルームを作らない）。
 
 ## 失敗したとき
 

@@ -99,7 +99,9 @@ pnpm --filter @rondo/e2e e2e:spectate
 - 全員の体が見える（`data-visible-actors`）。下の選択（`spectate-follow`、`data-actor`）で、追う相手を替えられる（`data-follow-target`）
 - 結果のあと、状態の行（`spectate-status`）に「次の試合まで あと ○ 秒」が出て、結果の画面には替わらない。次の試合が始まっても、選んだ相手を追い続ける
 - iPhone の縦画面（`layout.ts` の大きさ）で、観戦の画面がスクロールなしで収まる（`@layout`。上部バー・状態の行・3D の画面・追う相手の選択を測る）
-- 3D の画面の体をタップして追う相手を替えることと、壁の向こうが見えないことは、目視で確かめる
+- ロビーの、観戦ルームを作るトグル（`lobby-spectate-toggle`）は、運営の画面（`/lobby/veryare?operator=1`。実行時に URL で決める）だけに出る。トグルを入れると、作成の設定が、隠れ CPU の数（`lobby-spectate-option-hiderCpus`）と探索の時間（`lobby-spectate-option-explorationSeconds`。既定 100 秒）に替わり、作った人は観戦者として入る。送る設定は `{ spectate: 1, hiderCpus, explorationSeconds }`（ステージは送らない。ランダム間取りだけ）
+- 運営の画面では、旗（`SPECTATE_READY`）が下りていても、観戦の行を押せる。来場者の画面では押せない（この E2E の web は `NEXT_PUBLIC_RONDO_SPECTATE_DEV=1` で起動するので、来場者の画面の「押せない」は、単体テスト `spectateRow.test.tsx` で確かめる）
+- 3D の画面の体をタップして追う相手を替えることと、壁の向こうが見えないことは、目視で確かめる（`docs/visual-checks.md` の観戦の画面）
 
 ## 拡張の E2E（issue-52）
 

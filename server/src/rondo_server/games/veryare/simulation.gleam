@@ -18,6 +18,7 @@ import gleam/string
 import rondo_server/games/veryare/game.{
   type Game, Ended, Exploration, HidersWin, Position, Reveal, Stage,
 }
+import rondo_server/games/veryare/hider_cpu
 import rondo_server/games/veryare/oni_cpu.{type Strength}
 import rondo_server/games/veryare/sight
 import rondo_server/games/veryare/stage.{type Layout, type Skeleton}
@@ -226,6 +227,138 @@ fn numbers(from: Int, to: Int) -> List(Int) {
   case from > to {
     True -> []
     False -> [from, ..numbers(from + 1, to)]
+  }
+}
+
+// --- 観戦ルームの設定（issue-67） ---------------------------------------------------
+
+/// 観戦ルームの隠れ CPU の数（観戦ルームの上限）。
+pub const spectate_hider_count = 4
+
+/// 観戦ルームと同じ始まり方の 1 試合。鬼 CPU 1 体と、歩く隠れ CPU 4 体で、鬼選出を飛ばして準備移動から
+/// 始める（room.gleam の start_spectating と同じ）。異常には、run と同じもの（ADR 0028）に、歩きの決まり
+/// （4 体とも道が決まる・準備移動の時間内に着く・被らない）を足す。
+pub fn run_spectate(
+  skeleton: Skeleton,
+  strength: Strength,
+  seed: Int,
+  exploration_ms: Int,
+) -> Match {
+  let durations =
+    stage_timing.durations_for(game.durations(exploration_ms:), skeleton)
+  let exploration_ms = durations.exploration_ms
+  let layout = stage.generate_on(skeleton, seed)
+  let oni = "cpu-1"
+  let hiders =
+    list.map(numbers(2, spectate_hider_count + 1), fn(n) {
+      "cpu-" <> int.to_string(n)
+    })
+  let pick = seeded_pick(seed)
+  let preparation =
+    game.new_with(
+      [oni, ..hiders],
+      durations,
+      layout,
+      game.Cpus(hiders:, oni: Some(oni), strength:),
+    )
+    |> game.with_walking_cpus
+    |> game.begin_without_selection(pick)
+  let reach = hider_cpu.reach_ms(durations.preparation_ms)
+  let walk_anomalies =
+    list.flat_map(hiders, fn(id) {
+      case game.cpu_walk(preparation, id) {
+        Ok(walk) ->
+          case hider_cpu.arrival_ms(walk) <= reach {
+            True -> []
+            False -> ["隠れ CPU が準備移動の時間内に着かない"]
+          }
+        Error(Nil) -> ["隠れ CPU の歩く道が決まらない"]
+      }
+    })
+  let painting = expire(preparation, pick)
+  let overlap_anomalies = case
+    painting.phase,
+    set.size(painting.still_hiding) == spectate_hider_count
+  {
+    game.Painting, True -> []
+    _, _ -> ["被りの失格が想定と違う"]
+  }
+  let exploration = expire(painting, pick)
+  let #(after, find_seconds, explore_anomalies, explored_ms) =
+    explore(exploration, 0, exploration_ms, [], [])
+  let ended = case after.phase {
+    Reveal(_) -> expire(after, pick)
+    _ -> after
+  }
+  let finished = case ended.phase {
+    Ended(_) -> True
+    _ -> False
+  }
+  Match(
+    hiders_win: ended.phase == Ended(HidersWin),
+    find_seconds: list.reverse(find_seconds),
+    finished:,
+    anomalies: list.flatten([
+      walk_anomalies,
+      overlap_anomalies,
+      explore_anomalies,
+      case finished {
+        True -> []
+        False -> ["フェーズが進まない"]
+      },
+    ]),
+    length_seconds: int.to_float(
+      durations.preparation_ms
+      + durations.painting_ms
+      + explored_ms
+      + durations.reveal_ms,
+    )
+      /. 1000.0,
+  )
+}
+
+/// 観戦ルームの既定の選び方の結果。within は、鬼の勝率が 40〜60% に収まっているか。
+pub type SpectateChoice {
+  SpectateChoice(
+    strength: Strength,
+    seconds: Int,
+    oni_rate: Float,
+    within: Bool,
+  )
+}
+
+/// 鬼の勝率の下限と上限（観戦ルームの見どころ。どちらかが勝ちすぎない）。
+pub const spectate_oni_rate_min = 0.4
+
+pub const spectate_oni_rate_max = 0.6
+
+/// (強さ, 探索の秒, 鬼の勝率) の表から、観戦ルームの既定を選ぶ。40〜60% に収まるもののうち、50% に最も
+/// 近いもの（同じ近さなら、表の先のもの）。収まるものが無ければ、50% に最も近いものを、within: False で
+/// 返す。表が空なら Error。
+pub fn pick_spectate_default(
+  rows: List(#(Strength, Int, Float)),
+) -> Result(SpectateChoice, Nil) {
+  let within = fn(rate) {
+    rate >=. spectate_oni_rate_min && rate <=. spectate_oni_rate_max
+  }
+  let closest = fn(candidates: List(#(Strength, Int, Float))) {
+    list.fold(candidates, Error(Nil), fn(best, row) {
+      let distance = float.absolute_value(row.2 -. 0.5)
+      case best {
+        Ok(#(_, d)) if d <=. distance -> best
+        _ -> Ok(#(row, distance))
+      }
+    })
+  }
+  case closest(list.filter(rows, fn(row) { within(row.2) })) {
+    Ok(#(#(strength, seconds, rate), _)) ->
+      Ok(SpectateChoice(strength, seconds, rate, True))
+    Error(Nil) ->
+      case closest(rows) {
+        Ok(#(#(strength, seconds, rate), _)) ->
+          Ok(SpectateChoice(strength, seconds, rate, False))
+        Error(Nil) -> Error(Nil)
+      }
   }
 }
 

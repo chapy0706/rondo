@@ -5,9 +5,14 @@
 /// 骨格 × 強さごとの集計を出し、最後に、種類どうしの比較（隠れ勝率・試合の平均の長さ・異常・計算時間）
 /// と、異常の合計を出す。探索時間は、ルームで選ぶ時間で並べる（広い屋敷は、ルームと同じく +80 秒で
 /// 回る）。歩く速さ・視野・発見確率は、この表を見て oni_cpu.params で調整する。
+///
+/// 観戦ルーム（issue-67）の設定の表も出す。鬼 CPU の強さ × 探索の時間ごとに 300 試合を回し、鬼の勝率が
+/// 40〜60% に収まる組み合わせのうち、50% に最も近いものを、観戦ルームの既定の候補として出す。
+import gleam/float
 import gleam/int
 import gleam/io
 import gleam/list
+import gleam/string
 import rondo_server/games/veryare/oni_cpu.{type Strength}
 import rondo_server/games/veryare/simulation.{type Match}
 import rondo_server/games/veryare/stage.{type Skeleton}
@@ -47,11 +52,14 @@ pub fn main() -> Nil {
   ]
   list.each(kinds, print_kind)
   print_comparison(kinds)
+  let spectate = run_spectate()
+  print_spectate(spectate)
 
   let anomalies =
     kinds
     |> list.flat_map(fn(kind) { kind.by_time })
     |> list.flat_map(fn(entry) { entry.1 })
+    |> list.append(spectate)
     |> list.flat_map(fn(r) { r.2 })
     |> list.flat_map(fn(m) { m.anomalies })
   io.println("")
@@ -151,6 +159,83 @@ fn print_comparison(kinds: List(KindResult)) -> Nil {
       <> " µs）",
     )
   })
+}
+
+// --- 観戦ルームの設定（issue-67） ---------------------------------------------------
+
+/// 観戦ルームの表の、探索の時間（秒。ルームで選ぶ時間のうち、観戦ルームの候補）。
+const spectate_seconds = [40, 60, 80, 100]
+
+/// 観戦ルームの表の、骨格ごとの試合数（10 種 × 30 = 組み合わせごとに 300 試合）。
+const spectate_matches_per_skeleton = 30
+
+/// 強さ × 探索の時間ごとに、10 種の骨格で回す（鬼 CPU 1 体、歩く隠れ CPU 4 体、鬼選出なし）。
+fn run_spectate() -> List(#(Strength, Int, List(Match))) {
+  list.flat_map(simulation.strengths(), fn(strength) {
+    list.map(spectate_seconds, fn(seconds) {
+      let matches =
+        list.flat_map(stage.skeletons(), fn(skeleton) {
+          list.map(seeds(spectate_matches_per_skeleton), fn(seed) {
+            simulation.run_spectate(skeleton, strength, seed, seconds * 1000)
+          })
+        })
+      #(strength, seconds, matches)
+    })
+  })
+}
+
+fn print_spectate(results: List(#(Strength, Int, List(Match)))) -> Nil {
+  io.println("")
+  io.println(
+    "■ 観戦ルームの設定（鬼 CPU 1 × 歩く隠れ CPU "
+    <> int.to_string(simulation.spectate_hider_count)
+    <> "、ランダム間取り 10 種、鬼選出なし）",
+  )
+  io.println("強さ    探索秒   試合  鬼勝率  発見人数  平均発見秒  異常")
+  let rows =
+    list.map(results, fn(r) {
+      let #(strength, seconds, matches) = r
+      let summary = simulation.summarize(matches)
+      let oni_rate = 1.0 -. summary.hider_win_rate
+      io.println(string.join(
+        [
+          string.pad_end(simulation.strength_name(strength), 6, " "),
+          string.pad_start(int.to_string(seconds), 6, " "),
+          string.pad_start(int.to_string(summary.matches), 6, " "),
+          string.pad_start(percent(oni_rate), 7, " "),
+          string.pad_start(tenths(summary.average_found), 9, " "),
+          string.pad_start(tenths(summary.average_find_seconds), 11, " "),
+          string.pad_start(int.to_string(summary.anomalies), 5, " "),
+        ],
+        " ",
+      ))
+      #(strength, seconds, oni_rate)
+    })
+  case simulation.pick_spectate_default(rows) {
+    Ok(choice) ->
+      io.println(
+        "既定の候補: "
+        <> simulation.strength_name(choice.strength)
+        <> "・探索 "
+        <> int.to_string(choice.seconds)
+        <> " 秒（鬼勝率 "
+        <> percent(choice.oni_rate)
+        <> case choice.within {
+          True -> "。40〜60% に収まる）"
+          False -> "。40〜60% に収まる組み合わせが無い。最も近い値）"
+        },
+      )
+    Error(Nil) -> io.println("既定の候補: なし")
+  }
+}
+
+fn percent(rate: Float) -> String {
+  int.to_string(float.round(rate *. 100.0)) <> "%"
+}
+
+fn tenths(value: Float) -> String {
+  let t = float.round(value *. 10.0)
+  int.to_string(t / 10) <> "." <> int.to_string(int.absolute_value(t % 10))
 }
 
 fn extra_note(kind: KindResult) -> String {

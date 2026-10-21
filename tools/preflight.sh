@@ -1,6 +1,7 @@
 #!/usr/bin/env bash
 # 載せ換えの前の最終確認（make preflight）。次を順に流し、1 つでも失敗したら、そこで止まる。
 #
+#   0. ./tools/check-prod-flags.sh               本番に出してはいけない旗が、本番のビルドのファイルに無いこと（issue-67）
 #   1. make verify                              Biome・型・テスト（TS と Gleam）。サーバーもブラウザも使わない
 #   2. make bots                                ボットの対戦。tools/bots.sh が 3300 番でサーバーを起動し、終わったら止める
 #   3. ./tools/load.sh limits                   上限の試験。3300 番でサーバーを起動し、終わったら止める
@@ -36,6 +37,7 @@ if [ "${#busy[@]}" -gt 0 ]; then
 fi
 
 steps=(
+	"./tools/check-prod-flags.sh"
 	"make verify"
 	"make bots"
 	"./tools/load.sh limits"

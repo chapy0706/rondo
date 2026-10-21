@@ -20,6 +20,11 @@ services:
     networks:
       - coolify
     restart: unless-stopped
+    # 観戦ルーム（issue-67）を受け付けるか。旗（veryare.spectate_ready）が下りている間は、1 のときだけ
+    # 受け付ける。A1 の env ファイル（--env-file）に RONDO_SPECTATE_DEV=1 を書いたときだけ、発表会の当日に
+    # 使う。書かなければ空で、受け付けない（いまの動きのまま）。手順は docs/runbook.md。
+    environment:
+      RONDO_SPECTATE_DEV: ${RONDO_SPECTATE_DEV:-}
     # メモリの上限（issue-51）。極端に大きな電文への最後の砦。ふだんの使用は数十 MB で、
     # ソケット1本ごとの上限（connection/heap_guard: 64 MiB）が先に効くので、ここには当たらない。
     # 同時に多数の接続が極端な電文を送る、まれな場合にだけ当たり、コンテナごと落ちて

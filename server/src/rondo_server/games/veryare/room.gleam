@@ -382,8 +382,13 @@ const spectate_hider_choices = [1, 2, 3, 4]
 
 pub const spectate_default_hiders = 3
 
-/// 観戦ルームの鬼 CPU の強さ（段階 ⑤ の make simulate で、鬼の勝率が 40〜60% に収まる値に決める）。
-pub const spectate_strength = oni_cpu.Normal
+/// 観戦ルームの鬼 CPU の強さと、探索の時間の既定（秒）。make simulate の観戦ルームの表（鬼 CPU 1 体、歩く
+/// 隠れ CPU 4 体、ランダム間取り 10 種、組み合わせごとに 300 試合 / issue-67）で決めた。強さ 3 種 × 探索
+/// 40・60・80・100 秒のうち、鬼の勝率が 40〜60% に収まる組み合わせは無く、最も近い「つよい・100 秒」
+/// （鬼の勝率 37%）にした。
+pub const spectate_strength = oni_cpu.Strong
+
+pub const spectate_default_exploration_seconds = 100
 
 /// 観戦者の上限と、結果を見せる時間、観戦者が 0 人のまま閉じるまでの時間（ミリ秒。本番の値）。
 pub const max_spectators = 20
@@ -443,7 +448,7 @@ pub fn parse_spectate(
         use spectate <- decode.optional_field("spectate", 0, decode.int)
         use seconds <- decode.optional_field(
           "explorationSeconds",
-          default_exploration_seconds,
+          spectate_default_exploration_seconds,
           decode.int,
         )
         use hiders <- decode.optional_field(

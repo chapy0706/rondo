@@ -7,6 +7,8 @@
  * - 下の選択で、追う相手を替えられる（data-follow-target）
  * - 結果のあと「次の試合まで あと ○ 秒」が出て、次の試合が始まり、選んだ相手を追い続ける
  * - iPhone の縦画面で、観戦の画面がスクロールなしで収まる（@layout。layout-fit.e2e.ts と同じ測り方）
+ * - ロビーの、観戦ルームを作るトグルは、運営の画面（?operator=1）だけに出る。トグルから作ると、作った人は
+ *   観戦者として入る（隠れ CPU の数を選べる）
  *
  * 観戦ルームは同時に 1 つまで（ADR 0051）。前のテストのルームが、0 人で閉じる（60 秒 / 4）まで、作り直しを
  * 待つ。終わったら、ボットはルームを出て閉じる。
@@ -139,6 +141,47 @@ test("ボットの観戦ルームに、ロビーから入り、全員の体が�
 	} finally {
 		leave(bot);
 	}
+});
+
+test("観戦ルームを作るトグルは、運営の画面（?operator=1）だけに出て、そこから観戦ルームを作れる @spectate", async ({
+	openTab,
+}) => {
+	const a = await openTab();
+	await a.page.goto("/lobby/veryare");
+	await expect(a.page.getByTestId("lobby-create-room")).toBeVisible();
+	await expect(a.page.getByTestId("lobby-spectate-toggle")).toHaveCount(0);
+
+	await a.page.goto("/lobby/veryare?operator=1");
+	const toggle = a.page.getByTestId("lobby-spectate-toggle");
+	await expect(toggle).toBeVisible();
+	await toggle.check();
+	// 観戦ルームの設定（隠れ CPU の数・探索の時間）に替わる。ステージと CPU（対戦の）は出さない。
+	await a.page.getByTestId("lobby-spectate-option-hiderCpus").selectOption("2");
+	await expect(
+		a.page.getByTestId("lobby-spectate-option-explorationSeconds"),
+	).toHaveValue("100");
+	await expect(a.page.getByTestId("lobby-option-cpu")).toHaveCount(0);
+
+	// 前のテストの観戦ルームが閉じる（0 人で 15 秒）まで、作り直す。
+	const view = a.page.getByTestId("veryare-spectate");
+	const deadline = Date.now() + IDLE_CLOSE_MS + 15_000;
+	while (!(await view.isVisible())) {
+		if (Date.now() > deadline) throw new Error("観戦の枠が空かない");
+		await a.page.getByTestId("lobby-create-room").click();
+		await expect(view.or(a.page.getByTestId("lobby-notice"))).toBeVisible({
+			timeout: 10_000,
+		});
+		if (!(await view.isVisible())) await a.page.waitForTimeout(2_000);
+	}
+	await expect(view).toHaveAttribute("data-spectating", "true");
+	// 隠れ CPU 2 体と鬼 CPU（追う相手は 3 つ）。
+	await expect(a.page.getByTestId("spectate-follow")).toHaveCount(3);
+	const sent = a.link.sent("create-room").at(-1)?.message;
+	expect(sent?.settings).toEqual({
+		spectate: 1,
+		hiderCpus: 2,
+		explorationSeconds: 100,
+	});
 });
 
 test("iPhone の縦画面で、観戦の画面がスクロールなしで収まる @spectate @layout", async ({

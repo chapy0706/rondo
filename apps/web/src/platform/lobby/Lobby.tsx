@@ -9,6 +9,8 @@
  * 開いた時点で、そのゲームの素材の先読みを始める（何を読むかはゲームの側 / issue-46）。
  * 一覧にはルーム名・人数・状態を出し、識別子は出さない。ルーム名は作るときに決められる
  * （issue-58）。名前は来場者の自由な入力なので、React の標準の表示（文字として出す）のままにする。
+ * 運営の画面（URL に ?operator=1 / issue-67）では、観戦ルームを作るトグルを出し、観戦の行を押せる
+ * （operator.ts）。来場者の画面には出さない。
  */
 
 import {
@@ -20,12 +22,17 @@ import {
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useEffect, useState } from "react";
-import { hiddenRoomOptions, prefetchForLobby } from "../../games/registry";
+import {
+	hiddenRoomOptions,
+	prefetchForLobby,
+	spectateRoomOptions,
+} from "../../games/registry";
 import { GameLogo } from "../brand/GameLogo";
 import { displayName } from "../brand/gameBrand";
 import { ConnectionFailed } from "../session/ConnectionFailed";
 import { LobbyNotice } from "./LobbyNotice";
 import { RoomListItem } from "./RoomListItem";
+import { isOperator, spectateSettingsToSend } from "./operator";
 import { roomNameHint } from "./roomName";
 import {
 	choiceLabel,
@@ -34,6 +41,7 @@ import {
 	settingsToSend,
 	visibleOptions,
 } from "./roomOptions";
+import { spectateAllowed } from "./spectateFlag";
 import { useRealtimeLobby } from "./useRealtimeLobby";
 
 export function Lobby({
@@ -65,6 +73,18 @@ export function Lobby({
 	// いまの選び方で出さない選択肢（平屋では CPU など）。何を出さないかは、ゲームの側が決める。
 	const hidden = hiddenRoomOptions(gameType, settings);
 	const nameHint = roomNameHint(roomName);
+	// 運営の画面か（issue-67）。URL は、マウントの後に読む（実行時の判定。サーバーの描画では false）。
+	const [operator, setOperator] = useState(false);
+	useEffect(() => {
+		setOperator(isOperator(window.location.search));
+	}, []);
+	const spectateOptions = spectateRoomOptions(gameType);
+	const [spectateMode, setSpectateMode] = useState(false);
+	const [spectateSettings, setSpectateSettings] = useState(() =>
+		initialSettings(spectateOptions ?? []),
+	);
+	const spectateToggle = operator && spectateOptions !== null;
+	const creatingSpectate = spectateToggle && spectateMode;
 	// ロビーを開いた時点で、そのゲームの素材の先読みを始める（issue-46）。ロビーを離れても止めない。
 	useEffect(() => {
 		prefetchForLobby(gameType);
@@ -138,6 +158,7 @@ export function Lobby({
 										room={room}
 										onJoin={() => joinRoom(room.roomId)}
 										disabled={waiting}
+										canSpectate={operator || spectateAllowed()}
 									/>
 								</li>
 							))}
@@ -160,40 +181,87 @@ export function Lobby({
 						</span>
 					</label>
 
-					{visibleOptions(roomOptions, hidden).map((option) => (
-						<label
-							key={option.key}
-							className="flex items-center justify-between gap-3 text-slate-300 text-sm"
-						>
-							{option.label}
-							<select
-								// E2E は、文言ではなく、選択肢の key で探す（lobby-option-cpu など）。
-								data-testid={`lobby-option-${option.key}`}
-								value={settings[option.key] ?? option.default}
-								onChange={(event) =>
-									setSettings((current) =>
-										chooseOption(current, option, event.target.value),
-									)
-								}
-								className="min-h-11 rounded-xl bg-slate-800 px-3 text-base text-white"
-							>
-								{option.choices.map((choice) => (
-									<option key={choice} value={choice}>
-										{choiceLabel(option, choice)}
-									</option>
-								))}
-							</select>
+					{spectateToggle ? (
+						<label className="flex items-center justify-between gap-3 text-slate-300 text-sm">
+							観戦ルームを作る（CPU だけの試合）
+							<input
+								type="checkbox"
+								data-testid="lobby-spectate-toggle"
+								checked={spectateMode}
+								onChange={(event) => setSpectateMode(event.target.checked)}
+								className="size-5"
+							/>
 						</label>
-					))}
+					) : null}
+
+					{creatingSpectate
+						? (spectateOptions ?? []).map((option) => (
+								<label
+									key={option.key}
+									className="flex items-center justify-between gap-3 text-slate-300 text-sm"
+								>
+									{option.label}
+									<select
+										data-testid={`lobby-spectate-option-${option.key}`}
+										value={spectateSettings[option.key] ?? option.default}
+										onChange={(event) =>
+											setSpectateSettings((current) =>
+												chooseOption(current, option, event.target.value),
+											)
+										}
+										className="min-h-11 rounded-xl bg-slate-800 px-3 text-base text-white"
+									>
+										{option.choices.map((choice) => (
+											<option key={choice} value={choice}>
+												{choiceLabel(option, choice)}
+											</option>
+										))}
+									</select>
+								</label>
+							))
+						: null}
+
+					{(creatingSpectate ? [] : visibleOptions(roomOptions, hidden)).map(
+						(option) => (
+							<label
+								key={option.key}
+								className="flex items-center justify-between gap-3 text-slate-300 text-sm"
+							>
+								{option.label}
+								<select
+									// E2E は、文言ではなく、選択肢の key で探す（lobby-option-cpu など）。
+									data-testid={`lobby-option-${option.key}`}
+									value={settings[option.key] ?? option.default}
+									onChange={(event) =>
+										setSettings((current) =>
+											chooseOption(current, option, event.target.value),
+										)
+									}
+									className="min-h-11 rounded-xl bg-slate-800 px-3 text-base text-white"
+								>
+									{option.choices.map((choice) => (
+										<option key={choice} value={choice}>
+											{choiceLabel(option, choice)}
+										</option>
+									))}
+								</select>
+							</label>
+						),
+					)}
 
 					<button
 						type="button"
 						data-testid="lobby-create-room"
 						onClick={() =>
 							createRoom(
-								roomOptions.length > 0
-									? settingsToSend(roomOptions, settings, hidden)
-									: undefined,
+								creatingSpectate
+									? spectateSettingsToSend(
+											spectateOptions ?? [],
+											spectateSettings,
+										)
+									: roomOptions.length > 0
+										? settingsToSend(roomOptions, settings, hidden)
+										: undefined,
 								roomName,
 							)
 						}

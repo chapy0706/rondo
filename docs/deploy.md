@@ -63,10 +63,21 @@ RONDO_VERIFY_WEB_URL=https://rondo.chapy0706.com
 
 - `NEXT_PUBLIC_RONDO_WS_URL` と `NEXT_PUBLIC_ASSET_BASE_URL` は、**2行とも必ず書く**。`deploy/a1-deploy.sh` は、web をビルドするとき、どちらかの行が無いか、値が空なら、止まって警告する（片方を忘れると、その機能が黙って止まるため）。わざと空にするときだけ、`--allow-empty` を付ける
 - 値を変えたら、web を再ビルドする（`NEXT_PUBLIC_*` はビルド時にコードへ埋め込まれる）
+- 開発・E2E 用の `NEXT_PUBLIC_RONDO_SPECTATE_DEV` は、**書かない**（1 だと、来場者の画面でも観戦の行を押せる / issue-67）。下の「デプロイの前の確認」で確かめる
+- 観戦ルームを当日だけ受け付けるときは、`RONDO_SPECTATE_DEV=1` を足して ws を作り直す（`docker-compose.server.prod.yml` がコンテナへ渡す。書かなければ空で、受け付けない）。手順と戻し方は `docs/runbook.md`
 
 ## 更新の手順（通常）
 
-載せ換えの前に、手元で `make preflight` が通ること（`make dev-all` を止めてから。verify・ボット・上限と組み合わせの試験・E2E を順に流し、失敗したら、どれで止まったかを出す。最後に、いまのコミットと、未コミットの変更の有無を出す）。
+載せ換えの前に、手元で `make preflight` が通ること（`make dev-all` を止めてから。本番に出してはいけない旗の確認・verify・ボット・上限と組み合わせの試験・E2E を順に流し、失敗したら、どれで止まったかを出す。最後に、いまのコミットと、未コミットの変更の有無を出す）。
+
+### デプロイの前の確認（本番に出してはいけない旗 / issue-67）
+
+本番のビルドと起動に使うファイル（`deploy/` の下、`apps/web/Dockerfile`、`docker-compose.*.prod.yml`）と、A1 の env ファイルに、開発・E2E 用の旗 `NEXT_PUBLIC_RONDO_SPECTATE_DEV` が無いことを確かめる。見つけたら、ファイルと行の番号だけを出して、0 以外で終わる（値は出さない）。`make preflight` の最初にも入っている（リポジトリの中のファイルだけ）。
+
+```bash
+./tools/check-prod-flags.sh                         # 手元（リポジトリの中）
+./tools/check-prod-flags.sh --env-file ~/rondo.env  # A1（env ファイルも）
+```
 
 A1 のリポジトリの作業コピーで実行する。
 
