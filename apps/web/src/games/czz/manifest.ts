@@ -14,7 +14,7 @@ export const czzManifest: GameManifest = {
 	maxPlayers: 1,
 	description: "指示のとおりに、コマンドを並べよう",
 	// ロゴ（issue-69）。画像が読めないときは、背景の色と頭文字の仮のタイル。
-	logo: { src: "/games/czz/logo.svg", background: "#ffe3dc" },
+	logo: { src: "/games/czz/logo.webp", background: "#ffe3dc" },
 	// 起動画面は czz 自身が持つ（issue-21）。それまでは選択後すぐ本編に入る。
 	launchScreen: "custom",
 };

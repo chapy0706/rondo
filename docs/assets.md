@@ -454,7 +454,7 @@ NEXT_PUBLIC_ASSET_BASE_URL=http://localhost:8081 pnpm --filter @rondo/web dev
 
 ### 置き場所と登録
 
-- 置き場所: `apps/web/public/games/<識別子>/logo.svg`（PNG なら `logo.png`）。識別子は登録の id（gameType）で、表示名ではない
+- 置き場所: `apps/web/public/games/<識別子>/logo.svg`（WebP なら `logo.webp`、PNG なら `logo.png`）。識別子は登録の id（gameType）で、表示名ではない
 - 登録: そのゲームの `apps/web/src/games/<識別子>/manifest.ts` の `logo` に、パスと背景の色を書く
 
   ```ts
@@ -469,9 +469,11 @@ NEXT_PUBLIC_ASSET_BASE_URL=http://localhost:8081 pnpm --filter @rondo/web dev
 | 形式 | 決まり |
 | --- | --- |
 | SVG（基本） | `viewBox="0 0 512 512"`。最初の図形で、登録の背景の色を全面に塗る（`<rect width="512" height="512" fill="#…"/>`。角の丸めは画面の側の CSS）。文字を入れない（`text`・`tspan`・`font`。名前は画面に別に出る）。線（`stroke`）を使わず、平らな図形だけ。色は `#rrggbb` で書き、背景を含めて 5 色まで（図形は白か生成り `#f5efe0`、差し色 1 色）。外の画像・参照・スクリプトを含まない。20 KB 以下 |
+| WebP | 512 × 512・200 KB 以下。背景を全面に塗る（透明にしない） |
 | PNG | 1024 × 1024・sRGB・200 KB 以下。背景を全面に塗る（透明にしない） |
 
-- SVG の決まりは、`apps/web/src/games/logos.test.ts`（`apps/web/src/platform/brand/svgCheck.ts`）が `make verify` で確かめる
+- SVG と WebP の決まりは、`apps/web/src/games/logos.test.ts` が `make verify` で確かめる（SVG は `apps/web/src/platform/brand/svgCheck.ts`、WebP は `webpCheck.ts` がファイルの頭から幅と高さを読む）。登録の `logo.src` が指すファイルが無ければ失敗する
+- WebP に差し替えたゲームも、戻せるように、古い `logo.svg` を残す（`src` を `logo.svg` に戻せば、元のロゴに戻る）
 - 暗い画面でも明るい画面でも見えるよう、背景の色はロゴの側に持つ
 - 駒や牌などは、一般的な図形だけで描く。元の作品で有名な配色・形の並びに近づけない
 
@@ -480,6 +482,8 @@ NEXT_PUBLIC_ASSET_BASE_URL=http://localhost:8081 pnpm --filter @rondo/web dev
 `tools/logos.html` をブラウザで直接開く（本番には出さない）。6 つのロゴを、160 px と 48 px で、明るい背景と暗い背景の両方に並べて見られる。SVG を直したら、再読み込みで見直せる。
 
 ### いまのロゴ
+
+veryare・czz・tilt-maze・nikaku-keshi・minichess は WebP（`logo.webp`）に差し替えた。tetris は、画像のブロックの配色が有名な配色と同じため、SVG のまま。veryare のロゴは、ゲーム画面の画像（平屋のモデルと Mixamo のキャラクターが写っている）で、元のファイルは含まない（`docs/licenses/README.md`）。下の図柄は、SVG（`logo.svg`）のもの。
 
 | ゲーム（識別子） | 背景 | 図柄 |
 | --- | --- | --- |

@@ -18,7 +18,7 @@ export const tiltMazeManifest: GameManifest = {
 	maxPlayers: 4,
 	description: "傾けて、球をゴールへ転がそう",
 	// ロゴ（issue-69）。画像が読めないときは、背景の色と頭文字の仮のタイル。
-	logo: { src: "/games/tilt-maze/logo.svg", background: "#3f8f5a" },
+	logo: { src: "/games/tilt-maze/logo.webp", background: "#3f8f5a" },
 	launchScreen: "shared",
 	tagline: TEXT.tagline,
 	howToPlay: TEXT.howToPlay,

@@ -1,5 +1,5 @@
 /**
- * ゲームのロゴ（issue-69）。ロゴの画像（apps/web/public/games/<識別子>/logo.svg）が読めるときは画像が
+ * ゲームのロゴ（issue-69）。ロゴの画像（apps/web/public/games/<識別子>/logo.svg・logo.webp）が読めるときは画像が
  * 出て、読めないとき（リクエストを中止・404）は、壊れた画像を出さず、背景の色と頭文字の仮のタイル
  * だけが出ることを確かめる。素材の失敗の E2E（assets.e2e.ts）と同じく、page.route で差し替える。
  *
@@ -47,7 +47,7 @@ for (const [name, failure] of [
 		openTab,
 	}) => {
 		const a = await openTab();
-		await a.page.route("**/games/*/logo.svg", (route) =>
+		await a.page.route(/\/games\/[^/]+\/logo\.(svg|webp)$/, (route) =>
 			failure === "abort"
 				? route.abort()
 				: route.fulfill({ status: 404, body: "not found" }),

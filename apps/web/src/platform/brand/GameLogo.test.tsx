@@ -42,4 +42,23 @@ describe("GameLogo - ロゴと仮のタイル（issue-69）", () => {
 		// 画像の下にも、タイル（頭文字）を敷いている。
 		expect(html).toContain("テ");
 	});
+
+	it("WebP の画像でも、SVG と同じく、遅延読み込み・大きさ指定・代替の文字の img を、タイルの上に重ねる", () => {
+		const html = renderToStaticMarkup(
+			<GameLogo
+				manifest={{
+					...base,
+					logo: { src: "/games/tetris/logo.webp", background: "#5b3f8f" },
+				}}
+				size={48}
+			/>,
+		);
+		expect(html).toContain('data-logo="image"');
+		expect(html).toMatch(/<img[^>]*src="\/games\/tetris\/logo\.webp"/);
+		expect(html).toMatch(/<img[^>]*loading="lazy"/);
+		expect(html).toMatch(/<img[^>]*width="48"[^>]*height="48"/);
+		expect(html).toMatch(/<img[^>]*alt="落ちものパズル"/);
+		expect(html).toContain("background-color:#5b3f8f");
+		expect(html).toContain("テ");
+	});
 });
