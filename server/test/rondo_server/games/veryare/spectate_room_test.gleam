@@ -61,7 +61,7 @@ pub fn spectate_settings_are_read_when_allowed_test() {
   |> should.equal(Ok(Some(SpectateSettings(3, 40, RandomLayout))))
   room.parse_spectate(
     spectate([
-      #("cpu", dynamic.int(4)),
+      #("hiderCpus", dynamic.int(4)),
       #("explorationSeconds", dynamic.int(80)),
     ]),
     True,
@@ -70,7 +70,7 @@ pub fn spectate_settings_are_read_when_allowed_test() {
   |> should.equal(Ok(Some(SpectateSettings(4, 80, RandomLayout))))
   // 範囲の外の値・知らない spectate の値は断る。
   list.each([0, 5], fn(n) {
-    room.parse_spectate(spectate([#("cpu", dynamic.int(n))]), True, False)
+    room.parse_spectate(spectate([#("hiderCpus", dynamic.int(n))]), True, False)
     |> should.equal(Error(Nil))
   })
   room.parse_spectate(
@@ -81,6 +81,21 @@ pub fn spectate_settings_are_read_when_allowed_test() {
   |> should.equal(Error(Nil))
   room.parse_spectate(settings([#("spectate", dynamic.int(2))]), True, False)
   |> should.equal(Error(Nil))
+}
+
+/// 隠れ CPU の数は hiderCpus で読む。対戦のルームの cpu（4 = 鬼 CPU）とは意味が違うので、観戦ルーム
+/// では cpu を読まない（あっても既定の 3 のまま）。対戦のルームの cpu の読み方は、これまでどおり。
+pub fn spectate_reads_hider_cpus_not_cpu_test() {
+  room.parse_spectate(spectate([#("cpu", dynamic.int(1))]), True, False)
+  |> should.equal(Ok(Some(SpectateSettings(3, 40, RandomLayout))))
+  room.parse_spectate(
+    spectate([#("cpu", dynamic.int(4)), #("hiderCpus", dynamic.int(2))]),
+    True,
+    False,
+  )
+  |> should.equal(Ok(Some(SpectateSettings(2, 40, RandomLayout))))
+  room.parse_settings(settings([#("cpu", dynamic.int(4))]))
+  |> should.equal(Ok(room.Settings(40, room.OniCpu, oni_cpu.Normal)))
 }
 
 /// ステージは、ランダム間取りだけ。広い屋敷だけ（3）は、RONDO_WIDE_DEV=1 のときだけ。平屋（1）と

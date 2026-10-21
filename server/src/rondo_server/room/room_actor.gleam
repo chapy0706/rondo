@@ -778,6 +778,14 @@ fn broadcast(state: State, message: ServerMessage) -> Nil {
   })
 }
 
+/// 観戦者にだけ送る（issue-67 の観戦用の通知）。参加者の送信先には送らない。対戦のルームでは、観戦者が
+/// いないので、誰にも届かない。
+fn to_spectators(state: State, message: ServerMessage) -> Nil {
+  dict.each(state.spectators, fn(_spectator, outbox) {
+    process.send(outbox, message)
+  })
+}
+
 /// 宛先の送信先（参加者か、観戦ルームの観戦者）。
 fn outbox_of(
   state: State,
@@ -888,6 +896,8 @@ fn apply(state: State, effect: Effect(PlayerId)) -> Nil {
   case effect {
     driver.Broadcast(payload) -> broadcast(state, game_state(state, payload))
     driver.Deliver(targets, payload) -> deliver_to(state, targets, payload)
+    driver.ToSpectators(payload) ->
+      to_spectators(state, game_state(state, payload))
     driver.WakeAfter(ms, token) -> {
       let _ = process.send_after(state.self, ms, Wake(token))
       Nil

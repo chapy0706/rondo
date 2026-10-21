@@ -13,6 +13,9 @@ pub type Effect(id) {
   Broadcast(payload: Dynamic)
   /// 宛先のプレイヤーにだけ送る（game-state-to / ADR 0021）。宛先でない接続には送らない。
   Deliver(targets: List(id), payload: Dynamic)
+  /// 観戦ルームの観戦者にだけ、同じ内容を送る（game-state / issue-67 の観戦用の通知）。参加者には
+  /// 送らない。対戦のルームには観戦者がいないので、誰にも届かない。
+  ToSpectators(payload: Dynamic)
   /// ms ミリ秒後に token を持ってゲームを起こす。token はゲームが古いタイマーを見分けるのに使う。
   WakeAfter(ms: Int, token: Int)
   /// ゲームの終了（issue-42）。ルームは参加者全員へ game-ended を送り、Finished に移る。

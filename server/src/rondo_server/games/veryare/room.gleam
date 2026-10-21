@@ -55,9 +55,6 @@ import rondo_server/games/veryare/game.{
   AreaWaiting, Ended, Exploration, HidersWin, NotEnoughPlayers, OniSelection,
   OniWins, Painting, Preparation, Reveal,
 }
-import rondo_server/games/veryare/hider_cpu.{
-  type Placement, Crouching, Lying, Standing,
-}
 import rondo_server/games/veryare/hiraya
 import rondo_server/games/veryare/members
 import rondo_server/games/veryare/missed_events
@@ -65,6 +62,7 @@ import rondo_server/games/veryare/oni_cpu.{type Strength}
 import rondo_server/games/veryare/paint
 import rondo_server/games/veryare/palette
 import rondo_server/games/veryare/result as final_result
+import rondo_server/games/veryare/spectate_notice
 import rondo_server/games/veryare/stage
 import rondo_server/games/veryare/stage_notice
 import rondo_server/games/veryare/stage_timing
@@ -394,6 +392,13 @@ pub const spectate_next_game_ms = 10_000
 
 pub const spectate_idle_close_ms = 60_000
 
+/// 観戦用の通知を確かめる間隔（ミリ秒）。変わったときだけ送るので、観戦者 1 人あたり毎秒 10 通まで。
+pub const spectate_interval_ms = 100
+
+/// 観戦用の通知のタイマーの token（spectate_token_base - step）。フェーズ（0 以上）・鬼 CPU の tick
+/// （-1 - step）・待機メンバー（-1_000_000 - step）・見逃しポイント（-2_000_000 - step）と重ならない。
+const spectate_token_base = -3_000_000
+
 /// 観戦ルームの設定。
 pub type SpectateSettings {
   SpectateSettings(hiders: Int, exploration_seconds: Int, stage: StageChoice)
@@ -422,8 +427,9 @@ pub fn spectate_allowed() -> Bool {
 }
 
 /// create-room の settings から、観戦ルームの設定を読む。spectate が無い・0 なら Ok(None)（対戦の
-/// ルーム。これまでどおり parse_room で読む）。spectate: 1 は、allowed のときだけ受け付ける。cpu は
-/// 隠れ CPU の数（1〜4。既定 3）、stage は 0（ランダム間取り）か、wide_dev のときだけ 3（広い屋敷だけ）。
+/// ルーム。これまでどおり parse_room で読む）。spectate: 1 は、allowed のときだけ受け付ける。hiderCpus
+/// は隠れ CPU の数（1〜4。既定 3。対戦のルームの cpu（4 = 鬼 CPU）とは意味が違うので、別の名前にした。
+/// 観戦ルームでは cpu を読まない）。stage は 0（ランダム間取り）か、wide_dev のときだけ 3（広い屋敷だけ）。
 /// 平屋（1）とおまかせ（2）は、観戦ルームでは選べない（CPU の一般化まで）。
 pub fn parse_spectate(
   raw: Option(Dynamic),
@@ -441,7 +447,7 @@ pub fn parse_spectate(
           decode.int,
         )
         use hiders <- decode.optional_field(
-          "cpu",
+          "hiderCpus",
           spectate_default_hiders,
           decode.int,
         )
@@ -583,10 +589,19 @@ fn start_spectating(
       last_step + 1,
     )
   }
+  // 試合の最初の 1 通には、全員の色とポーズを載せる（準備移動の間から、体が色つきで見えるように）。
+  let actors = spectate_notice.actors(begun, 0)
   #(
     wrap(
       begun,
-      Env(pick:, now:, started_at: now(), info:, restart: Some(restart)),
+      Env(
+        pick:,
+        now:,
+        started_at: now(),
+        info:,
+        restart: Some(restart),
+        feed: Some(actors),
+      ),
     ),
     list.flatten([
       case info {
@@ -598,6 +613,13 @@ fn start_spectating(
         driver.Broadcast(stage_notice.doors_payload(begun.open_doors)),
       ],
       phase_effects(begun),
+      [
+        driver.ToSpectators(spectate_notice.payload(
+          actors,
+          Some(spectate_notice.looks(begun)),
+        )),
+        driver.WakeAfter(spectate_interval_ms, spectate_token(begun)),
+      ],
     ]),
   )
 }
@@ -618,6 +640,9 @@ type Env {
     /// 観戦ルームの次の試合を作る関数（issue-67）。前の試合の最後の step を受け取り、その続きの step
     /// から始める。対戦のルームでは None。
     restart: Option(fn(Int) -> #(Driver(PlayerId), List(Effect(PlayerId)))),
+    /// 観戦ルームで、最後に観戦者へ送った全員の位置・向き・ポーズ（issue-67）。これと同じなら送らない。
+    /// 対戦のルームでは None（観戦用の通知を作らない）。
+    feed: Option(List(spectate_notice.Actor)),
   )
 }
 
@@ -669,7 +694,10 @@ fn start(
   }
   // ステージの通知（issue-29a）を全員へ送ってから、フェーズの通知を送る。
   #(
-    wrap(initial, Env(pick:, now:, started_at: now(), info:, restart: None)),
+    wrap(
+      initial,
+      Env(pick:, now:, started_at: now(), info:, restart: None, feed: None),
+    ),
     list.flatten([
       info_effects,
       [
@@ -716,14 +744,16 @@ fn wrap(state: Game(PlayerId), env: Env) -> Driver(PlayerId) {
     on_leave: fn(player) { step(state, game.leave(state, player), env) },
     on_wake: fn(token) {
       case
+        token <= spectate_token_base,
         token <= missed_token_base,
         token <= members_token_base,
         token == tick_token(state)
       {
-        True, _, _ -> missed_woke(state, token, env)
-        False, True, _ -> members_woke(state, token, env)
-        False, False, True -> ticked(state, game.tick(state), env)
-        False, False, False ->
+        True, _, _, _ -> spectate_woke(state, token, env)
+        False, True, _, _ -> missed_woke(state, token, env)
+        False, False, True, _ -> members_woke(state, token, env)
+        False, False, False, True -> ticked(state, game.tick(state), env)
+        False, False, False, False ->
           step(state, game.advance(state, token, env.pick), env)
       }
     },
@@ -738,11 +768,10 @@ fn wrap(state: Game(PlayerId), env: Env) -> Driver(PlayerId) {
   )
   // 送信先を登録した人（作った人・途中参加・再接続）には、本人宛てで、いま届けるべき状態を送る。
   |> driver.on_subscribe(fn(player) {
-    subscriber_snapshot_with(
-      state,
-      player,
-      env.now() - env.started_at,
-      env.info,
+    let elapsed = env.now() - env.started_at
+    list.append(
+      subscriber_snapshot_with(state, player, elapsed, env.info),
+      spectate_resend(state, player, elapsed, env),
     )
   })
   // 観戦ルームでは、同じ設定で、次の試合を作れる（issue-67）。
@@ -891,8 +920,84 @@ fn step(
   }
   #(
     wrap(after, env),
-    list.flatten([effects, hiding, finish(before, after), members_timer]),
+    list.flatten([
+      effects,
+      hiding,
+      finish(before, after),
+      members_timer,
+      spectate_timer(before, after, env),
+    ]),
   )
+}
+
+// --- 観戦用の通知（issue-67） ------------------------------------------------------
+
+fn spectate_token(state: Game(PlayerId)) -> Int {
+  spectate_token_base - state.step
+}
+
+/// 観戦ルームで、フェーズが進んだら、観戦用の通知のタイマーを、新しい step で張り直す（古い step の
+/// タイマーは、spectate_woke が無視する）。結果（終了）に入ったら張らない。
+fn spectate_timer(
+  before: Game(PlayerId),
+  after: Game(PlayerId),
+  env: Env,
+) -> List(Effect(PlayerId)) {
+  case env.feed, after.step == before.step, after.phase {
+    None, _, _ | _, True, _ | _, _, Ended(_) -> []
+    Some(_), False, _ -> [
+      driver.WakeAfter(spectate_interval_ms, spectate_token(after)),
+    ]
+  }
+}
+
+/// 観戦用の通知のタイマーが起きた。張った時と同じ step なら、全員の位置・向き・ポーズを作り、前に送った
+/// ものと違えば観戦者へ送る。どちらでも、次の間隔で張り直す。
+fn spectate_woke(
+  state: Game(PlayerId),
+  token: Int,
+  env: Env,
+) -> #(Driver(PlayerId), List(Effect(PlayerId))) {
+  let running = case state.phase {
+    Ended(_) -> False
+    _ -> True
+  }
+  case env.feed, token == spectate_token(state) && running {
+    Some(last), True -> {
+      let actors = spectate_notice.actors(state, env.now() - env.started_at)
+      let sent = case actors == last {
+        True -> []
+        False -> [driver.ToSpectators(spectate_notice.payload(actors, None))]
+      }
+      #(
+        wrap(state, Env(..env, feed: Some(actors))),
+        list.append(sent, [driver.WakeAfter(spectate_interval_ms, token)]),
+      )
+    }
+    _, _ -> #(wrap(state, env), [])
+  }
+}
+
+/// 観戦ルームに入った・戻った観戦者へ、いまの全員の位置と、色とポーズを、本人宛てで送る。対戦の
+/// ルームでは送らない。
+fn spectate_resend(
+  state: Game(PlayerId),
+  player: PlayerId,
+  elapsed_ms: Int,
+  env: Env,
+) -> List(Effect(PlayerId)) {
+  case env.feed {
+    Some(_) -> [
+      driver.Deliver(
+        [player],
+        spectate_notice.payload(
+          spectate_notice.actors(state, elapsed_ms),
+          Some(spectate_notice.looks(state)),
+        ),
+      ),
+    ]
+    None -> []
+  }
 }
 
 // --- 見逃しポイントといいね（issue-32 / ADR 0036） ------------------------------------------
@@ -1284,7 +1389,7 @@ fn hiders_payload(state: Game(PlayerId)) -> Dynamic {
       let #(facing, pose, paint) = case placement {
         Some(p) -> #(
           dynamic.float(p.facing),
-          dynamic.string(pose_name(p)),
+          dynamic.string(spectate_notice.pose_name(p)),
           dynamic.properties([
             #(dynamic.string("kind"), dynamic.string("uniform")),
             #(dynamic.string("color"), dynamic.string(palette.to_hex(p.color))),
@@ -1355,14 +1460,6 @@ fn oni_payload(state: Game(PlayerId)) -> Option(Dynamic) {
         ]),
       )
     Error(Nil) -> None
-  }
-}
-
-fn pose_name(placement: Placement) -> String {
-  case placement.pose {
-    Standing -> "standing"
-    Crouching -> "crouching"
-    Lying -> "lying"
   }
 }
 

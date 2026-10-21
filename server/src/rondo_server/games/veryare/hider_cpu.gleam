@@ -11,6 +11,7 @@ import gleam/dict
 import gleam/float
 import gleam/int
 import gleam/list
+import gleam/option.{type Option, None, Some}
 import rondo_server/games/veryare/oni_cpu
 import rondo_server/games/veryare/overlap
 import rondo_server/games/veryare/palette.{type Rgb}
@@ -204,6 +205,30 @@ fn length(path: List(#(Float, Float))) -> Float {
 pub fn position_at(walk: Walk, elapsed: Int) -> #(Float, Float) {
   let budget = walk_speed *. int.to_float(int.max(elapsed, 0)) /. 1000.0
   along(walk.path, budget)
+}
+
+/// 歩き始めから elapsed ミリ秒の、進んでいる向き（ラジアン。x 軸から z 軸の向きへ回る / issue-67 の
+/// 観戦用の通知）。着いた後と、長さの無い道（隠れ場所が玄関）は None（隠れ場所の向きを使う）。
+pub fn facing_at(walk: Walk, elapsed: Int) -> Option(Float) {
+  case elapsed >= arrival_ms(walk) {
+    True -> None
+    False ->
+      heading(
+        walk.path,
+        walk_speed *. int.to_float(int.max(elapsed, 0)) /. 1000.0,
+      )
+  }
+}
+
+fn heading(path: List(#(Float, Float)), budget: Float) -> Option(Float) {
+  case path {
+    [a, b, ..rest] ->
+      case budget <. distance(a, b) {
+        True -> Some(oni_cpu.face(a, b))
+        False -> heading([b, ..rest], budget -. distance(a, b))
+      }
+    _ -> None
+  }
 }
 
 fn along(path: List(#(Float, Float)), budget: Float) -> #(Float, Float) {

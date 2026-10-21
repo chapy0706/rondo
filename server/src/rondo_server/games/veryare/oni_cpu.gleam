@@ -548,7 +548,8 @@ fn center(cell: Cell) -> #(Float, Float) {
   #(int.to_float(cell.x) +. 0.5, int.to_float(cell.z) +. 0.5)
 }
 
-fn face(from: #(Float, Float), to: #(Float, Float)) -> Float {
+/// from から to への向き（ラジアン。x 軸から z 軸の向きへ回る）。同じ点なら 0。
+pub fn face(from: #(Float, Float), to: #(Float, Float)) -> Float {
   let dx = to.0 -. from.0
   let dz = to.1 -. from.1
   case dx == 0.0 && dz == 0.0 {
