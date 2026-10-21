@@ -309,3 +309,39 @@ export interface VeryareWaitingPoseEvent {
 	readonly type: "waiting-pose";
 	readonly pose: VeryareModelPose;
 }
+
+/**
+ * 観戦用の通知の、体の動き（issue-67）。隠れ CPU と鬼のポーズの 3 種類と、準備移動で歩いている間の
+ * walking。walking は止まった姿勢ではなく、歩く動きとして描く（素材のポーズの walking とは別）。
+ */
+export type VeryareSpectatePose = VeryareCpuPose | "walking";
+
+/**
+ * 観戦用の通知の 1 人（issue-67）。ステージに出ている人だけ。位置と向きは、小数第 2 位までに丸めた値。
+ */
+export interface VeryareSpectateActor {
+	readonly playerId: PlayerId;
+	readonly x: number;
+	readonly z: number;
+	/** 向き（ラジアン。x 軸から z 軸の向きへ回る）。 */
+	readonly facing: number;
+	readonly pose: VeryareSpectatePose;
+}
+
+/** 隠れ CPU の見た目（issue-67）。色は全面 1 色、pose は隠れるときのポーズ。 */
+export interface VeryareSpectateLook {
+	readonly playerId: PlayerId;
+	readonly pose: VeryareCpuPose;
+	readonly paint: VeryareUniformPaint;
+}
+
+/**
+ * 観戦用の通知（issue-67）。観戦ルームの観戦者にだけ、サーバーが送る（人間が参加するルームでは送らない）。
+ * 100 ms ごとに確かめ、全員の位置・向き・ポーズが変わったときだけ送る。actors は、隠れ CPU（参加順）と、
+ * 探索の開始からは鬼 CPU（最後）。looks は、試合の最初の 1 通と、入室・復帰の 1 通にだけ載る。
+ */
+export interface VeryareSpectateNotice {
+	readonly type: "spectate";
+	readonly actors: readonly VeryareSpectateActor[];
+	readonly looks?: readonly VeryareSpectateLook[];
+}

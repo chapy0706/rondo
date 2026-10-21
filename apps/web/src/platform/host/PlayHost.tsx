@@ -54,7 +54,12 @@ import { ResultScreen } from "../result/ResultScreen";
 import { closingDeadline } from "../result/closing";
 import { ConnectionFailed } from "../session/ConnectionFailed";
 import { type ErrorNotice, noticeFor } from "../session/serverErrors";
-import { playEntry, playStatus, roomExpired } from "../session/session";
+import {
+	isSpectatorIn,
+	playEntry,
+	playStatus,
+	roomExpired,
+} from "../session/session";
 import {
 	getRealtimeSession,
 	useSessionState,
@@ -238,7 +243,12 @@ export function PlayHost({ manifest }: { manifest: GameManifest }) {
 	}, [expired, router, manifest.id]);
 
 	const connecting = isRealtime && realtime === null;
-	const view = resultView(manifest, result);
+	// 観戦ルームの観戦者（issue-67）は、結果のあとも同じルームで次の試合を見るので、結果の画面に
+	// 替えない（ゲームの画面が、結果と次の試合までの残りを出す）。退出は、いつでもできる。
+	const spectating =
+		realtime !== null && isSpectatorIn(realtime.you, realtime.players);
+	const shownResult = spectating ? null : result;
+	const view = resultView(manifest, shownResult);
 	const fullscreen = isFullscreenGame(manifest.id);
 	// 画面いっぱいの枠では、文字だけの表示（接続中など）を、ゲームの中身の場所の中央に置く。
 	const statusBox = (node: ReactNode) =>
@@ -310,15 +320,16 @@ export function PlayHost({ manifest }: { manifest: GameManifest }) {
 					manifest={manifest}
 					roomName={roomName}
 					onLeave={
-						isRealtime && realtime !== null && result === null
+						isRealtime && realtime !== null && shownResult === null
 							? leaveRoom
 							: null
 					}
 					onBackToSelect={backToSelect}
+					spectating={spectating}
 				>
-					{view === "instead-of-game" && result !== null ? (
+					{view === "instead-of-game" && shownResult !== null ? (
 						<ResultScreen
-							result={result}
+							result={shownResult}
 							you={you}
 							onLeave={leaveRoom}
 							game={manifest}
@@ -347,9 +358,9 @@ export function PlayHost({ manifest }: { manifest: GameManifest }) {
 					</h1>
 				)}
 
-				{view === "instead-of-game" && result !== null ? (
+				{view === "instead-of-game" && shownResult !== null ? (
 					<ResultScreen
-						result={result}
+						result={shownResult}
 						you={you}
 						onLeave={leaveRoom}
 						game={manifest}
@@ -359,9 +370,9 @@ export function PlayHost({ manifest }: { manifest: GameManifest }) {
 					game
 				)}
 
-				{view === "below-game" && result !== null && (
+				{view === "below-game" && shownResult !== null && (
 					<ResultScreen
-						result={result}
+						result={shownResult}
 						you={you}
 						onLeave={leaveRoom}
 						game={manifest}
@@ -369,7 +380,7 @@ export function PlayHost({ manifest }: { manifest: GameManifest }) {
 					/>
 				)}
 
-				{isRealtime && realtime !== null && result === null && (
+				{isRealtime && realtime !== null && shownResult === null && (
 					<div className="flex flex-col items-center gap-2">
 						{roomName !== null && <RoomNameLabel name={roomName} />}
 						<button

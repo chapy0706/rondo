@@ -164,6 +164,12 @@ function reduceServer(
 				},
 			};
 		}
+		case "game-started":
+			// 観戦ルームの次の試合（issue-67）。同じルームの中で、結果のあとに次の試合が始まるので、結果を
+			// 消す（画面は、結果を出したままにしない）。対戦のルームでは、結果のあとに来ない。
+			if (state.room?.roomId !== message.roomId) return state;
+			if (state.result === null && state.closesInMs === null) return state;
+			return { ...state, result: null, closesInMs: null };
 		case "game-ended":
 			if (state.room?.roomId !== message.roomId) return state;
 			return {
@@ -243,6 +249,18 @@ export function lobbyShouldEnter(
  * - leave-and-create: ほかのゲームのルームから出てから作る
  */
 export type PlayEntry = "joined" | "waiting" | "create" | "leave-and-create";
+
+/**
+ * 観戦者として入っているか（issue-67）。観戦ルームの参加者は CPU だけで、観戦者の自分は参加者の一覧に
+ * 載らない。対戦のルームでは、自分はいつも参加者に載る。ルームに入る前は false。
+ */
+export function isSpectatorIn(
+	you: PlayerId | null,
+	players: readonly PlayerInfo[],
+): boolean {
+	if (you === null || players.length === 0) return false;
+	return !players.some((p) => p.playerId === you);
+}
 
 export function playEntry(state: SessionState, gameType: GameType): PlayEntry {
 	if (state.room?.gameType === gameType) return "joined";

@@ -39,6 +39,7 @@ export function GameFrame({
 	roomName,
 	onLeave,
 	onBackToSelect,
+	spectating = false,
 	children,
 }: {
 	manifest: GameManifest;
@@ -47,6 +48,8 @@ export function GameFrame({
 	/** 退出する（ルームにいる間だけ。確認してから呼ぶ）。null なら、メニューに出さない。 */
 	onLeave: (() => void) | null;
 	onBackToSelect: () => void;
+	/** 観戦ルームの観戦者か（issue-67）。上部バーに「観戦中」を出す。 */
+	spectating?: boolean;
 	children: ReactNode;
 }) {
 	const [menuOpen, setMenuOpen] = useState(false);
@@ -105,6 +108,14 @@ export function GameFrame({
 						</>
 					)}
 				</p>
+				{spectating ? (
+					<span
+						data-testid="play-spectating"
+						className="shrink-0 rounded-full bg-accent px-2 py-0.5 font-semibold text-accent-fg text-xs"
+					>
+						観戦中
+					</span>
+				) : null}
 				<button
 					type="button"
 					aria-label="メニュー"
@@ -144,7 +155,9 @@ export function GameFrame({
 							{onLeave !== null && confirming ? (
 								<div className="flex flex-col gap-2 p-1">
 									<p className="text-fg text-sm">
-										ルームから退出しますか？（ルームは解散します）
+										{spectating
+											? "観戦をやめて、ルームから出ますか？"
+											: "ルームから退出しますか？（ルームは解散します）"}
 									</p>
 									<div className="flex gap-2">
 										<button

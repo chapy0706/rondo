@@ -1,0 +1,108 @@
+{
+	"spectateNotice": {
+		"valid": [
+			{
+				"type": "spectate",
+				"actors": []
+			},
+			{
+				"type": "spectate",
+				"actors": [
+					{
+						"playerId": "cpu-2",
+						"x": 4.25,
+						"z": 10.5,
+						"facing": 1.57,
+						"pose": "walking"
+					},
+					{
+						"playerId": "cpu-1",
+						"x": 2,
+						"z": -0.5,
+						"facing": -3.14,
+						"pose": "standing"
+					}
+				]
+			},
+			{
+				"type": "spectate",
+				"actors": [
+					{
+						"playerId": "cpu-2",
+						"x": 8.5,
+						"z": 10.5,
+						"facing": 0.68,
+						"pose": "lying"
+					}
+				],
+				"looks": [
+					{
+						"playerId": "cpu-2",
+						"pose": "lying",
+						"paint": { "kind": "uniform", "color": "#c2b280" }
+					},
+					{
+						"playerId": "cpu-3",
+						"pose": "crouching",
+						"paint": { "kind": "uniform", "color": "#a8956a" }
+					}
+				]
+			}
+		],
+		"invalid": [
+			{
+				"type": "spectate"
+			},
+			{
+				"type": "spectate",
+				"actors": [
+					{
+						"playerId": "cpu-2",
+						"x": "4.25",
+						"z": 10.5,
+						"facing": 1.57,
+						"pose": "walking"
+					}
+				]
+			},
+			{
+				"type": "spectate",
+				"actors": [
+					{
+						"playerId": "cpu-2",
+						"x": 4.25,
+						"z": 10.5,
+						"facing": 1.57,
+						"pose": "femaleDance"
+					}
+				]
+			},
+			{
+				"type": "spectate",
+				"actors": [],
+				"looks": [
+					{
+						"playerId": "cpu-2",
+						"pose": "walking",
+						"paint": { "kind": "uniform", "color": "#c2b280" }
+					}
+				]
+			},
+			{
+				"type": "spectate",
+				"actors": [],
+				"looks": [
+					{
+						"playerId": "cpu-2",
+						"pose": "lying",
+						"paint": { "kind": "strokes", "strokes": [] }
+					}
+				]
+			},
+			{
+				"type": "hiders",
+				"actors": []
+			}
+		]
+	}
+}

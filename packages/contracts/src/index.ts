@@ -67,6 +67,10 @@ export type {
 	VeryareLikesNotice,
 	VeryareMembersNotice,
 	VeryareSightEvent,
+	VeryareSpectateActor,
+	VeryareSpectateLook,
+	VeryareSpectateNotice,
+	VeryareSpectatePose,
 	VeryareWaitingMember,
 	VeryareWaitingPoseEvent,
 } from "./veryare";

@@ -11,7 +11,8 @@
 		"type-check": "tsc --noEmit",
 		"e2e:extended": "playwright test --config playwright.extended.config.ts",
 		"e2e:motion": "playwright test --config playwright.motion.config.ts",
-		"e2e:expiry": "playwright test --config playwright.expiry.config.ts"
+		"e2e:expiry": "playwright test --config playwright.expiry.config.ts",
+		"e2e:spectate": "playwright test --config playwright.spectate.config.ts"
 	},
 	"dependencies": {
 		"@rondo/bots": "workspace:*"

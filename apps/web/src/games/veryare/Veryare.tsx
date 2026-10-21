@@ -27,7 +27,12 @@ import type {
 	VeryareOniNotice,
 	VeryarePaint,
 } from "@rondo/contracts";
-import { VirtualPad, useRealtimeGame, useVirtualPad } from "@rondo/game-sdk";
+import {
+	VirtualPad,
+	useGameHost,
+	useRealtimeGame,
+	useVirtualPad,
+} from "@rondo/game-sdk";
 import {
 	type PointerEvent as ReactPointerEvent,
 	useEffect,
@@ -41,6 +46,7 @@ import {
 	PaintConfirmButton,
 	PaintPanel,
 } from "./PaintPanel";
+import { SpectateView } from "./SpectateView";
 import {
 	type Vec3,
 	createTapTracker,
@@ -178,6 +184,7 @@ import {
 	shotLogMessage,
 } from "./shotHint";
 import { canReportSight, shouldReportSight, sightEvent } from "./sightReport";
+import { isSpectating } from "./spectate";
 import {
 	type StageGrid,
 	doorToOpen,
@@ -239,7 +246,20 @@ function outcomeText(outcome: Outcome, role: Role): string {
 	}
 }
 
+/**
+ * すごくアレの入口。観戦ルームの観戦者（issue-67。自分が参加者の一覧に載らない）には観戦の画面、
+ * それ以外には、これまでの対戦の画面を出す。どちらを出すかは、開いた時点で決める（入室の直後に届いた
+ * 状態は、最初に購読した画面にだけ渡るため / RealtimeSession.gamePort）。ここでは購読しない。
+ */
 export default function Veryare() {
+	const realtime = useGameHost().realtime;
+	const [spectating] = useState(
+		() => realtime !== null && isSpectating(realtime.you, realtime.players),
+	);
+	return spectating ? <SpectateView /> : <VeryarePlay />;
+}
+
+function VeryarePlay() {
 	const { on, send, you, players } = useRealtimeGame(veryareManifest);
 	/** 通知の購読の中で、いまの自分の ID を読むための参照。 */
 	const youRef = useRef(you);

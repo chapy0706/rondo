@@ -16,6 +16,7 @@ import type {
 	VeryarePaintEvent,
 	VeryareShootEvent,
 	VeryareSightEvent,
+	VeryareSpectateNotice,
 	VeryareStageNotice,
 	VeryareWaitingPoseEvent,
 } from "./veryare";
@@ -186,6 +187,39 @@ export const membersNoticeSamples = [
 		],
 	},
 ] satisfies VeryareMembersNotice[];
+
+/**
+ * 観戦用の通知の見本（issue-67）。fixtures/veryare-spectate.json の spectateNotice.valid と一致させる。
+ * Gleam 側は同じ JSON を読む（server/test/rondo_server/games/veryare/spectate_fixture_test.gleam）。
+ */
+export const spectateNoticeSamples = [
+	{ type: "spectate", actors: [] },
+	{
+		type: "spectate",
+		actors: [
+			{ playerId: "cpu-2", x: 4.25, z: 10.5, facing: 1.57, pose: "walking" },
+			{ playerId: "cpu-1", x: 2, z: -0.5, facing: -3.14, pose: "standing" },
+		],
+	},
+	{
+		type: "spectate",
+		actors: [
+			{ playerId: "cpu-2", x: 8.5, z: 10.5, facing: 0.68, pose: "lying" },
+		],
+		looks: [
+			{
+				playerId: "cpu-2",
+				pose: "lying",
+				paint: { kind: "uniform", color: "#c2b280" },
+			},
+			{
+				playerId: "cpu-3",
+				pose: "crouching",
+				paint: { kind: "uniform", color: "#a8956a" },
+			},
+		],
+	},
+] satisfies VeryareSpectateNotice[];
 
 /** 待機ポーズの変更の見本（issue-59）。fixtures/veryare-members.json の waitingPose.valid と一致させる。 */
 export const waitingPoseEventSamples = [

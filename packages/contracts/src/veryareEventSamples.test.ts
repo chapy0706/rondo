@@ -5,6 +5,7 @@ import missedFixture from "./fixtures/veryare-missed.json";
 import movement from "./fixtures/veryare-movement.json";
 import paintFixture from "./fixtures/veryare-paint.json";
 import posesFixture from "./fixtures/veryare-poses.json";
+import spectateFixture from "./fixtures/veryare-spectate.json";
 import stageFixture from "./fixtures/veryare-stage.json";
 import {
 	VERYARE_CPU_POSES,
@@ -21,6 +22,7 @@ import {
 	paintEventSamples,
 	shootEventSamples,
 	sightEventSamples,
+	spectateNoticeSamples,
 	stageNoticeSamples,
 	waitingPoseEventSamples,
 } from "./veryareEventSamples";
@@ -172,6 +174,18 @@ describe("待機ルームのメンバーの通知と待機ポーズの見本（i
 
 	it("拒むべきメンバーの通知（invalid）がある（Gleam の decoder がすべて拒むことを確かめる）", () => {
 		expect(membersFixture.membersNotice.invalid.length).toBeGreaterThan(0);
+	});
+});
+
+describe("観戦用の通知の見本（issue-67 / ADR 0009）", () => {
+	it("観戦用の通知の JSON の見本（valid）は、TS の型で書いた見本と一致する", () => {
+		expect(spectateFixture.spectateNotice.valid).toEqual(
+			JSON.parse(JSON.stringify(spectateNoticeSamples)),
+		);
+	});
+
+	it("拒むべき観戦用の通知（invalid）がある（Gleam の decoder がすべて拒むことを確かめる）", () => {
+		expect(spectateFixture.spectateNotice.invalid.length).toBeGreaterThan(0);
 	});
 });
 

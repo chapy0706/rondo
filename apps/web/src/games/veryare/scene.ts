@@ -223,6 +223,20 @@ export interface VeryareScene extends TestableScene {
 	 */
 	setMembers(members: readonly SceneMember[]): void;
 	/**
+	 * 観戦の画面の全員の体（issue-67）。位置と向きは補間済みのものを置き、動き（待機・歩く・走る・隠れ場所の
+	 * ポーズ）は、メンバーと同じく、描画ごとの位置の変化から決める。頭上にラベルを出す。隠れ CPU は、色を
+	 * 体の全面に 1 色で塗り、鬼は鬼の体。一覧に無い人の体は消す。ステージを表示しているときだけ見せる。
+	 */
+	setActors(actors: readonly SceneActor[]): void;
+	/** 観戦の画面のタップ（画面の正規化座標 -1〜1）が当たった体の ID（issue-67）。当たらなければ null。 */
+	pickActor(x: number, y: number): string | null;
+	/**
+	 * 観戦の画面か（issue-67）。観戦の画面では、自分の体を描かない。観戦者は待機ルームに入らないので、
+	 * キャラクターの素材とランダム間取りの材質を、ステージを表示している間も受け取る（届いたら差し替える）。
+	 * 既定は false（これまでどおり、待機ルームにいる間だけ受け取り、ステージへ移ったら締める）。
+	 */
+	setSpectating(spectating: boolean): void;
+	/**
 	 * 答え合わせの赤い点滅（ADR 0033 / issue-29d）。ids の隠れ側と、self なら自分の体を、
 	 * level（0〜1）の強さで赤く光らせる。ids が空で self が false なら、光らせない。
 	 */
@@ -258,7 +272,8 @@ export interface VeryareScene extends TestableScene {
 	/**
 	 * 見えている体ごとの動きの状態（体の名前・状態・再生の時間・重み / motionRegistry.ts）。体の名前は
 	 * self（自分の体）、self-oni（鬼本人の体）、oni（ほかの人の画面の鬼。人間と CPU）、
-	 * member:<プレイヤー ID>（待機ルームのほかのメンバー）。テスト用の口と、開発中の Console に使う。
+	 * member:<プレイヤー ID>（待機ルームのほかのメンバー）、actor:<プレイヤー ID>（観戦の画面の体 / issue-67）。
+	 * テスト用の口と、開発中の Console に使う。
 	 */
 	motionInfos(): readonly BodyMotionInfo[];
 	/** 動きの止まりの記録（見張りがあるときだけ。無ければ空 / motionWatch.ts）。 */
@@ -276,6 +291,21 @@ export interface SceneMember {
 	readonly z: number;
 	readonly facing: number;
 	readonly pose: VeryareModelPose | null;
+}
+
+/** 観戦の画面の 1 人（issue-67）。facing はサーバーの向き。 */
+export interface SceneActor {
+	readonly id: string;
+	readonly label: string;
+	readonly x: number;
+	readonly z: number;
+	readonly facing: number;
+	/** 鬼か（鬼の体で描く）。 */
+	readonly oni: boolean;
+	/** 体の全面の色（"#rrggbb"）。分からなければ null（メンバーと同じ色）。 */
+	readonly color: string | null;
+	/** 止まったときに移るポーズ（歩いている間は null。速さから歩く・走るを決める）。 */
+	readonly chosen: VeryareModelPose | null;
 }
 
 export interface SceneOni {
@@ -553,6 +583,12 @@ export function createScene(
 			figure.body.dispose();
 			figure.body = memberBody(figure.group);
 		}
+		// 観戦の体も作り直す（issue-67。ラベル・色・動きの状態はそのまま）。
+		for (const figure of actorFigures.values()) {
+			figure.group.remove(figure.body.object);
+			figure.body.dispose();
+			figure.body = actorBody(figure.group, figure.target, figure.surface);
+		}
 	};
 	// 隠れ側の描き込み面（作り直すときに捨てる）。
 	const hiderSurfaces: PaintSurface[] = [];
@@ -725,6 +761,64 @@ export function createScene(
 		memberFigures.delete(id);
 	};
 
+	/** 観戦の画面か（issue-67 / setSpectating）。 */
+	let spectating = false;
+	// 観戦の画面の全員の体（issue-67）。メンバーと同じく、体と頭上のラベルを、人ごとのグループに持つ。
+	const actorGroup = new THREE.Group();
+	actorGroup.visible = false;
+	scene.add(actorGroup);
+	interface ActorFigure {
+		readonly group: THREE.Group;
+		body: BodyInstance;
+		label: THREE.Sprite;
+		name: string;
+		/** 隠れ CPU の色の描き込み面（全面 1 色）。鬼と、色が分からない人は null。 */
+		surface: PaintSurface | null;
+		target: SceneActor;
+		readonly unregister: () => void;
+	}
+	const actorFigures = new Map<string, ActorFigure>();
+	/** 体の見た目の鍵（変わったら、体を作り直す）。 */
+	const actorLook = (actor: SceneActor) => `${actor.oni}:${actor.color}`;
+	const actorBody = (
+		group: THREE.Group,
+		actor: SceneActor,
+		surface: PaintSurface | null,
+	): BodyInstance => {
+		const body = actor.oni
+			? bodyKit.create(null, ONI_COLOR)
+			: surface === null
+				? bodyKit.create(null, MEMBER_COLOR)
+				: bodyKit.create(surface.texture, 0xffffff);
+		body.snap();
+		group.add(body.object);
+		return body;
+	};
+	const actorSurface = (actor: SceneActor): PaintSurface | null => {
+		if (actor.oni || actor.color === null) return null;
+		const surface = createPaintSurface();
+		surface.draw(actor.color, { kind: "uniform", color: actor.color });
+		return surface;
+	};
+	const removeActor = (id: string) => {
+		const figure = actorFigures.get(id);
+		if (figure === undefined) return;
+		actorGroup.remove(figure.group);
+		figure.unregister();
+		figure.body.dispose();
+		figure.surface?.dispose();
+		disposeLabel(figure.label);
+		actorFigures.delete(id);
+	};
+	/** 観戦の体（体の原点は足もと）。カメラの中心と、タップの当たりに使う。 */
+	const actorBodies = (): (BodyAt & { readonly id: string })[] =>
+		[...actorFigures.entries()].map(([id, figure]) => ({
+			id,
+			x: figure.group.position.x,
+			z: figure.group.position.z,
+			feet: figure.group.position.y,
+		}));
+
 	// ニアクリップは小さくし、壁の余白をそれより大きくする（壁際で壁の中が映らない / cameraGuard.ts）。
 	const camera = new THREE.PerspectiveCamera(CAMERA_FOV, 1, CAMERA_NEAR, 100);
 	let yaw = 0;
@@ -760,6 +854,16 @@ export function createScene(
 					x: target.position.x,
 					z: target.position.z,
 					feet: target.position.y,
+				};
+			}
+			// 観戦の画面で選んだ相手（issue-67）。
+			const actor = actorGroup.visible ? actorFigures.get(id) : undefined;
+			if (actor !== undefined) {
+				return {
+					kind: `actor:${id}`,
+					x: actor.group.position.x,
+					z: actor.group.position.z,
+					feet: actor.group.position.y,
 				};
 			}
 		}
@@ -1081,7 +1185,8 @@ export function createScene(
 			showStage();
 		},
 		setSpace(space) {
-			if (space === "waiting-room") {
+			// 観戦の画面（issue-67）は、待機ルームに入らないので、ステージでも素材を受け取り、締めない。
+			if (space === "waiting-room" || spectating) {
 				// キャラクターの素材の差し替えも、待機ルームにいる間だけ（issue-56）。setSpace は毎コマ
 				// 呼ばれ、差し替え口は lock まで同じ素材を返し続けるので、1回だけ受け取る（毎コマ体を
 				// 作り直して、動きが最初からやり直しになっていた / issue-57 の不具合）。
@@ -1104,7 +1209,8 @@ export function createScene(
 					materials = pickStageMaterials(assetRoot);
 					if (materials !== null) buildStage();
 				}
-			} else {
+			}
+			if (space !== "waiting-room" && !spectating) {
 				options.bodies?.lock();
 				if (lastSpace !== "stage") {
 					options.trace?.(
@@ -1241,6 +1347,74 @@ export function createScene(
 				}
 				figure.target = member;
 			}
+		},
+		setActors(actors) {
+			const ids = new Set(actors.map((actor) => actor.id));
+			for (const id of [...actorFigures.keys()]) {
+				if (!ids.has(id)) removeActor(id);
+			}
+			for (const actor of actors) {
+				const figure = actorFigures.get(actor.id);
+				if (figure === undefined) {
+					const group = new THREE.Group();
+					const label = memberLabel(actor.label);
+					group.add(label);
+					actorGroup.add(group);
+					const surface = actorSurface(actor);
+					const created: ActorFigure = {
+						group,
+						body: actorBody(group, actor, surface),
+						label,
+						name: actor.label,
+						surface,
+						target: actor,
+						unregister: motions.add({
+							name: `actor:${actor.id}`,
+							body: () => created.body,
+							where: () => (actorGroup.visible ? created.target : null),
+							chosen: () => created.target.chosen,
+							fixed: () => false,
+						}),
+					};
+					actorFigures.set(actor.id, created);
+					continue;
+				}
+				if (figure.name !== actor.label) {
+					figure.group.remove(figure.label);
+					disposeLabel(figure.label);
+					figure.label = memberLabel(actor.label);
+					figure.group.add(figure.label);
+					figure.name = actor.label;
+				}
+				// 鬼になった・色が届いた（次の試合）ら、体を作り直す（動きの状態はそのまま）。
+				if (actorLook(figure.target) !== actorLook(actor)) {
+					figure.group.remove(figure.body.object);
+					figure.body.dispose();
+					figure.surface?.dispose();
+					figure.surface = actorSurface(actor);
+					figure.body = actorBody(figure.group, actor, figure.surface);
+				}
+				figure.target = actor;
+			}
+		},
+		pickActor(x, y) {
+			placeCamera();
+			camera.updateMatrixWorld();
+			const raycaster = new THREE.Raycaster();
+			raycaster.setFromCamera(new THREE.Vector2(x, y), camera);
+			const { origin, direction } = raycaster.ray;
+			let best: { t: number; id: string } | null = null;
+			for (const body of actorBodies()) {
+				const t = rayHitsBody(origin, direction, body);
+				if (t !== null && (best === null || t < best.t)) {
+					best = { t, id: body.id };
+				}
+			}
+			return best?.id ?? null;
+		},
+		setSpectating(next) {
+			spectating = next;
+			avatar.object.visible = !next;
 		},
 		setBlink(ids, self, level) {
 			const glow = (material: THREE.MeshStandardMaterial, on: boolean) => {
@@ -1492,6 +1666,15 @@ export function createScene(
 					figure.body.object.rotation.y = turnOf(facing);
 				}
 			}
+			// 観戦の画面の全員（issue-67）。補間した位置に置く。
+			actorGroup.visible = lastSpace === "stage" && actorFigures.size > 0;
+			if (actorGroup.visible) {
+				for (const figure of actorFigures.values()) {
+					const { x, z, facing } = figure.target;
+					figure.group.position.set(x, floorAt(x, z), z);
+					figure.body.object.rotation.y = turnOf(facing);
+				}
+			}
 			// 動きのある体を、登録所で、まとめて進める（issue-57 の後半。体の種類ごとに呼ばない）。
 			// 自分の体と鬼本人の体は、実際に進んだ距離（壁で止まった後の手元の位置）から、ほかの人の画面の
 			// 鬼とメンバーは、補間した位置の変化から、速さを求める。空間が変わった直後は、速さを 0 にする。
@@ -1526,6 +1709,7 @@ export function createScene(
 			avatar.dispose();
 			for (const body of hiderInstances.splice(0)) body.dispose();
 			for (const id of [...memberFigures.keys()]) removeMember(id);
+			for (const id of [...actorFigures.keys()]) removeActor(id);
 			avatarSurface.dispose();
 			for (const surface of hiderSurfaces.splice(0)) surface.dispose();
 			renderer.dispose();

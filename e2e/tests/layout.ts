@@ -44,6 +44,11 @@ const PARTS: readonly { readonly id: string; readonly label: string }[] = [
 	{ id: "veryare-area", label: "エリアの円の表示" },
 	{ id: "veryare-view", label: "3D の画面" },
 	{ id: "result-screen", label: "結果の一覧" },
+	// 観戦の画面（issue-67 / spectate.e2e.ts）。
+	{ id: "play-bar", label: "上部バー" },
+	{ id: "spectate-status", label: "観戦の状態の行" },
+	{ id: "spectate-canvas", label: "観戦の 3D の画面" },
+	{ id: "spectate-follow-list", label: "追う相手の選択" },
 ];
 
 /** 重なりを数えない部品（ほかの部品を、上に重ねる下地）。 */

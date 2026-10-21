@@ -14,6 +14,7 @@
 
 import gleam/dict
 import gleam/dynamic.{type Dynamic}
+import gleam/dynamic/decode
 import gleam/float
 import gleam/int
 import gleam/list
@@ -172,4 +173,58 @@ pub fn pose_name(placement: Placement) -> String {
     Crouching -> "crouching"
     Lying -> "lying"
   }
+}
+
+// --- 読み取り（契約の見本との対応 / ADR 0009） -------------------------------------------
+
+/// 観戦用の通知を読む（契約の見本と、サーバーが送る形が合っているかを確かめるため）。ポーズは、actors は
+/// 隠れ場所の 3 種類と walking、looks は隠れ場所の 3 種類だけ。色は全面 1 色だけ。
+pub fn decode_notice(
+  value: Dynamic,
+) -> Result(#(List(Actor), Option(List(Look))), List(decode.DecodeError)) {
+  decode.run(value, notice_decoder())
+}
+
+fn notice_decoder() -> decode.Decoder(#(List(Actor), Option(List(Look)))) {
+  use kind <- decode.field("type", decode.string)
+  use actors <- decode.field("actors", decode.list(actor_decoder()))
+  use looks <- decode.optional_field(
+    "looks",
+    None,
+    decode.map(decode.list(look_decoder()), Some),
+  )
+  case kind {
+    "spectate" -> decode.success(#(actors, looks))
+    _ -> decode.failure(#([], None), "spectate")
+  }
+}
+
+fn actor_decoder() -> decode.Decoder(Actor) {
+  use player <- decode.field("playerId", decode.string)
+  use x <- decode.field("x", number())
+  use z <- decode.field("z", number())
+  use facing <- decode.field("facing", number())
+  use pose <- decode.field("pose", decode.string)
+  case list.contains([walking_pose, ..placement_poses], pose) {
+    True -> decode.success(Actor(player:, x:, z:, facing:, pose:))
+    False -> decode.failure(Actor(player, x, z, facing, pose), "pose")
+  }
+}
+
+fn look_decoder() -> decode.Decoder(Look) {
+  use player <- decode.field("playerId", decode.string)
+  use pose <- decode.field("pose", decode.string)
+  use kind <- decode.subfield(["paint", "kind"], decode.string)
+  use color <- decode.subfield(["paint", "color"], decode.string)
+  case list.contains(placement_poses, pose), kind {
+    True, "uniform" -> decode.success(Look(player:, pose:, color:))
+    _, _ -> decode.failure(Look(player, pose, color), "look")
+  }
+}
+
+/// 隠れ場所のポーズの名前（pose_name が返すもの）。
+const placement_poses = ["standing", "crouching", "lying"]
+
+fn number() -> decode.Decoder(Float) {
+  decode.one_of(decode.float, [decode.int |> decode.map(int.to_float)])
 }

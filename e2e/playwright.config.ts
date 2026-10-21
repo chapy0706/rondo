@@ -52,7 +52,14 @@ export default defineConfig({
 			// 拡張の E2E（テスト用の口と、素材の差し替えが要る）は、playwright.extended.config.ts で流す。
 			// 終わったルームの自動閉鎖（expiry.e2e.ts）は、時間を縮めたサーバーで、playwright.expiry.config.ts
 			// から流す。
-			testIgnore: ["extended/**", LAYOUT_TEST, "expiry.e2e.ts"],
+			// 観戦ルーム（spectate.e2e.ts）は、観戦ルームを受け付けるサーバーで、playwright.spectate.config.ts
+			// から流す（issue-67）。
+			testIgnore: [
+				"extended/**",
+				LAYOUT_TEST,
+				"expiry.e2e.ts",
+				"spectate.e2e.ts",
+			],
 		},
 		{
 			name: "iphone-webkit",

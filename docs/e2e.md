@@ -85,6 +85,22 @@ pnpm --filter @rondo/e2e e2e:expiry
 - 結果のあと、全員が「退出する」（`result-leave`）で出たときは、これまでどおり（閉じる時刻を過ぎても、案内は出ない）
 - 落ちたとき（`room-closed`）の動きは変わらない（自動では戻さず、案内とロビーへの導線を出す）
 
+## 観戦ルーム（issue-67）
+
+ボットが作った観戦ルームに、ブラウザがロビーから観戦者として入る。観戦ルームは旗（`SPECTATE_READY`。既定 false）の裏にあるので、サーバーを `RONDO_SPECTATE_DEV=1`、web を `NEXT_PUBLIC_RONDO_SPECTATE_DEV=1` で、別のポートに起動して流す（`e2e/playwright.spectate.config.ts`。サーバー 3005・web 3105。フェーズ時間と観戦ルームの時間は 1/4。`make dev-all` は止めておく）。`make e2e` には入れない。
+
+```bash
+# 初回だけ（ネットワークを使う。iPhone の縦画面の収まりを WebKit で測る）
+pnpm --filter @rondo/e2e exec playwright install chromium webkit
+pnpm --filter @rondo/e2e e2e:spectate
+```
+
+- ロビーの一覧の観戦ルームの行（`lobby-room`、`data-availability="spectate"`。「観戦」）から入ると、観戦の画面（`veryare-spectate`、`data-spectating="true"`）になり、上部バーに「観戦中」（`play-spectating`）が出る。操作の部品（パッド・撃つ・襖・ポーズ・塗る）は出ない
+- 全員の体が見える（`data-visible-actors`）。下の選択（`spectate-follow`、`data-actor`）で、追う相手を替えられる（`data-follow-target`）
+- 結果のあと、状態の行（`spectate-status`）に「次の試合まで あと ○ 秒」が出て、結果の画面には替わらない。次の試合が始まっても、選んだ相手を追い続ける
+- iPhone の縦画面（`layout.ts` の大きさ）で、観戦の画面がスクロールなしで収まる（`@layout`。上部バー・状態の行・3D の画面・追う相手の選択を測る）
+- 3D の画面の体をタップして追う相手を替えることと、壁の向こうが見えないことは、目視で確かめる
+
 ## 拡張の E2E（issue-52）
 
 スマホの端末設定・WebKit・素材の失敗・テスト用の口・タッチ・見た目の比較。`make e2e` とは別に動かす（Makefile には入れていない）。
