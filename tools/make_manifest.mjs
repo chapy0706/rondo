@@ -38,7 +38,8 @@ const GLB_MAGIC = 0x46546c67;
 const PATH_PATTERN =
 	/^v([0-9]+)\/(?:[A-Za-z0-9._-]+\/)*([A-Za-z0-9._-]+)-([0-9]+)\.glb$/;
 /** 音の素材のパスの形（同じく nginx が配信する形）。 */
-const AUDIO_PATH_PATTERN = /^v[0-9]+\/(?:[A-Za-z0-9._-]+\/)*[A-Za-z0-9._-]+\.mp3$/;
+const AUDIO_PATH_PATTERN =
+	/^v[0-9]+\/(?:[A-Za-z0-9._-]+\/)*[A-Za-z0-9._-]+\.mp3$/;
 
 const [rootArg] = process.argv.slice(2);
 if (rootArg === undefined) {
@@ -96,7 +97,9 @@ function carryAudio(problems) {
 	return audio.map((entry) => {
 		const path = typeof entry?.path === "string" ? entry.path : "";
 		if (!AUDIO_PATH_PATTERN.test(path) || path.split("/").includes("..")) {
-			problems.push(`audio ${entry?.key}: v<版>/.../<名前>.mp3 の形でない（${path}）`);
+			problems.push(
+				`audio ${entry?.key}: v<版>/.../<名前>.mp3 の形でない（${path}）`,
+			);
 			return entry;
 		}
 		const full = join(root, path);
@@ -107,7 +110,9 @@ function carryAudio(problems) {
 			ok = false;
 		}
 		if (!ok) {
-			problems.push(`audio ${entry.key}: ${path} が無い、または mp3 の先頭でない`);
+			problems.push(
+				`audio ${entry.key}: ${path} が無い、または mp3 の先頭でない`,
+			);
 			return entry;
 		}
 		return { ...entry, bytes: statSync(full).size };
@@ -178,7 +183,9 @@ const output = join(root, "manifest.json");
 writeFileSync(
 	output,
 	`${JSON.stringify(
-		audio === undefined ? { version: 1, assets } : { version: 1, assets, audio },
+		audio === undefined
+			? { version: 1, assets }
+			: { version: 1, assets, audio },
 		null,
 		"\t",
 	)}\n`,

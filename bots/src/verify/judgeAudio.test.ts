@@ -27,9 +27,9 @@ describe("judgeAudio（issue-63）", () => {
 		expect(
 			judgeAudio(200, "application/octet-stream", good[2], good[3], ORIGIN).ok,
 		).toBe(false);
-		expect(judgeAudio(200, good[1], "public, max-age=60", good[3], ORIGIN).ok).toBe(
-			false,
-		);
+		expect(
+			judgeAudio(200, good[1], "public, max-age=60", good[3], ORIGIN).ok,
+		).toBe(false);
 		expect(judgeAudio(200, good[1], good[2], "*", ORIGIN).ok).toBe(false);
 		expect(judgeAudio(200, good[1], good[2], "", ORIGIN).ok).toBe(false);
 	});

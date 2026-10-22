@@ -16,8 +16,8 @@ export interface SoundSettings {
 }
 
 export const DEFAULT_SOUND_SETTINGS: SoundSettings = {
-	bgm: 0.4,
-	se: 0.7,
+	bgm: 0.2,
+	se: 0.35,
 	muted: false,
 };
 

@@ -3,7 +3,7 @@
  * 音の素材（mp3）への要求の有無と、Console の赤いエラーを見る。
  *
  * - 旗（?sound=1）があっても、manifest に audio 欄が無ければ（いまの本番）、音の素材を取りに行かない
- * - 旗が無ければ、audio 欄があっても、取りに行かない（来場者の画面には、何も起きない）
+ * - ?sound=0 で解除した端末は、audio 欄があっても、取りに行かない（その端末は無音のまま）
  * - 旗があり、audio 欄があって、mp3 が壊れていても、赤いエラーを出さずに、画面は続く
  */
 
@@ -103,19 +103,21 @@ test("旗（?sound=1）があっても、audio 欄が無ければ、音の素材
 	expect(seen.errors).toEqual([]);
 });
 
-test("旗が無ければ、audio 欄があっても、音の素材を取りに行かない", async ({
+test("?sound=0 の端末は、audio 欄があっても、音の素材を取りに行かない", async ({
 	openTab,
 }) => {
 	const a = await openTab();
 	const seen = watch(a.page);
 	await serveWithAudio(a.page);
+	await a.page.goto("/select?sound=0");
+	await tap(a.page);
 	await playNew(a);
 	await tap(a.page);
 	await a.page.waitForTimeout(3000);
 	expect(seen.mp3).toEqual([]);
 	expect(
 		await a.page.evaluate(() => localStorage.getItem("rondo.sound.enabled")),
-	).toBeNull();
+	).toBe("0");
 });
 
 test("旗があり、mp3 が壊れていても、赤いエラーを出さず、画面は続く", async ({
@@ -129,14 +131,16 @@ test("旗があり、mp3 が壊れていても、赤いエラーを出さず、�
 	await tap(a.page);
 	const roomId = await playNew(a);
 	await tap(a.page);
-	await expect.poll(() => seen.mp3.length, { timeout: 15_000 }).toBeGreaterThan(0);
+	await expect
+		.poll(() => seen.mp3.length, { timeout: 15_000 })
+		.toBeGreaterThan(0);
 	// 音の失敗の後も、画面は続く（2人目が入ると、円が緑になる）。
 	await joinFromLobby(b, roomId);
 	await expectArea(a, "green");
 	expect(seen.errors).toEqual([]);
-	// ?sound=0 で解除する。
+	// ?sound=0 で解除し、端末に覚える。
 	await a.page.goto("/select?sound=0");
 	expect(
 		await a.page.evaluate(() => localStorage.getItem("rondo.sound.enabled")),
-	).toBeNull();
+	).toBe("0");
 });

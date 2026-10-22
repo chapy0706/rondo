@@ -82,7 +82,7 @@ describe("音の入口（旗と、エンジンの隔離 / issue-63）", () => {
 		s.hub.configure(true, "/select");
 		s.hub.configure(true, "/lobby/veryare");
 		expect(s.created()).toBe(1);
-		expect(s.calls).toContain("gains 1/0.4/0.7");
+		expect(s.calls).toContain("gains 1/0.2/0.35");
 		expect(s.calls).toContain("preload bgm-top,se-count,se-start");
 		expect(s.calls).toContain("bgm bgm-top");
 	});
@@ -112,7 +112,7 @@ describe("音の入口（旗と、エンジンの隔離 / issue-63）", () => {
 			notified += 1;
 		});
 		s.hub.updateSettings({ ...DEFAULT_SOUND_SETTINGS, muted: true });
-		expect(s.calls.at(-1)).toBe("gains 0/0.4/0.7");
+		expect(s.calls.at(-1)).toBe("gains 0/0.2/0.35");
 		expect(s.storage.values.get(SOUND_SETTINGS_KEY)).toContain('"muted":true');
 		expect(s.hub.snapshot().settings.muted).toBe(true);
 		expect(notified).toBe(1);

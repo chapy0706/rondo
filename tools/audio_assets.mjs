@@ -99,7 +99,9 @@ function findSource(dir, file) {
 	if (existsSync(exact)) return exact;
 	const near = readdirSync(dir).find((name) => name.trim() === file);
 	if (near === undefined) return null;
-	console.warn(`注意: ${JSON.stringify(near)} を ${file} として使う（名前を直すとよい）`);
+	console.warn(
+		`注意: ${JSON.stringify(near)} を ${file} として使う（名前を直すとよい）`,
+	);
 	return join(dir, near);
 }
 
@@ -109,14 +111,17 @@ const BITRATES = {
 	1: [0, 32, 40, 48, 56, 64, 80, 96, 112, 128, 160, 192, 224, 256, 320],
 	2: [0, 8, 16, 24, 32, 40, 48, 56, 64, 80, 96, 112, 128, 144, 160],
 };
-const RATES = { 3: [44100, 48000, 32000], 2: [22050, 24000, 16000], 0: [11025, 12000, 8000] };
+const RATES = {
+	3: [44100, 48000, 32000],
+	2: [22050, 24000, 16000],
+	0: [11025, 12000, 8000],
+};
 
 /** MPEG の Layer III のフレームを数えて、長さ（ミリ秒）を出す。読めなければ null。 */
 export function mp3DurationMs(data) {
 	let offset = 0;
 	if (data.length >= 10 && data.toString("latin1", 0, 3) === "ID3") {
-		const size =
-			(data[6] << 21) | (data[7] << 14) | (data[8] << 7) | data[9];
+		const size = (data[6] << 21) | (data[7] << 14) | (data[8] << 7) | data[9];
 		offset = 10 + size;
 	}
 	let seconds = 0;
@@ -131,14 +136,20 @@ export function mp3DurationMs(data) {
 		const bitrateIndex = data[offset + 2] >> 4;
 		const rateIndex = (data[offset + 2] >> 2) & 3;
 		const padding = (data[offset + 2] >> 1) & 1;
-		if (version === 1 || layer !== 1 || bitrateIndex === 0 || bitrateIndex === 15 || rateIndex === 3) {
+		if (
+			version === 1 ||
+			layer !== 1 ||
+			bitrateIndex === 0 ||
+			bitrateIndex === 15 ||
+			rateIndex === 3
+		) {
 			offset += 1;
 			continue;
 		}
 		const bitrate = BITRATES[version === 3 ? 1 : 2][bitrateIndex] * 1000;
 		const rate = RATES[version][rateIndex];
 		const samples = version === 3 ? 1152 : 576;
-		const length = Math.floor((samples / 8) * bitrate / rate) + padding;
+		const length = Math.floor(((samples / 8) * bitrate) / rate) + padding;
 		if (length <= 4) break;
 		seconds += samples / rate;
 		frames += 1;
@@ -153,11 +164,20 @@ function probeDurationMs(path, ffprobe) {
 	if (ffprobe) {
 		const out = execFileSync(
 			"ffprobe",
-			["-v", "error", "-show_entries", "format=duration", "-of", "default=nw=1:nk=1", path],
+			[
+				"-v",
+				"error",
+				"-show_entries",
+				"format=duration",
+				"-of",
+				"default=nw=1:nk=1",
+				path,
+			],
 			{ encoding: "utf8" },
 		);
 		const seconds = Number(out.trim());
-		if (Number.isFinite(seconds) && seconds > 0) return Math.round(seconds * 1000);
+		if (Number.isFinite(seconds) && seconds > 0)
+			return Math.round(seconds * 1000);
 	}
 	return mp3DurationMs(readFileSync(path));
 }
@@ -167,7 +187,17 @@ function loudness(path) {
 	// ffmpeg は結果を stderr に出す。
 	const result = spawnSync(
 		"ffmpeg",
-		["-hide_banner", "-nostats", "-i", path, "-af", "loudnorm=print_format=summary", "-f", "null", "-"],
+		[
+			"-hide_banner",
+			"-nostats",
+			"-i",
+			path,
+			"-af",
+			"loudnorm=print_format=summary",
+			"-f",
+			"null",
+			"-",
+		],
 		{ encoding: "utf8" },
 	);
 	return parseIntegrated(`${result.stdout ?? ""}${result.stderr ?? ""}`);
@@ -191,12 +221,16 @@ function main() {
 		options = parseArgs(process.argv.slice(2));
 	} catch (error) {
 		console.error(`停止: ${error.message}`);
-		console.error("使い方: node tools/audio_assets.mjs [--src <元のフォルダ>] [--out <配信するフォルダ>]");
+		console.error(
+			"使い方: node tools/audio_assets.mjs [--src <元のフォルダ>] [--out <配信するフォルダ>]",
+		);
 		process.exit(2);
 	}
 	const inRepo = options.out === repo || options.out.startsWith(repo + sep);
 	if (inRepo && !options.out.startsWith(join(repo, "assets-src") + sep)) {
-		console.error(`停止: リポジトリの中では assets-src/ の下だけに書く（素材をコミットしないため）: ${options.out}`);
+		console.error(
+			`停止: リポジトリの中では assets-src/ の下だけに書く（素材をコミットしないため）: ${options.out}`,
+		);
 		process.exit(2);
 	}
 	if (!existsSync(options.src)) {
@@ -205,8 +239,12 @@ function main() {
 	}
 	const ffprobe = has("ffprobe");
 	const ffmpeg = has("ffmpeg");
-	if (!ffprobe) console.warn("注意: ffprobe が無いので、MP3 のフレームを数えて長さを出す");
-	if (!ffmpeg) console.warn("注意: ffmpeg が無いので、BGM の倍率は 1 のまま（音量をそろえない）");
+	if (!ffprobe)
+		console.warn("注意: ffprobe が無いので、MP3 のフレームを数えて長さを出す");
+	if (!ffmpeg)
+		console.warn(
+			"注意: ffmpeg が無いので、BGM の倍率は 1 のまま（音量をそろえない）",
+		);
 
 	const problems = [];
 	const audio = [];
@@ -239,13 +277,20 @@ function main() {
 			gain: round(gain, 2),
 		};
 		if (source.loop !== undefined) {
-			const loop = { ...source.loop, endMs: Math.min(source.loop.endMs, durationMs) };
+			const loop = {
+				...source.loop,
+				endMs: Math.min(source.loop.endMs, durationMs),
+			};
 			if (loop.endMs <= loop.startMs + loop.crossfadeMs) {
-				problems.push(`${source.file} の loop が長さ（${durationMs} ms）に合わない`);
+				problems.push(
+					`${source.file} の loop が長さ（${durationMs} ms）に合わない`,
+				);
 				continue;
 			}
 			if (loop.endMs !== source.loop.endMs) {
-				console.warn(`注意: ${source.file} の loop の終わりを、長さ ${durationMs} ms に縮めた`);
+				console.warn(
+					`注意: ${source.file} の loop の終わりを、長さ ${durationMs} ms に縮めた`,
+				);
 			}
 			entry.loop = loop;
 		}
@@ -268,13 +313,23 @@ function main() {
 	console.log(`書いた: ${manifestPath}（audio 欄 ${audio.length} 件）`);
 	console.log("key\tkind\tms\tbytes\tLUFS\tgain\tloop");
 	for (const a of audio) {
-		const loop = a.loop === undefined ? "-" : `${a.loop.startMs}-${a.loop.endMs}/${a.loop.crossfadeMs}`;
-		console.log(`${a.key}\t${a.kind}\t${a.durationMs}\t${a.bytes}\t${a.lufs ?? "-"}\t${a.gain}\t${loop}`);
+		const loop =
+			a.loop === undefined
+				? "-"
+				: `${a.loop.startMs}-${a.loop.endMs}/${a.loop.crossfadeMs}`;
+		console.log(
+			`${a.key}\t${a.kind}\t${a.durationMs}\t${a.bytes}\t${a.lufs ?? "-"}\t${a.gain}\t${loop}`,
+		);
 	}
 	const total = audio.reduce((sum, a) => sum + a.bytes, 0);
-	console.log(`合計: ${total} バイト（${(total / 1_000_000).toFixed(2)} MB。目標 3.7 MB 以下）`);
+	console.log(
+		`合計: ${total} バイト（${(total / 1_000_000).toFixed(2)} MB。目標 3.7 MB 以下）`,
+	);
 }
 
-if (process.argv[1] && resolve(process.argv[1]) === fileURLToPath(import.meta.url)) {
+if (
+	process.argv[1] &&
+	resolve(process.argv[1]) === fileURLToPath(import.meta.url)
+) {
 	main();
 }

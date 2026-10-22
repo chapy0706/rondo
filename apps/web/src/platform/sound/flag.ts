@@ -1,20 +1,21 @@
 /**
  * 音を鳴らすかの旗（issue-63）。
  *
- * SOUND_READY が false の間、音の呼び出しは、すべて何もしない（素材の読み込みも、AudioContext の
- * 作成も、しない）。来場者の画面には、何も起きない。確かめるときだけ、URL に ?sound=1 を付けると、
- * その端末に覚えて鳴らす（?sound=0 で解除）。鳴らすのを全員に広げるときは、SOUND_READY を true にする。
+ * SOUND_READY が true なので、既定で鳴らす。端末ごとに、URL の ?sound=0 で解除し（その端末は無音の
+ * まま。音の呼び出しは、すべて何もしない。素材の読み込みも、AudioContext の作成も、しない）、
+ * ?sound=1 で、また鳴らす。どちらも、その端末に覚える。全員の音を止めるときは、SOUND_READY を
+ * false に戻す（そのときは、?sound=1 を覚えた端末だけが鳴る）。
  */
 
 import type { SoundStorage } from "./settings";
 
-export const SOUND_READY = false;
+export const SOUND_READY = true;
 
 export const SOUND_FLAG_KEY = "rondo.sound.enabled";
 
 /**
  * 鳴らすか。search は location.search。?sound=1 / ?sound=0 は、端末に覚える（書けなければ、
- * その画面を開いている間だけ従う）。
+ * その画面を開いている間だけ従う）。覚えた値（1 か 0）は、ready より優先する。
  */
 export function resolveSoundFlag(
 	ready: boolean,
@@ -24,17 +25,18 @@ export function resolveSoundFlag(
 	const asked = new URLSearchParams(search).get("sound");
 	if (asked === "1" || asked === "0") {
 		try {
-			if (asked === "1") storage?.setItem(SOUND_FLAG_KEY, "1");
-			else storage?.removeItem(SOUND_FLAG_KEY);
+			storage?.setItem(SOUND_FLAG_KEY, asked);
 		} catch {
 			// 覚えられなくても、この画面では URL に従う。
 		}
-		return ready || asked === "1";
+		return asked === "1";
 	}
-	if (ready) return true;
 	try {
-		return storage?.getItem(SOUND_FLAG_KEY) === "1";
+		const stored = storage?.getItem(SOUND_FLAG_KEY);
+		if (stored === "1") return true;
+		if (stored === "0") return false;
 	} catch {
-		return false;
+		// 読めなければ、旗のとおり。
 	}
+	return ready;
 }
