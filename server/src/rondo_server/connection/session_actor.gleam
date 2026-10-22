@@ -50,6 +50,9 @@ pub type Message {
   Stop
   /// 今の状態（台帳への登録・テスト用）。
   GetSession(reply: Subject(Session))
+  /// 表示名の既定（userN）を付ける。番号の窓口（connection/sessions）から受け取った番号で、
+  /// 接続を開いた直後に 1 度だけ付ける（issue-71）。
+  AssignName(name: String, reply: Subject(Nil))
 }
 
 type State {
@@ -135,6 +138,10 @@ pub fn get_session(actor: Subject(Message)) -> Session {
   process.call(actor, 1000, GetSession)
 }
 
+pub fn assign_name(actor: Subject(Message), name: String) -> Nil {
+  process.call(actor, 1000, AssignName(name, _))
+}
+
 fn handle(state: State, message: Message) -> actor.Next(State, Message) {
   case message {
     FromClient(incoming) -> {
@@ -205,6 +212,13 @@ fn handle(state: State, message: Message) -> actor.Next(State, Message) {
     GetSession(reply) -> {
       process.send(reply, state.session)
       actor.continue(state)
+    }
+
+    AssignName(name, reply) -> {
+      process.send(reply, Nil)
+      actor.continue(
+        State(..state, session: session.Session(..state.session, name:)),
+      )
     }
   }
 }

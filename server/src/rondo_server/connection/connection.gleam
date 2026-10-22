@@ -9,6 +9,7 @@ import rondo_server/connection/heartbeat
 import rondo_server/connection/session
 import rondo_server/connection/session_actor
 import rondo_server/connection/sessions
+import rondo_server/connection/user_number
 import rondo_server/protocol/message.{
   type ClientMessage, type ServerMessage, ErrorMessage, Pong, Reconnect,
 }
@@ -39,12 +40,17 @@ pub fn open(
   // アクターは、代わりにソケットの受信プロセスを監視して切断を知る（issue-51 / session_actor）。
   process.unlink(started.pid)
   let state = session_actor.get_session(started.data)
-  sessions.register(
-    deps.sessions,
-    state.resume_token,
-    started.data,
-    started.pid,
-  )
+  // 台帳に載せ、表示名の番号（空いている一番小さい番号）を受け取って付ける（issue-71）。
+  // 番号は、接続アクターが止まったときに台帳が空ける。電文はこのあとに届くので、名前は
+  // ルームに入る前に決まっている。
+  let number =
+    sessions.register_named(
+      deps.sessions,
+      state.resume_token,
+      started.data,
+      started.pid,
+    )
+  session_actor.assign_name(started.data, user_number.name(number))
   started.data
 }
 
