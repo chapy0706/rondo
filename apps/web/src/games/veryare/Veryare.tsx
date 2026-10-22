@@ -40,6 +40,7 @@ import {
 	useRef,
 	useState,
 } from "react";
+import { SoundSettings } from "../../platform/sound/SoundSettings";
 import {
 	type BrushName,
 	type Hsl,
@@ -184,6 +185,7 @@ import {
 	shotLogMessage,
 } from "./shotHint";
 import { canReportSight, shouldReportSight, sightEvent } from "./sightReport";
+import { useVeryareSound } from "./sound";
 import { isSpectating } from "./spectate";
 import {
 	type StageGrid,
@@ -539,6 +541,12 @@ function VeryarePlay() {
 	const role = roleOf(notice?.oni ?? null, you);
 	const space = spaceOf(phase, role);
 	const spectator = isSpectator(phase, role, hiding, you);
+	// 音（issue-63）。鳴らす条件は sound.ts にまとめる。
+	const sound = useVeryareSound({
+		clock: { notice, receivedAt: phaseStartedAt },
+		hiding,
+		you,
+	});
 	const oniVisible =
 		(phase === "exploration" || phase === "reveal") && oniState !== null;
 	// 答え合わせの外では、隠れ場所の視点を外す（次の答え合わせは自分の視点から始める / issue-32）。
@@ -678,6 +686,7 @@ function VeryarePlay() {
 		setLastShotAt(at);
 		setNow(at);
 		send(shootEvent(target));
+		sound.shot(target);
 		// 外れの理由を、サーバーと同じ規則で推定して出す（表示だけ。判定はサーバー）。
 		const body =
 			target === null
@@ -854,6 +863,7 @@ function VeryarePlay() {
 		if (pick.kind !== "body") return;
 		event.currentTarget.setPointerCapture(event.pointerId);
 		drawingRef.current = true;
+		sound.paint(true);
 		setDraft((current) =>
 			beginStroke(current, {
 				color: brushColor,
@@ -865,11 +875,13 @@ function VeryarePlay() {
 	const onPaintMove = (event: ReactPointerEvent<HTMLCanvasElement>) => {
 		if (!paintEditable || !drawingRef.current) return;
 		const pick = pointOnCanvas(event);
+		sound.paint(pick?.kind === "body");
 		if (pick?.kind !== "body") return;
 		setDraft((current) => extendStroke(current, pick));
 	};
 	const onPaintUp = () => {
 		drawingRef.current = false;
+		sound.paint(false);
 	};
 	const remainingSeconds =
 		remainingMs === Number.POSITIVE_INFINITY
@@ -1682,6 +1694,7 @@ function VeryarePlay() {
 								>
 									視点の自動追従: {autoCamera ? "あり" : "なし"}
 								</button>
+								<SoundSettings />
 							</>
 						) : null}
 					</div>

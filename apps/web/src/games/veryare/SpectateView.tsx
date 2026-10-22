@@ -27,6 +27,7 @@ import {
 } from "./phaseClock";
 import { type PhaseNotice, parsePhaseNotice } from "./rules";
 import type { VeryareScene } from "./scene";
+import { useSpectateSound } from "./sound";
 import {
 	EMPTY_SPECTATE,
 	type SpectateView as SpectateData,
@@ -53,6 +54,8 @@ export function SpectateView() {
 	const { on, players } = useRealtimeGame(veryareManifest);
 
 	const [notice, setNotice] = useState<PhaseNotice | null>(null);
+	// 観戦者には、BGM と開始の音だけ（issue-63）。
+	useSpectateSound(notice);
 	const phaseClockRef = useRef<PhaseClock>(NO_PHASE_CLOCK);
 	/** 結果（終了のフェーズ）を受け取った時刻。次の試合までの残りを数える。 */
 	const [endedAt, setEndedAt] = useState<number | null>(null);

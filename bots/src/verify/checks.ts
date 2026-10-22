@@ -11,10 +11,12 @@
 
 import { Bot } from "../client.ts";
 import {
+	judgeAudio,
 	judgeGlb,
 	judgeManifest,
 	judgeWeb,
 	smallestAssetPath,
+	smallestAudioPath,
 } from "./judge.ts";
 import { type Attempt, withRetry } from "./report.ts";
 
@@ -207,6 +209,51 @@ export function assetGlbCheck(
 			return { ok: false, detail: errorText(error) };
 		}
 	};
+}
+
+/** 音の素材の mp3（issue-63）: 200・audio/mpeg・immutable・CORS。 */
+export function assetAudioCheck(
+	targets: Targets,
+	base: string,
+	path: string,
+): () => Promise<Attempt> {
+	return async () => {
+		const url = `${base}/${path}`;
+		try {
+			const response = await fetch(url, {
+				headers: { Origin: targets.assetOrigin },
+			});
+			await response.body?.cancel();
+			const result = judgeAudio(
+				response.status,
+				response.headers.get("content-type") ?? "",
+				response.headers.get("cache-control") ?? "",
+				response.headers.get("access-control-allow-origin") ?? "",
+				targets.assetOrigin,
+			);
+			return { ...result, detail: `${path} ${result.detail}` };
+		} catch (error) {
+			return { ok: false, detail: errorText(error) };
+		}
+	};
+}
+
+/**
+ * manifest.json の audio 欄から、mp3 の確認に使うパスを取る。audio 欄が無い・取れなければ null
+ * （mp3 の確認を省く）。
+ */
+export async function audioPathForCheck(base: string): Promise<string | null> {
+	try {
+		const response = await fetch(`${base}/manifest.json`);
+		if (response.status !== 200) {
+			await response.body?.cancel();
+			return null;
+		}
+		const body: unknown = await response.json();
+		return smallestAudioPath(body);
+	} catch {
+		return null;
+	}
 }
 
 /** manifest.json から、glb の確認に使う素材のパスを取る。取れなければ null。 */

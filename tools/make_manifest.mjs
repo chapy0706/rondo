@@ -21,6 +21,10 @@
  *
  * 形の違うファイル（名前が <key>-<quality>.glb でない、版のフォルダの外にある、glb の先頭が
  * 正しくない）があれば、何も書かずに止まる（終了コード 2）。
+ *
+ * 音の素材（issue-63）: 前の manifest.json の audio 欄（tools/audio_assets.mjs が作る）を引き継ぐ。
+ * 各項目の mp3 が、フォルダにあり、先頭が音のファイル（ID3 の札か MP3 のフレームの頭）であることを
+ * 確かめ、bytes を今の大きさに直す。無い・形の違う項目があれば、何も書かずに止まる。
  * 素材はリポジトリに入れないので、リポジトリの中では assets-src/ の下だけに書く。
  */
 
@@ -33,6 +37,8 @@ const GLB_MAGIC = 0x46546c67;
 /** 配信するパスの形（rondo-assets の nginx が配信する形と同じ。deploy/assets/default.conf.template）。 */
 const PATH_PATTERN =
 	/^v([0-9]+)\/(?:[A-Za-z0-9._-]+\/)*([A-Za-z0-9._-]+)-([0-9]+)\.glb$/;
+/** 音の素材のパスの形（同じく nginx が配信する形）。 */
+const AUDIO_PATH_PATTERN = /^v[0-9]+\/(?:[A-Za-z0-9._-]+\/)*[A-Za-z0-9._-]+\.mp3$/;
 
 const [rootArg] = process.argv.slice(2);
 if (rootArg === undefined) {
@@ -61,6 +67,51 @@ function listGlb(dir) {
 		}
 	}
 	return found;
+}
+
+/** mp3 の先頭（ID3 の札か、MP3 のフレームの頭）か。 */
+function looksLikeMp3(path) {
+	const data = readFileSync(path);
+	if (data.length < 4) return false;
+	return (
+		data.toString("latin1", 0, 3) === "ID3" ||
+		(data[0] === 0xff && (data[1] & 0xe0) === 0xe0)
+	);
+}
+
+/** 前の manifest.json の audio 欄を引き継ぐ（無ければ undefined）。問題は problems に足す。 */
+function carryAudio(problems) {
+	const previous = join(root, "manifest.json");
+	let audio;
+	try {
+		audio = JSON.parse(readFileSync(previous, "utf8")).audio;
+	} catch {
+		return undefined;
+	}
+	if (audio === undefined) return undefined;
+	if (!Array.isArray(audio)) {
+		problems.push("manifest.json の audio 欄が配列でない");
+		return undefined;
+	}
+	return audio.map((entry) => {
+		const path = typeof entry?.path === "string" ? entry.path : "";
+		if (!AUDIO_PATH_PATTERN.test(path) || path.split("/").includes("..")) {
+			problems.push(`audio ${entry?.key}: v<版>/.../<名前>.mp3 の形でない（${path}）`);
+			return entry;
+		}
+		const full = join(root, path);
+		let ok = false;
+		try {
+			ok = statSync(full).isFile() && looksLikeMp3(full);
+		} catch {
+			ok = false;
+		}
+		if (!ok) {
+			problems.push(`audio ${entry.key}: ${path} が無い、または mp3 の先頭でない`);
+			return entry;
+		}
+		return { ...entry, bytes: statSync(full).size };
+	});
 }
 
 /** glb の先頭（magic "glTF"、版 2、全体の長さ）が正しいか。 */
@@ -108,6 +159,8 @@ for (const path of listGlb(root).sort()) {
 	if (kept === undefined || kept.version < entry.version) latest.set(id, entry);
 }
 
+const audio = carryAudio(problems);
+
 if (problems.length > 0) {
 	console.error("停止: manifest.json は書いていない");
 	for (const problem of problems) console.error(`  - ${problem}`);
@@ -124,11 +177,18 @@ const assets = [...latest.values()].sort(
 const output = join(root, "manifest.json");
 writeFileSync(
 	output,
-	`${JSON.stringify({ version: 1, assets }, null, "\t")}\n`,
+	`${JSON.stringify(
+		audio === undefined ? { version: 1, assets } : { version: 1, assets, audio },
+		null,
+		"\t",
+	)}\n`,
 );
 
 console.log(`書いた: ${output}`);
 console.log("key\tquality\tversion\tbytes\tpath");
 for (const a of assets) {
 	console.log(`${a.key}\t${a.quality}\t${a.version}\t${a.bytes}\t${a.path}`);
+}
+if (audio !== undefined) {
+	console.log(`audio 欄を引き継いだ: ${audio.length} 件`);
 }

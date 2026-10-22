@@ -11,6 +11,7 @@
  */
 
 import type { Group } from "three";
+import { type AudioEntry, audioLoaderOptions, findAudio } from "./audio";
 import { createGlbParse } from "./glb";
 import { type AssetLoader, createAssetLoader } from "./loader";
 
@@ -57,4 +58,32 @@ function loader(): AssetLoader<LoadedGlb> {
 /** 素材を読み込み始める。失敗しても例外は投げず、{ ok: false } で返る。 */
 export function preloadAsset(key: string) {
 	return loader().load(key);
+}
+
+let sharedAudio: AssetLoader<ArrayBuffer> | null = null;
+
+/** 音の素材のローダー（issue-63）。manifest の取得は、glb のローダーと分け合う。 */
+function audioLoader(): AssetLoader<ArrayBuffer> {
+	sharedAudio ??= createAssetLoader<ArrayBuffer>({
+		baseUrl: process.env.NEXT_PUBLIC_ASSET_BASE_URL || undefined,
+		fetch: (input, init) => fetch(input, init),
+		log: (message) => console.info(message),
+		...audioLoaderOptions(loader()),
+	});
+	return sharedAudio;
+}
+
+/**
+ * 音の素材を取る（issue-63）。manifest の audio 欄に無い key は、取りに行かず null（いまの本番の
+ * manifest には audio 欄が無いので、要求は増えない）。失敗しても例外は投げず null。
+ */
+export async function loadAudio(
+	key: string,
+): Promise<{ readonly info: AudioEntry; readonly data: ArrayBuffer } | null> {
+	const manifest = await audioLoader().manifest();
+	if (manifest === null) return null;
+	const info = findAudio(manifest, key);
+	if (info === null) return null;
+	const result = await audioLoader().load(key);
+	return result.ok ? { info, data: result.value } : null;
 }

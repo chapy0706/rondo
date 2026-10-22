@@ -1,5 +1,6 @@
 import type { Metadata, Viewport } from "next";
 import type { ReactNode } from "react";
+import { SoundRoot } from "../platform/sound/SoundRoot";
 import "./globals.css";
 
 export const metadata: Metadata = {
@@ -22,7 +23,11 @@ export const viewport: Viewport = {
 export default function RootLayout({ children }: { children: ReactNode }) {
 	return (
 		<html lang="ja">
-			<body>{children}</body>
+			<body>
+				{children}
+				{/* 音の入口（issue-63）。ページをまたいで BGM を続けるため、ここに 1 つ。 */}
+				<SoundRoot />
+			</body>
 		</html>
 	);
 }

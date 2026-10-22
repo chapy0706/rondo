@@ -67,6 +67,54 @@ export function judgeGlb(
 	};
 }
 
+/**
+ * 音の素材（issue-63）: 200・audio/mpeg・immutable・CORS が許可したオリジン（deploy/assets の
+ * mp3 の location）。
+ */
+export function judgeAudio(
+	status: number,
+	contentType: string,
+	cacheControl: string,
+	allowOrigin: string,
+	expectedOrigin: string,
+): Attempt {
+	const ok =
+		status === 200 &&
+		contentType.includes("audio/mpeg") &&
+		cacheControl.includes("immutable") &&
+		allowOrigin === expectedOrigin;
+	return {
+		ok,
+		detail: `${status} ${contentType || "(型なし)"} cache=${cacheControl || "(なし)"} CORS=${allowOrigin || "(なし)"}`,
+	};
+}
+
+/** 版付きの mp3 のパス（v1/...mp3）。nginx が配信する形と同じ。 */
+const AUDIO_PATH = /^v[0-9]+\/[A-Za-z0-9._\-/]+\.mp3$/;
+
+/**
+ * manifest.json の audio 欄から、いちばん小さい音の素材のパスを選ぶ。audio 欄が無い（いまの本番）・
+ * 形が違う・版付きの mp3 が1つも無ければ null（mp3 の確認を省く）。
+ */
+export function smallestAudioPath(body: unknown): string | null {
+	if (typeof body !== "object" || body === null) return null;
+	const audio: unknown = (body as { audio?: unknown }).audio;
+	if (!Array.isArray(audio)) return null;
+	let best: { path: string; bytes: number } | null = null;
+	for (const item of audio as unknown[]) {
+		if (typeof item !== "object" || item === null) continue;
+		const { path, bytes } = item as { path?: unknown; bytes?: unknown };
+		if (typeof path !== "string" || !AUDIO_PATH.test(path)) continue;
+		if (path.includes("..")) continue;
+		const size =
+			typeof bytes === "number" && Number.isFinite(bytes)
+				? bytes
+				: Number.POSITIVE_INFINITY;
+		if (best === null || size < best.bytes) best = { path, bytes: size };
+	}
+	return best?.path ?? null;
+}
+
 /** 版付きのパス（v1/...glb）。nginx が配信する形と同じ（deploy/assets/default.conf.template）。 */
 const ASSET_PATH = /^v[0-9]+\/[A-Za-z0-9._\-/]+\.glb$/;
 

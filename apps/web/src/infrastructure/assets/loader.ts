@@ -11,6 +11,10 @@
  *   デコーダが読めない / issue-55）、例外を投げず { ok: false, reason } を返す。利用者には警告を出さず、原因は log（console）に記録する
  *
  * fetch・parse・log・時間は注入できるので、テストでは素材なしで確かめられる。
+ *
+ * glb 以外のファイル（音の素材 / issue-63）も読めるように、取得したバイト列の確かめ（verify）、
+ * 確かめに通らないときの理由（invalidReason）、manifest からの引き方（select）、manifest の取得
+ * （manifest。別のローダーと 1 回の取得を分け合う）を、外から渡せる。既定は glb のまま。
  */
 
 import {
@@ -26,6 +30,7 @@ export type FailureReason =
 	| "not-in-manifest"
 	| "http-error"
 	| "invalid-glb"
+	| "invalid-audio"
 	| "timeout"
 	| "decoder-unavailable";
 
@@ -49,11 +54,32 @@ export interface AssetLoaderOptions<T = unknown> {
 	readonly manifestRetryMs?: number;
 	/** 時計（ミリ秒）。既定は Date.now（テストで差し替える）。 */
 	readonly now?: () => number;
+	/** 取得したバイト列が、期待する種類のファイルか。既定は glb の先頭（looksLikeGlb）。 */
+	readonly verify?: (data: ArrayBuffer) => boolean;
+	/** verify に通らない・parse が失敗したときの理由。既定は invalid-glb。 */
+	readonly invalidReason?: InvalidReason;
+	/** manifest から、key の素材のパスを引く。既定は assets 欄を key と品質で引く（findEntry）。 */
+	readonly select?: (
+		manifest: AssetManifest,
+		key: string,
+		quality: Quality,
+	) => { readonly path: string } | null;
+	/** manifest の取得（別のローダーと分け合う）。既定は、このローダーが自分で取得する。 */
+	readonly manifest?: () => Promise<AssetManifest | null>;
 }
+
+export type InvalidReason = "invalid-glb" | "invalid-audio";
 
 export interface AssetLoader<T> {
 	load(key: string): Promise<LoadResult<T>>;
+	/** manifest（取得に失敗した・基準 URL が無いなら null）。取得は load と分け合う。 */
+	manifest(): Promise<AssetManifest | null>;
 }
+
+const INVALID_TEXT: Readonly<Record<InvalidReason, string>> = {
+	"invalid-glb": "glb",
+	"invalid-audio": "音のファイル",
+};
 
 const DEFAULT_TIMEOUT_MS = 15_000;
 const DEFAULT_MANIFEST_RETRY_MS = 5_000;
@@ -86,6 +112,9 @@ export function createAssetLoader<T>(
 	const base = options.baseUrl?.replace(/\/+$/, "");
 	const retryMs = options.manifestRetryMs ?? DEFAULT_MANIFEST_RETRY_MS;
 	const now = options.now ?? Date.now;
+	const verify = options.verify ?? looksLikeGlb;
+	const invalid = options.invalidReason ?? "invalid-glb";
+	const select = options.select ?? findEntry;
 	/** 取得に成功した manifest（成功だけを覚える）。 */
 	let manifest: AssetManifest | null = null;
 	/** 取得中の要求（同時の読み込みで共有する）。 */
@@ -164,7 +193,13 @@ export function createAssetLoader<T>(
 		return inflight;
 	};
 
+	const manifestOf = (): Promise<AssetManifest | null> =>
+		options.manifest === undefined ? getManifest() : options.manifest();
+
 	return {
+		manifest() {
+			return base ? manifestOf() : Promise.resolve(null);
+		},
 		async load(key) {
 			if (!base) {
 				if (!toldDisabled) {
@@ -175,9 +210,9 @@ export function createAssetLoader<T>(
 				}
 				return { ok: false, reason: "disabled" };
 			}
-			const list = await getManifest();
+			const list = await manifestOf();
 			if (list === null) return { ok: false, reason: "manifest-unavailable" };
-			const entry = findEntry(list, key, quality);
+			const entry = select(list, key, quality);
 			if (entry === null) {
 				return fail("not-in-manifest", `${key}（品質 ${quality}）`);
 			}
@@ -194,8 +229,11 @@ export function createAssetLoader<T>(
 				}
 				return fail("http-error", `${url} を取得できない（${String(error)}）`);
 			}
-			if (!looksLikeGlb(data)) {
-				return fail("invalid-glb", `${url} の先頭が glb ではない`);
+			if (!verify(data)) {
+				return fail(
+					invalid,
+					`${url} の先頭が ${INVALID_TEXT[invalid]} ではない`,
+				);
 			}
 			try {
 				return { ok: true, value: await options.parse(data) };
@@ -206,7 +244,7 @@ export function createAssetLoader<T>(
 						`${url} の meshopt のデコーダを読み込めない（${error.message}）`,
 					);
 				}
-				return fail("invalid-glb", `${url} を読み込めない（${String(error)}）`);
+				return fail(invalid, `${url} を読み込めない（${String(error)}）`);
 			}
 		},
 	};

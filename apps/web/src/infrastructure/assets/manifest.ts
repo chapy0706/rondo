@@ -31,6 +31,11 @@ export const manifestSchema = z.object({
 	/** manifest の形の版。 */
 	version: z.literal(1),
 	assets: z.array(entrySchema),
+	/**
+	 * 音の素材（issue-63）。無くてよい（いまの本番の形）。項目ごとに audio.ts で検証する（形の違う
+	 * 項目があっても、glb の素材を巻き込まない）。
+	 */
+	audio: z.unknown().optional(),
 });
 
 export type AssetEntry = z.infer<typeof entrySchema>;

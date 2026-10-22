@@ -23,9 +23,11 @@
 import { readFileSync } from "node:fs";
 import {
 	type Targets,
+	assetAudioCheck,
 	assetGlbCheck,
 	assetManifestCheck,
 	assetPathForCheck,
+	audioPathForCheck,
 	pingCheck,
 	roomCheck,
 	webCheck,
@@ -216,6 +218,16 @@ if (assetBaseUrl === undefined) {
 	} else {
 		results.push(
 			await run("素材の glb とキャッシュ", assetGlbCheck(assetBaseUrl, path)),
+		);
+	}
+	// 音の素材（issue-63）は、manifest に audio 欄があるときだけ確かめる。
+	const audioPath = await audioPathForCheck(assetBaseUrl);
+	if (audioPath !== null) {
+		results.push(
+			await run(
+				"素材の mp3 とキャッシュ",
+				assetAudioCheck(targets, assetBaseUrl, audioPath),
+			),
 		);
 	}
 }

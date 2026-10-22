@@ -12,6 +12,8 @@
 # - キャッシュ: バージョン付きのパス（/v1/...）は1年・immutable。manifest.json は60秒。
 #   失敗の応答（404 など）には長期キャッシュを付けない（add_header に always を付けない）
 # - GET と HEAD だけ。ディレクトリの一覧は出さない
+# - 音の素材（issue-63）: バージョン付きのパスの mp3 を、glb と同じ扱い（audio/mpeg・1年・immutable・
+#   同じ CORS）で配信する。素材の規約で再配布は禁止なので、一覧は出さず、manifest の key で指す
 
 server {
     listen 3000;
@@ -34,6 +36,16 @@ server {
         limit_except GET HEAD { deny all; }
         types { }
         default_type model/gltf-binary;
+        add_header Access-Control-Allow-Origin "${ASSET_ALLOWED_ORIGIN}" always;
+        add_header X-Content-Type-Options nosniff always;
+        add_header Cache-Control "public, max-age=31536000, immutable";
+    }
+
+    # バージョン付きのパスの mp3（音の素材 / issue-63）。glb と同じく、中身は変えない（変えるときは版を上げる）。
+    location ~ "^/v[0-9]+/.+\.mp3$" {
+        limit_except GET HEAD { deny all; }
+        types { }
+        default_type audio/mpeg;
         add_header Access-Control-Allow-Origin "${ASSET_ALLOWED_ORIGIN}" always;
         add_header X-Content-Type-Options nosniff always;
         add_header Cache-Control "public, max-age=31536000, immutable";

@@ -64,6 +64,7 @@ import {
 	getRealtimeSession,
 	useSessionState,
 } from "../session/useRealtimeSession";
+import { useSoundResult } from "../sound/hooks";
 import { GameFrame } from "./GameFrame";
 import { RoomNameLabel } from "./RoomNameLabel";
 import { resultView } from "./resultView";
@@ -248,6 +249,8 @@ export function PlayHost({ manifest }: { manifest: GameManifest }) {
 	const spectating =
 		realtime !== null && isSpectatorIn(realtime.you, realtime.players);
 	const shownResult = spectating ? null : result;
+	// 結果画面は無音（BGM を小さくして止める / issue-63）。
+	useSoundResult(shownResult !== null);
 	const view = resultView(manifest, shownResult);
 	const fullscreen = isFullscreenGame(manifest.id);
 	// 画面いっぱいの枠では、文字だけの表示（接続中など）を、ゲームの中身の場所の中央に置く。

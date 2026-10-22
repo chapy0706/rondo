@@ -12,8 +12,9 @@
  *   --port    待ち受けるポート（既定 8081）
  *
  * - 待ち受けるのは 127.0.0.1 だけ（ほかの機器からは届かない）
- * - 配るのは /manifest.json と /v<数字>/…/*.glb だけ。それ以外は 404。ディレクトリの一覧は出さない
- * - manifest.json は短いキャッシュ（max-age=60）、版付きの glb は長期（1年・immutable）。
+ * - 配るのは /manifest.json と /v<数字>/…/*.glb、/v<数字>/…/*.mp3（音の素材 / issue-63）だけ。それ以外は
+ *   404。ディレクトリの一覧は出さない
+ * - manifest.json は短いキャッシュ（max-age=60）、版付きの glb と mp3 は長期（1年・immutable）。
  *   失敗の応答（404 など）には、キャッシュのヘッダを付けない
  * - GET と HEAD だけ。それ以外は 405
  */
@@ -34,6 +35,8 @@ const MANIFEST_CACHE = "public, max-age=60";
 const GLB_CACHE = "public, max-age=31536000, immutable";
 /** 版付きのパスの glb（deploy/assets/default.conf.template と同じ形）。 */
 const GLB_PATH = /^\/v[0-9]+\/.+\.glb$/;
+/** 版付きのパスの mp3（音の素材 / issue-63。同じ形）。 */
+const MP3_PATH = /^\/v[0-9]+\/.+\.mp3$/;
 
 /**
  * 要求の振り分け（ファイルの有無は isFile で調べる）。返すのは、状態・ヘッダ・配るファイルの場所
@@ -64,6 +67,9 @@ export function route(method, rawUrl, { root, origin, isFile }) {
 		cache = MANIFEST_CACHE;
 	} else if (GLB_PATH.test(path) && !path.split("/").includes("..")) {
 		type = "model/gltf-binary";
+		cache = GLB_CACHE;
+	} else if (MP3_PATH.test(path) && !path.split("/").includes("..")) {
+		type = "audio/mpeg";
 		cache = GLB_CACHE;
 	} else {
 		return { status: 404, headers, file: null };
