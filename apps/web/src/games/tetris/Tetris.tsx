@@ -7,10 +7,16 @@
  * だけを受け持つ。入力は基盤共通の VirtualPad（ADR 0018）から方向 (x, y) を読み、
  * 左右移動・回転・ソフトドロップに割り当てる。終了時に useSoloGame でスコアを基盤へ
  * 返す。リアルタイム接続は一切受け取らない。
+ *
+ * 画面いっぱいの枠（GameFrame）の中で、上から得点の行・盤・パッドを並べ、スクロールなしで収める。
+ * 盤の 1 マスの大きさは、枠の中身の幅と高さから決める（platform/layout/fitBoard.ts）。パッドは盤の下に、
+ * 指で押しやすい大きさ（PAD_SIZE）のまま置く。
  */
 
 import { VirtualPad, useSoloGame, useVirtualPad } from "@rondo/game-sdk";
 import { useEffect, useRef, useState } from "react";
+import { fitCell } from "../../platform/layout/fitBoard";
+import { useBoxSize } from "../../platform/layout/useBoxSize";
 import {
 	type Cell,
 	type GameState,
@@ -27,7 +33,7 @@ import {
 } from "./engine";
 import { tetrisManifest } from "./manifest";
 
-/** 1 セルの描画サイズ（px）。CSS で画面幅に合わせて縮める。 */
+/** 1 セルの描画サイズ（canvas の中の px）。画面での大きさは、CSS で fitCell の大きさにする。 */
 const CELL = 28;
 const CANVAS_WIDTH = WIDTH * CELL;
 const CANVAS_HEIGHT = HEIGHT * CELL;
@@ -53,6 +59,13 @@ const DAS_MS = 160;
 const ARR_MS = 50;
 /** ソフトドロップの落下間隔（ms）。 */
 const SOFT_DROP_MS = 45;
+
+/** パッドの大きさ（px）。指で押しやすい大きさを保つ。 */
+const PAD_SIZE = 128;
+/** 盤の上下の並び（px）: 上の余白 8 + 得点の行 20 + 隙間 8 + 隙間 8 + パッド + 下の余白 12。 */
+const RESERVED_HEIGHT = 8 + 20 + 8 + 8 + PAD_SIZE + 12;
+/** 左右の余白（px。px-4 の両側）。 */
+const SIDE_PADDING = 32;
 
 function drawBoard(
 	ctx: CanvasRenderingContext2D,
@@ -81,6 +94,19 @@ export default function Tetris() {
 	reportRef.current = reportResult;
 
 	const [stats, setStats] = useState({ score: 0, lines: 0, level: 1 });
+	// 盤の 1 マスの大きさ（枠の中身の大きさから。測る前は 0 で、盤を描かない）。
+	const [boxRef, box] = useBoxSize<HTMLDivElement>();
+	const cell =
+		box === null
+			? 0
+			: fitCell({
+					width: box.width - SIDE_PADDING,
+					height: box.height,
+					reserved: RESERVED_HEIGHT,
+					cols: WIDTH,
+					rows: HEIGHT,
+				});
+	const boardStyle = { width: cell * WIDTH, height: cell * HEIGHT };
 
 	useEffect(() => {
 		const canvas = canvasRef.current;
@@ -182,8 +208,15 @@ export default function Tetris() {
 	}, []);
 
 	return (
-		<div className="flex flex-col items-center gap-5">
-			<div className="flex w-full max-w-[min(90vw,320px)] justify-between text-slate-300 text-sm">
+		<div
+			ref={boxRef}
+			className="flex min-h-0 w-full flex-1 flex-col items-center gap-2 px-4 pt-2 pb-3"
+		>
+			<div
+				className="flex h-5 justify-between text-slate-300 text-sm"
+				style={{ width: Math.max(boardStyle.width, 240) }}
+				data-testid="tetris-stats"
+			>
 				<span>スコア {stats.score}</span>
 				<span>ライン {stats.lines}</span>
 				<span>レベル {stats.level}</span>
@@ -193,14 +226,16 @@ export default function Tetris() {
 				ref={canvasRef}
 				width={CANVAS_WIDTH}
 				height={CANVAS_HEIGHT}
-				className="w-full max-w-[min(90vw,320px)] rounded-lg"
+				className="rounded-lg"
+				style={boardStyle}
+				data-testid="tetris-board"
 			/>
 
-			<p className="text-slate-500 text-xs">
-				パッド: 左右で移動・上で回転・下でソフトドロップ
-			</p>
-			<div className="rounded-full bg-slate-800 ring-1 ring-slate-700 ring-inset">
-				<VirtualPad size={140} />
+			<div
+				className="rounded-full bg-slate-800 ring-1 ring-slate-700 ring-inset"
+				data-testid="tetris-pad"
+			>
+				<VirtualPad size={PAD_SIZE} />
 			</div>
 		</div>
 	);

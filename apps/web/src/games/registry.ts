@@ -1,9 +1,12 @@
 import type { GameManifest, RoomOption } from "@rondo/contracts";
 import type { ComponentType } from "react";
 import { czzManifest } from "./czz/manifest";
-import { minichessManifest } from "./minichess/manifest";
-import { nikakuKeshiManifest } from "./nikaku-keshi/manifest";
-import { tetrisManifest } from "./tetris/manifest";
+import { MINICHESS_FULLSCREEN, minichessManifest } from "./minichess/manifest";
+import {
+	NIKAKU_KESHI_FULLSCREEN,
+	nikakuKeshiManifest,
+} from "./nikaku-keshi/manifest";
+import { TETRIS_FULLSCREEN, tetrisManifest } from "./tetris/manifest";
 import { tiltMazeManifest } from "./tilt-maze/manifest";
 import {
 	VERYARE_FULLSCREEN,
@@ -106,6 +109,10 @@ export function hiddenRoomOptions(
  */
 const fullscreenGames: Record<string, boolean> = {
 	[veryareManifest.id]: VERYARE_FULLSCREEN,
+	// ひとり用の盤のゲーム。盤のマスの大きさを、見える領域から決める（platform/layout/fitBoard.ts）。
+	[tetrisManifest.id]: TETRIS_FULLSCREEN,
+	[nikakuKeshiManifest.id]: NIKAKU_KESHI_FULLSCREEN,
+	[minichessManifest.id]: MINICHESS_FULLSCREEN,
 };
 
 /** 共通の入れ物（PlayHost）が呼ぶ。id のゲームを、画面いっぱいの 1 枚にするか。 */

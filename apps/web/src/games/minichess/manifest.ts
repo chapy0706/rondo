@@ -22,3 +22,10 @@ export const minichessManifest: GameManifest = {
 		"黒のキングを詰ませたら勝ち。迷ったら「お助け」で次の一手が見える",
 	],
 };
+
+/**
+ * ゲーム画面を、画面いっぱいの 1 枚にするか（上部バーと、盤と操作部品。iPhone の縦画面で、スクロール
+ * なしで収める）。共通の入れ物（platform/host/PlayHost.tsx）が、games/registry の isFullscreenGame を
+ * 通して読む。契約の型（GameManifest）には足さない。
+ */
+export const MINICHESS_FULLSCREEN = true;

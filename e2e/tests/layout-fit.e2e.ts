@@ -13,6 +13,7 @@
  * 襖を開けるボタンは、鬼が襖の前に立ったときだけ出るので、ここでは出ない（目視で確かめる）。
  */
 
+import type { Page } from "@playwright/test";
 import {
 	type Tab,
 	expectArea,
@@ -75,6 +76,94 @@ for (const size of LAYOUT_SIZES) {
 		}) => {
 			test.setTimeout(240_000);
 			await walkScreens(openTab, size, true);
+		});
+	});
+}
+
+/**
+ * ひとり用のゲーム（と、ひとりで遊べる傾きの迷路）の画面。共通の起動画面（tetris・nikaku-keshi・minichess・
+ * tilt-maze）は、起動画面と、「はじめる」を押した後を測る。傾きの迷路は、モード選択・迷路の大きさの選択と、
+ * 1人モードの中（8×8）の迷路も測る。サーバーの準備は要らない（傾きの迷路はルームを作る）。
+ *
+ * 直していない画面は、別のテストにして「期待された失敗」（test.fail）として記録する（2026-10-23）。
+ * 直って収まったら、test.fail が「期待に反して通った」として失敗するので、そのときに外す。
+ */
+const FITTED_GAMES = ["tetris", "nikaku-keshi", "minichess"] as const;
+
+/** 本体の読み込み（遅延読み込み）と、最初の描画を待つ。 */
+const SETTLE_MS = 1500;
+
+/** ボタンがあれば押す（無ければ false）。 */
+async function pressIfShown(page: Page, name: string): Promise<boolean> {
+	const button = page.getByRole("button", { name });
+	const shown = await button.waitFor({ timeout: 5000 }).then(
+		() => true,
+		() => false,
+	);
+	if (shown) await button.click();
+	return shown;
+}
+
+/** 共通の起動画面を測り、「はじめる」を押す。 */
+async function launch(page: Page, size: LayoutSize, id: string): Promise<void> {
+	await page.goto(`/play/${id}`);
+	await page.waitForTimeout(SETTLE_MS);
+	await checkLayout(page, test.info(), size, `${id}（起動画面）`);
+	await pressIfShown(page, "はじめる");
+	await page.waitForTimeout(SETTLE_MS);
+}
+
+for (const size of LAYOUT_SIZES) {
+	test.describe(`${size.name}（${size.width}×${size.height}） ひとり用`, () => {
+		test.use({ viewport: { width: size.width, height: size.height } });
+
+		test("ひとり用のゲームが、スクロールなしで収まる @layout", async ({
+			page,
+		}) => {
+			test.setTimeout(180_000);
+			const info = test.info();
+			for (const id of FITTED_GAMES) {
+				await launch(page, size, id);
+				await checkLayout(page, info, size, id);
+			}
+			await launch(page, size, "tilt-maze");
+			await checkLayout(page, info, size, "tilt-maze（モード選択）");
+			await pressIfShown(page, "1人モード");
+			await page.waitForTimeout(SETTLE_MS);
+			await checkLayout(page, info, size, "tilt-maze（迷路の大きさ）");
+		});
+
+		test("傾きの迷路の 1 人・中（8×8）の迷路が、スクロールなしで収まる @layout", async ({
+			page,
+		}) => {
+			// 期待された失敗（2026-10-23）: 迷路の画面は、縦に積む形のままで、迷路とパッドが縦に収まらない。
+			// 画面を作り直す作業（画面いっぱいの枠にし、迷路の大きさを見える領域から決める）が、別に要る
+			// （リアルタイムのゲームなので、ルームの導線も上部バーへ移る）。大（11×11）は選択肢から外した。
+			test.fail();
+			test.setTimeout(120_000);
+			await launch(page, size, "tilt-maze");
+			await pressIfShown(page, "1人モード");
+			await page.waitForTimeout(SETTLE_MS);
+			await pressIfShown(page, "中");
+			await page.waitForTimeout(SETTLE_MS);
+			await checkLayout(page, test.info(), size, "tilt-maze（1人・中）");
+		});
+
+		test("czz のタイトルとプレイが、スクロールなしで収まる @layout", async ({
+			page,
+		}) => {
+			// 期待された失敗（2026-10-23）: czz のプレイ画面は、命令の一覧が遊ぶほど伸びる作りで、スクロールが
+			// 前提。収めるには、画面の構成から作り直す必要がある。
+			test.fail();
+			test.setTimeout(120_000);
+			const info = test.info();
+			await page.goto("/play/czz");
+			await page.waitForTimeout(SETTLE_MS);
+			await checkLayout(page, info, size, "czz（タイトル）");
+			if (await pressIfShown(page, "スタート")) {
+				await page.waitForTimeout(SETTLE_MS);
+				await checkLayout(page, info, size, "czz（プレイ）");
+			}
 		});
 	});
 }

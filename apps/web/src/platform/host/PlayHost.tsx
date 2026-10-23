@@ -315,6 +315,26 @@ export function PlayHost({ manifest }: { manifest: GameManifest }) {
 		</VirtualPadProvider>
 	);
 
+	// ひとり用のゲームの結果（スコア）。画面いっぱいの枠でも、縦に積む形でも、同じものを重ねる。
+	const soloOverlay = soloResult !== null && (
+		<div className="fixed inset-0 flex items-center justify-center bg-black/70 px-6">
+			<div className="flex w-full max-w-xs flex-col items-center gap-4 rounded-2xl bg-slate-800 p-6">
+				<h2 className="font-bold text-white text-xl">おしまい</h2>
+				<p className="text-slate-300">スコア {soloResult.score}</p>
+				<button
+					type="button"
+					onClick={replay}
+					className="w-full rounded-xl bg-indigo-600 px-4 py-3 font-semibold text-white"
+				>
+					もう一度遊ぶ
+				</button>
+				<Link href="/select" className="text-indigo-400 text-sm underline">
+					ゲーム選択へ戻る
+				</Link>
+			</div>
+		</div>
+	);
+
 	if (fullscreen) {
 		// 画面いっぱいの 1 枚（GameFrame.tsx）。退出とゲーム選択へ戻るは、上部バーのメニューに置く。
 		return (
@@ -339,10 +359,16 @@ export function PlayHost({ manifest }: { manifest: GameManifest }) {
 							closesAt={closesAt}
 							fill
 						/>
-					) : (
+					) : launched ? (
 						game
+					) : (
+						// 共通の起動画面（ひとり用のゲーム）。枠の中で余白を取り、低い画面では中だけスクロールする。
+						<div className="flex min-h-0 flex-1 flex-col overflow-y-auto px-6 py-4">
+							{game}
+						</div>
 					)}
 				</GameFrame>
+				{soloOverlay}
 			</GameHostProvider>
 		);
 	}
@@ -411,24 +437,7 @@ export function PlayHost({ manifest }: { manifest: GameManifest }) {
 				)}
 			</main>
 
-			{soloResult !== null && (
-				<div className="fixed inset-0 flex items-center justify-center bg-black/70 px-6">
-					<div className="flex w-full max-w-xs flex-col items-center gap-4 rounded-2xl bg-slate-800 p-6">
-						<h2 className="font-bold text-white text-xl">おしまい</h2>
-						<p className="text-slate-300">スコア {soloResult.score}</p>
-						<button
-							type="button"
-							onClick={replay}
-							className="w-full rounded-xl bg-indigo-600 px-4 py-3 font-semibold text-white"
-						>
-							もう一度遊ぶ
-						</button>
-						<Link href="/select" className="text-indigo-400 text-sm underline">
-							ゲーム選択へ戻る
-						</Link>
-					</div>
-				</div>
-			)}
+			{soloOverlay}
 		</GameHostProvider>
 	);
 }

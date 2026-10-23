@@ -24,6 +24,15 @@ export const MAZE_CELLS: Readonly<Record<Difficulty, number>> = {
 	medium: 8,
 	large: 11,
 };
+/**
+ * 迷路の大きさの選択肢（画面に出すもの）。大（11×11）は、iPhone の縦画面に収まらず遊べないので、
+ * 外している（2026-10-23。画面を作り直したら戻す）。迷路を作る処理（DIFFICULTIES・MAZE_CELLS）は、
+ * 大を含んだまま変えない。
+ */
+export const SELECTABLE_DIFFICULTIES: readonly Difficulty[] = [
+	"small",
+	"medium",
+];
 
 const ACCEL = 900;
 const DAMP = 6;

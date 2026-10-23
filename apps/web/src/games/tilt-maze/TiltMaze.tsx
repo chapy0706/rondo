@@ -34,10 +34,10 @@ import {
 	BALL_R,
 	type Ball,
 	CELL,
-	DIFFICULTIES,
 	type Difficulty,
 	type Level,
 	MAZE_CELLS,
+	SELECTABLE_DIFFICULTIES,
 	atGoal,
 	cellOfBall,
 	createLevel,
@@ -262,8 +262,8 @@ function DifficultySelect({
 	return (
 		<div className="flex w-full flex-col items-center gap-4">
 			<p className="text-fg-muted text-sm">{TEXT.chooseDifficulty}</p>
-			<div className="grid w-full grid-cols-3 gap-3">
-				{DIFFICULTIES.map((difficulty) => (
+			<div className="grid w-full grid-cols-2 gap-3">
+				{SELECTABLE_DIFFICULTIES.map((difficulty) => (
 					<button
 						key={difficulty}
 						type="button"

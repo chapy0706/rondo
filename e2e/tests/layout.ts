@@ -49,6 +49,15 @@ const PARTS: readonly { readonly id: string; readonly label: string }[] = [
 	{ id: "spectate-status", label: "観戦の状態の行" },
 	{ id: "spectate-canvas", label: "観戦の 3D の画面" },
 	{ id: "spectate-follow-list", label: "追う相手の選択" },
+	// ひとり用のゲーム（layout-fit.e2e.ts の「ひとり用」）。
+	{ id: "launch-start", label: "はじめる" },
+	{ id: "tetris-stats", label: "テ〇〇スの得点の行" },
+	{ id: "tetris-board", label: "テ〇〇スの盤" },
+	{ id: "tetris-pad", label: "テ〇〇スのパッド" },
+	{ id: "nikaku-board", label: "二角消去の盤" },
+	{ id: "nikaku-actions", label: "二角消去のボタン" },
+	{ id: "minichess-board", label: "チェスの盤" },
+	{ id: "minichess-actions", label: "チェスのボタン" },
 ];
 
 /** 重なりを数えない部品（ほかの部品を、上に重ねる下地）。 */

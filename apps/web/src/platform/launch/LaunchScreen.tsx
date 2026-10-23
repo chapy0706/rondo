@@ -24,7 +24,11 @@ export function LaunchScreen({
 		<section className="flex w-full flex-col items-center gap-6 text-center motion-safe:animate-rise">
 			<RondoMark className="size-6" />
 
-			<div className="relative aspect-video w-full overflow-hidden rounded-3xl bg-surface ring-1 ring-line ring-inset">
+			{/*
+			 * 低い画面（高さ 700 px 以下。iPhone の縦画面でツールバーが出ているとき）では、大きな絵を出さず、
+			 * 遊び方と「はじめる」をスクロールなしで収める（ロゴと名前は、画面いっぱいの枠の上部バーにある）。
+			 */}
+			<div className="relative aspect-video w-full overflow-hidden rounded-3xl bg-surface ring-1 ring-line ring-inset [@media(max-height:700px)]:hidden">
 				{/* ゲームのロゴ（issue-69）。画像が無い・読めないときは、仮のタイル。 */}
 				<span className="absolute inset-0 flex items-center justify-center">
 					<GameLogo manifest={manifest} size={128} />
@@ -61,6 +65,7 @@ export function LaunchScreen({
 			<button
 				type="button"
 				onClick={onStart}
+				data-testid="launch-start"
 				className="flex min-h-14 w-full items-center justify-center rounded-2xl bg-accent px-8 font-semibold text-accent-fg text-lg transition-transform active:scale-[0.98]"
 			>
 				はじめる

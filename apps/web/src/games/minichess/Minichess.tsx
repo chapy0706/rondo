@@ -6,10 +6,16 @@
  * 規則・進行・CPU は rules.ts / game.ts / cpu.ts の純粋関数に委ね、ここは描画・タップ・
  * CPU の手番の待ち時間だけを受け持つ。サーバーは使わない。勝敗が決まったら結果を表示し、
  * 「おわる」で useSoloGame の reportResult を呼ぶ（スコアは勝ち 1・引き分け 0.5・負け 0）。
+ *
+ * 画面いっぱいの枠（GameFrame）の中で、上から手番の行・盤・ボタンの行を並べ、スクロールなしで収める。
+ * マスの大きさは、枠の中身の幅と高さから決める（platform/layout/fitBoard.ts）。勝敗の表示は、盤の上に
+ * 重ねて出す。駒とマスの見た目（文字と色）は pieceLook.ts。
  */
 
 import { useSoloGame } from "@rondo/game-sdk";
 import { useEffect, useMemo, useReducer } from "react";
+import { fitCell } from "../../platform/layout/fitBoard";
+import { useBoxSize } from "../../platform/layout/useBoxSize";
 import { type MoveChooser, simpleCpu } from "./cpu";
 import {
 	type GameState,
@@ -23,19 +29,18 @@ import {
 	tapSquare,
 } from "./game";
 import { minichessManifest } from "./manifest";
+import { BOARD_COLORS, PIECE_FONT, pieceLook } from "./pieceLook";
 import { type Move, type Piece, SIZE, type Square } from "./rules";
 
 /** CPU が指すまでの間（ミリ秒）。指した手が見えるように少し待つ。 */
 const CPU_DELAY_MS = 500;
 
-const SYMBOLS: Readonly<Record<Piece["type"], string>> = {
-	K: "♚",
-	Q: "♛",
-	R: "♜",
-	B: "♝",
-	N: "♞",
-	P: "♟",
-};
+/** マスの幅の上限（px）。大きな画面で、盤が大きくなりすぎないように。 */
+const SQUARE_MAX = 80;
+/** 盤の上下の並び（px）: 上の余白 8 + 手番の行 20 + 隙間 12 + 隙間 12 + ボタンの行 44 + 下の余白 12。 */
+const RESERVED_HEIGHT = 8 + 20 + 12 + 12 + 44 + 12;
+/** 左右の余白（px。px-4 の両側）と、盤の縁（ring-1 の両側）。 */
+const SIDE_PADDING = 32 + 2;
 
 const NAMES: Readonly<Record<Piece["type"], string>> = {
 	K: "キング",
@@ -117,9 +122,30 @@ export default function Minichess() {
 	const ranks = Array.from({ length: SIZE }, (_, i) => SIZE - 1 - i);
 	const files = Array.from({ length: SIZE }, (_, i) => i);
 
+	// マスの大きさ（枠の中身の大きさから。測る前は 0 で、盤を描かない）。
+	const [boxRef, box] = useBoxSize<HTMLDivElement>();
+	const square =
+		box === null
+			? 0
+			: fitCell({
+					width: box.width - SIDE_PADDING,
+					height: box.height,
+					reserved: RESERVED_HEIGHT,
+					cols: SIZE,
+					rows: SIZE,
+					max: SQUARE_MAX,
+				});
+	const rowWidth = Math.max(square * SIZE, 280);
+
 	return (
-		<div className="flex w-full flex-col gap-3">
-			<div className="flex items-center justify-between text-sm">
+		<div
+			ref={boxRef}
+			className="flex min-h-0 w-full flex-1 flex-col items-center gap-3 px-4 pt-2 pb-3"
+		>
+			<div
+				className="flex h-5 items-center justify-between text-sm"
+				style={{ width: rowWidth }}
+			>
 				<output
 					className={`font-semibold ${
 						result.kind === "playing" && result.check && !cpuThinking
@@ -132,77 +158,133 @@ export default function Minichess() {
 				<span className="text-fg-muted">お助け {state.hintsUsed} 回</span>
 			</div>
 
-			<div className="grid grid-cols-5 overflow-hidden rounded-lg ring-1 ring-line">
-				{ranks.flatMap((rank) =>
-					files.map((file) => {
-						const sq = { file, rank };
-						const piece = state.position.board[rank]?.[file] ?? null;
-						const dark = (file + rank) % 2 === 0;
-						const selected =
-							state.selected !== null &&
-							state.selected.file === file &&
-							state.selected.rank === rank;
-						const target = targets.find(
-							(m) => m.to.file === file && m.to.rank === rank,
-						);
-						const hinted =
-							isAt(sq, state.hint, "from") || isAt(sq, state.hint, "to");
-						const last =
-							isAt(sq, state.lastMove, "from") ||
-							isAt(sq, state.lastMove, "to");
-						const label = `${squareName(sq)}${
-							piece === null
-								? ""
-								: ` ${piece.color === "w" ? "白" : "黒"}の${NAMES[piece.type]}`
-						}`;
-						return (
-							<button
-								key={squareName(sq)}
-								type="button"
-								aria-label={label}
-								aria-pressed={selected}
-								onClick={() => dispatch({ type: "tap", square: sq })}
-								className={`relative flex aspect-square items-center justify-center text-4xl leading-none ${
-									dark ? "bg-amber-700/70" : "bg-amber-100"
-								} ${
-									selected
-										? "ring-4 ring-accent ring-inset"
-										: hinted
-											? "ring-4 ring-sub ring-inset"
-											: last
-												? "ring-2 ring-amber-400 ring-inset"
-												: ""
-								}`}
-							>
-								{piece !== null ? (
-									<span
-										className={
-											piece.color === "w"
-												? "text-white [text-shadow:0_0_2px_#000,0_1px_2px_#000]"
-												: "text-slate-950"
-										}
-									>
-										{SYMBOLS[piece.type]}
-									</span>
-								) : null}
-								{target !== undefined ? (
-									<span
-										aria-hidden="true"
-										className={`absolute rounded-full bg-accent/60 ${
-											target.captured !== null
-												? "inset-1 bg-transparent ring-4 ring-accent/70"
-												: "size-1/4"
-										}`}
-									/>
-								) : null}
-							</button>
-						);
-					}),
+			<div className="relative">
+				<div
+					className="grid overflow-hidden rounded-lg ring-1 ring-line"
+					style={{ gridTemplateColumns: `repeat(${SIZE}, ${square}px)` }}
+					data-testid="minichess-board"
+				>
+					{ranks.flatMap((rank) =>
+						files.map((file) => {
+							const sq = { file, rank };
+							const piece = state.position.board[rank]?.[file] ?? null;
+							const dark = (file + rank) % 2 === 0;
+							const selected =
+								state.selected !== null &&
+								state.selected.file === file &&
+								state.selected.rank === rank;
+							const target = targets.find(
+								(m) => m.to.file === file && m.to.rank === rank,
+							);
+							const hinted =
+								isAt(sq, state.hint, "from") || isAt(sq, state.hint, "to");
+							const last =
+								isAt(sq, state.lastMove, "from") ||
+								isAt(sq, state.lastMove, "to");
+							const label = `${squareName(sq)}${
+								piece === null
+									? ""
+									: ` ${piece.color === "w" ? "白" : "黒"}の${NAMES[piece.type]}`
+							}`;
+							return (
+								<button
+									key={squareName(sq)}
+									type="button"
+									aria-label={label}
+									aria-pressed={selected}
+									onClick={() => dispatch({ type: "tap", square: sq })}
+									style={{
+										backgroundColor: dark
+											? BOARD_COLORS.dark
+											: BOARD_COLORS.light,
+									}}
+									className={`relative flex aspect-square items-center justify-center leading-none ${
+										selected
+											? "ring-4 ring-accent ring-inset"
+											: hinted
+												? "ring-4 ring-sub ring-inset"
+												: last
+													? "ring-2 ring-amber-400 ring-inset"
+													: ""
+									}`}
+								>
+									{piece !== null ? (
+										<PieceGlyph piece={piece} size={square} />
+									) : null}
+									{target !== undefined ? (
+										<span
+											aria-hidden="true"
+											className={`absolute rounded-full bg-accent/60 ${
+												target.captured !== null
+													? "inset-1 bg-transparent ring-4 ring-accent/70"
+													: "size-1/4"
+											}`}
+										/>
+									) : null}
+								</button>
+							);
+						}),
+					)}
+				</div>
+
+				{result.kind === "playing" ? null : (
+					<div className="absolute inset-0 flex items-center justify-center p-3">
+						<div className="flex w-full flex-col gap-3 rounded-2xl bg-surface p-4 text-center shadow-lg">
+							<p className="font-bold text-fg text-xl">
+								{result.kind === "win"
+									? "勝ち！"
+									: result.kind === "lose"
+										? "負け"
+										: "引き分け"}
+							</p>
+							<p className="text-fg-muted text-sm">
+								お助けを使った回数: {state.hintsUsed} 回
+							</p>
+							<div className="grid grid-cols-2 gap-2">
+								<button
+									type="button"
+									onClick={() => dispatch({ type: "restart" })}
+									className="min-h-11 rounded-xl bg-surface px-3 text-fg text-sm ring-1 ring-line ring-inset"
+								>
+									やり直す
+								</button>
+								<button
+									type="button"
+									onClick={() =>
+										reportResult({
+											score:
+												result.kind === "win"
+													? 1
+													: result.kind === "draw"
+														? 0.5
+														: 0,
+											details: {
+												result:
+													result.kind === "win"
+														? "勝ち"
+														: result.kind === "lose"
+															? "負け"
+															: "引き分け",
+												hints: state.hintsUsed,
+											},
+										})
+									}
+									className="min-h-11 rounded-xl bg-accent px-3 font-semibold text-accent-fg"
+								>
+									おわる
+								</button>
+							</div>
+						</div>
+					</div>
 				)}
 			</div>
 
 			{result.kind === "playing" ? (
-				<div className="grid grid-cols-2 gap-2">
+				<div
+					className="grid grid-cols-2 gap-2"
+					style={{ width: rowWidth }}
+					data-testid="minichess-actions"
+				>
 					<button
 						type="button"
 						disabled={cpuThinking}
@@ -219,54 +301,25 @@ export default function Minichess() {
 						やり直す
 					</button>
 				</div>
-			) : (
-				<div className="flex flex-col gap-3 rounded-2xl bg-surface p-4 text-center">
-					<p className="font-bold text-fg text-xl">
-						{result.kind === "win"
-							? "勝ち！"
-							: result.kind === "lose"
-								? "負け"
-								: "引き分け"}
-					</p>
-					<p className="text-fg-muted text-sm">
-						お助けを使った回数: {state.hintsUsed} 回
-					</p>
-					<div className="grid grid-cols-2 gap-2">
-						<button
-							type="button"
-							onClick={() => dispatch({ type: "restart" })}
-							className="min-h-11 rounded-xl bg-surface px-3 text-fg text-sm ring-1 ring-line ring-inset"
-						>
-							やり直す
-						</button>
-						<button
-							type="button"
-							onClick={() =>
-								reportResult({
-									score:
-										result.kind === "win"
-											? 1
-											: result.kind === "draw"
-												? 0.5
-												: 0,
-									details: {
-										result:
-											result.kind === "win"
-												? "勝ち"
-												: result.kind === "lose"
-													? "負け"
-													: "引き分け",
-										hints: state.hintsUsed,
-									},
-								})
-							}
-							className="min-h-11 rounded-xl bg-accent px-3 font-semibold text-accent-fg"
-						>
-							おわる
-						</button>
-					</div>
-				</div>
-			)}
+			) : null}
 		</div>
+	);
+}
+
+/** 駒の文字（白も黒も同じ文字。色と縁取りで分ける / pieceLook.ts）。 */
+function PieceGlyph({ piece, size }: { piece: Piece; size: number }) {
+	const look = pieceLook(piece);
+	return (
+		<span
+			aria-hidden="true"
+			style={{
+				color: look.fill,
+				textShadow: look.shadow,
+				fontFamily: PIECE_FONT,
+				fontSize: Math.round(size * 0.72),
+			}}
+		>
+			{look.glyph}
+		</span>
 	);
 }
