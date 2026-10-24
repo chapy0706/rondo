@@ -66,14 +66,14 @@ pub fn room_for(
           ))
         Error(Nil) -> Error(InvalidSettings)
         Ok(None) ->
-          case veryare.parse_room(settings) {
-            Ok(#(parsed, stage)) ->
+          case veryare.parse_room(settings), veryare.parse_rules(settings) {
+            Ok(#(parsed, stage)), Ok(rules) ->
               Ok(#(
-                veryare.spec_on(id, parsed, stage, timing),
+                veryare.spec_ruled(id, parsed, stage, rules, timing),
                 StartOnCreate,
                 Match,
               ))
-            Error(Nil) -> Error(InvalidSettings)
+            _, _ -> Error(InvalidSettings)
           }
       }
     "tilt-maze" ->

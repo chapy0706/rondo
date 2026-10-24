@@ -85,6 +85,8 @@ export interface JoinCase {
 	readonly stage: number;
 	/** 届くべき、いちばん新しいルーム情報の探索時間（秒）。広い屋敷は、既定の 40 秒に +80 秒。 */
 	readonly explorationSeconds: number;
+	/** 動ける隠れ側の規則のルームか（ルーム作成の設定の roaming: 1 / ADR 0053）。無ければ従来。 */
+	readonly roaming?: boolean;
 }
 
 /** ルーム作成の探索時間の既定（秒。サーバーの room.gleam の default_exploration_seconds）。 */
@@ -165,6 +167,17 @@ export function wideJoinCases(): JoinCase[] {
 		}));
 }
 
+/**
+ * 動ける隠れ側の規則（ADR 0053）の構成を 1 つ。CPU なしの組み合わせ（joinCases と同じ順番・時機）を、
+ * roaming: 1 のルームで回す。探索・答え合わせの間に復帰した人に、動く隠れ側の通知（roaming）も届くことを
+ * 確かめる。
+ */
+export function roamingJoinCases(): JoinCase[] {
+	return joinCases()
+		.filter((c) => c.cpu === "none")
+		.map((c) => ({ ...c, name: `動ける隠れ側・${c.name}`, roaming: true }));
+}
+
 /** いちばん新しいルーム情報（room-info）の探索時間（秒）。届いていなければ null。 */
 export function latestExplorationSeconds(
 	payloads: readonly unknown[],
@@ -192,18 +205,21 @@ export function latestExplorationSeconds(
  */
 export function expectedKinds(
 	phase: string,
-	options: { readonly atCreation?: boolean } = {},
+	options: { readonly atCreation?: boolean; readonly roaming?: boolean } = {},
 ): string[] {
 	const always = ["doors", "phase", "room-info", "stage"];
+	const exploring = phase === "exploration" || phase === "reveal";
 	const extra =
 		phase === "oni-selection"
 			? options.atCreation === true
 				? []
 				: ["members"]
-			: phase === "exploration" || phase === "reveal"
+			: exploring
 				? ["hiders", "hiding", "oni"]
 				: [];
-	return [...always, ...extra].sort();
+	// 動ける隠れ側の規則では、探索・答え合わせの間、動く隠れ側の通知も届く（ADR 0053）。
+	const roaming = exploring && options.roaming === true ? ["roaming"] : [];
+	return [...always, ...extra, ...roaming].sort();
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {
@@ -254,6 +270,8 @@ export function judgeArrival(input: {
 	readonly atCreation?: boolean;
 	/** あれば、いちばん新しいルーム情報の探索時間が、この秒数か（issue-65）。 */
 	readonly explorationSeconds?: number;
+	/** 動ける隠れ側の規則のルームか（expectedKinds の roaming / ADR 0053）。 */
+	readonly roaming?: boolean;
 }): string[] {
 	const problems: string[] = [];
 	const mine = latestPhase(input.arrived);
@@ -261,7 +279,7 @@ export function judgeArrival(input: {
 	const kinds = new Set(input.arrived.map(typeOf));
 	const expected = expectedKinds(
 		mine?.phase ?? theirs?.phase ?? "oni-selection",
-		{ atCreation: input.atCreation === true },
+		{ atCreation: input.atCreation === true, roaming: input.roaming === true },
 	);
 	const missing = expected.filter((kind) => !kinds.has(kind));
 	if (missing.length > 0)

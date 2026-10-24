@@ -73,10 +73,15 @@ export type {
 	VeryareSpectatePose,
 	VeryareWaitingMember,
 	VeryareWaitingPoseEvent,
+	VeryareRoamingHider,
+	VeryareRoamingNotice,
+	VeryareLookNotice,
 } from "./veryare";
 export {
 	VERYARE_CPU_POSES,
 	VERYARE_MODEL_POSES,
 	VERYARE_PAINT_LIMITS,
 	VERYARE_PAINT_PARTS,
+	VERYARE_ROAMING,
+	VERYARE_SPREADING,
 } from "./veryare";

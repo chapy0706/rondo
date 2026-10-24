@@ -42,6 +42,7 @@ import {
 	judgeArrival,
 	membersListed,
 	resentResult,
+	roamingJoinCases,
 	wideJoinCases,
 } from "./joinMatrix.ts";
 
@@ -115,7 +116,12 @@ async function runCase(c: JoinCase): Promise<Check> {
 		const [creator, filler, joiner] = await connectBots(`join-${c.cpu}`, 3);
 		bots.push(creator as Bot, filler as Bot, joiner as Bot);
 		const a = creator as Bot;
-		const made = await create(a, { cpu: CPU_SETTING[c.cpu], stage: c.stage });
+		const made = await create(a, {
+			cpu: CPU_SETTING[c.cpu],
+			stage: c.stage,
+			// 動ける隠れ側の構成だけ、規則を送る（従来の構成の作成の設定は、これまでと同じ / ADR 0053）。
+			...(c.roaming === true ? { roaming: 1 } : {}),
+		});
 		if (made.type !== "room-joined") {
 			return {
 				name: c.name,
@@ -134,6 +140,7 @@ async function runCase(c: JoinCase): Promise<Check> {
 			problems.push(
 				...judgeArrival({
 					explorationSeconds: c.explorationSeconds,
+					roaming: c.roaming === true,
 					arrived: created,
 					reference: created,
 					atCreation: true,
@@ -170,6 +177,7 @@ async function runCase(c: JoinCase): Promise<Check> {
 				problems.push(
 					...judgeArrival({
 						explorationSeconds: c.explorationSeconds,
+						roaming: c.roaming === true,
 						arrived: payloads(back.bot),
 						reference: before,
 					}).map((p) => `復帰: ${p}`),
@@ -229,6 +237,7 @@ async function runCase(c: JoinCase): Promise<Check> {
 				problems.push(
 					...judgeArrival({
 						explorationSeconds: c.explorationSeconds,
+						roaming: c.roaming === true,
 						arrived,
 						reference: before,
 					}).map((p) => `作った人の復帰: ${p}`),
@@ -245,6 +254,7 @@ async function runCase(c: JoinCase): Promise<Check> {
 					problems.push(
 						...judgeArrival({
 							explorationSeconds: c.explorationSeconds,
+							roaming: c.roaming === true,
 							arrived,
 							reference: payloads(filler as Bot),
 						}).map((p) => `先にいる人と比べて: ${p}`),
@@ -269,6 +279,7 @@ async function runCase(c: JoinCase): Promise<Check> {
 		problems.push(
 			...judgeArrival({
 				explorationSeconds: c.explorationSeconds,
+				roaming: c.roaming === true,
 				arrived: payloads(b),
 				reference: payloads(a),
 			}).map((p) => `参加: ${p}`),
@@ -282,6 +293,7 @@ async function runCase(c: JoinCase): Promise<Check> {
 			problems.push(
 				...judgeArrival({
 					explorationSeconds: c.explorationSeconds,
+					roaming: c.roaming === true,
 					arrived: payloads(back.bot),
 					reference: payloads(a),
 				}).map((p) => `復帰: ${p}`),
@@ -310,9 +322,11 @@ function detail(problems: readonly string[]): string {
 }
 
 const only = option("--only");
-const cases = [...joinCases(), ...wideJoinCases()].filter(
-	(c) => only === undefined || c.name.includes(only),
-);
+const cases = [
+	...joinCases(),
+	...wideJoinCases(),
+	...roamingJoinCases(),
+].filter((c) => only === undefined || c.name.includes(only));
 console.log(`[join] 組み合わせ ${cases.length} 件・接続先 ${url}`);
 const checks: Check[] = [];
 for (const c of cases) {

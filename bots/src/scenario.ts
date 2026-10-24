@@ -17,6 +17,8 @@
  *   通知（members）が届かないことを確かめる
  * - expiry: 結果のあと、ルームが閉じるまで待つか（issue-70）。game-ended に、閉じるまでの残り
  *   （縮めた 3 分）が載り、その時間のあとに、受け手の全員へ error の room-expired が届くことを確かめる
+ * - 動ける隠れ側の規則（ADR 0053）: settings の roaming が 1 のルームだけで、動く隠れ側の通知（roaming）と
+ *   見た目の通知（look）が届いてよい。ほかのルームでは、どのボットにも届かないことを、いつも確かめる
  */
 
 import type { VeryareModelPose } from "@rondo/contracts";
@@ -79,6 +81,44 @@ export type Action =
 	  }
 	/** 選んだ襖（c と s の境）を開ける報告を送る（issue-29b。契約の VeryareOpenDoorEvent）。 */
 	| { readonly type: "open-door" }
+	/**
+	 * 確かめ（ADR 0053）: いちばん新しい襖の通知で、選んだ襖（c と s の境）が開いているか（open が
+	 * true）・閉じているか（false）。違えば、check の名前を添えて問題にする。
+	 */
+	| {
+			readonly type: "expect-door";
+			readonly check: string;
+			readonly open: boolean;
+	  }
+	/**
+	 * 確かめ（ADR 0053）: いちばん新しい動く隠れ側の通知（roaming）に、target が、選んだマス at の中心に
+	 * いるか。違えば、check の名前を添えて問題にする。
+	 */
+	| {
+			readonly type: "expect-roaming";
+			readonly check: string;
+			readonly target: string;
+			readonly at: "c" | "s" | "r" | "w";
+	  }
+	/**
+	 * 確かめ（ADR 0053）: いちばん新しい見た目の通知（look）の、target のペイントが、color のストロークか。
+	 * 違えば、check の名前を添えて問題にする。
+	 */
+	| {
+			readonly type: "expect-look";
+			readonly check: string;
+			readonly target: string;
+			readonly color: string;
+	  }
+	/**
+	 * 確かめ（増え鬼 / ADR 0053）: いちばん新しい鬼の通知の others（途中から鬼になった人）が、onis の
+	 * ボットの並び（見つかった順）か。違えば、check の名前を添えて問題にする。
+	 */
+	| {
+			readonly type: "expect-onis";
+			readonly check: string;
+			readonly onis: readonly string[];
+	  }
 	/**
 	 * 確かめ（issue-29b）: いま届いている、まだ隠れている一覧に、target がいるか（hiding が
 	 * true）・いないか（false）。違えば、check の名前を添えて問題にする。
@@ -182,6 +222,9 @@ export const details = {
 	hiderLost: { 役割: "隠れる側", 結果: "負け", 状態: "発見・失格・離脱" },
 	oniWon: { 役割: "鬼", 結果: "勝ち" },
 	oniLost: { 役割: "鬼", 結果: "負け" },
+	/** 増え鬼で、途中から鬼になった人（ADR 0053）。 */
+	convertedWon: { 役割: "鬼", 結果: "勝ち", 状態: "途中から鬼" },
+	convertedLost: { 役割: "鬼", 結果: "負け", 状態: "途中から鬼" },
 	void: { 結果: "不成立" },
 } as const;
 

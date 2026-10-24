@@ -83,8 +83,19 @@ export function canChangePose(options: {
 	readonly role: Role;
 	readonly spectator: boolean;
 	readonly submitted: boolean;
+	/** 動ける隠れ側の規則（ADR 0053）。探索の間も、何度でも選び直せる。 */
+	readonly roaming?: boolean;
 }): boolean {
 	const { phase, role, spectator, submitted } = options;
+	if (options.roaming === true) {
+		return (
+			(phase === "preparation" ||
+				phase === "painting" ||
+				phase === "exploration") &&
+			role === "hider" &&
+			!spectator
+		);
+	}
 	return (
 		(phase === "preparation" || phase === "painting") &&
 		role === "hider" &&

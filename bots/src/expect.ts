@@ -300,6 +300,30 @@ export function checkMembersStopped(
 		: [`${name} に、鬼選出の後で待機の通知が ${late.length} 通届いた`];
 }
 
+/** 動ける隠れ側の規則（ADR 0053）だけが送る通知の種類。 */
+const ROAMING_KINDS: readonly string[] = ["roaming", "look"];
+
+/**
+ * 従来の規則のルームで、動ける隠れ側の規則の通知（roaming・look）が届いていないか（ADR 0053）。
+ */
+export function checkNoRoaming(
+	name: string,
+	messages: readonly ServerMessage[],
+): string[] {
+	const found = messages.filter((m) => {
+		if (m.type !== "game-state" && m.type !== "game-state-to") return false;
+		const payload = m.payload as { type?: unknown } | null;
+		return (
+			typeof payload?.type === "string" && ROAMING_KINDS.includes(payload.type)
+		);
+	});
+	return found.length === 0
+		? []
+		: [
+				`${name} に、従来の規則のルームで、動ける隠れ側の通知が ${found.length} 通届いた`,
+			];
+}
+
 /** 結果のあと、ルームが閉じるまでの確かめ（issue-70）の、ボットごとの受け取り。 */
 export interface ExpiryLog {
 	readonly name: string;

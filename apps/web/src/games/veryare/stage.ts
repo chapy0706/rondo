@@ -448,13 +448,15 @@ export function mirrorMove(options: {
 	readonly open: ReadonlySet<string>;
 	readonly from: Point;
 	readonly to: Point;
+	/** 動ける隠れ側の規則（ADR 0053）。ペイントと探索の間も、隠れ側が動ける。 */
+	readonly roaming?: boolean;
 }): Point {
 	const { phase, role, space, grid, open, from, to } = options;
 	const canMove =
 		phase === "oni-selection" || phase === "preparation"
 			? true
 			: phase === "painting" || phase === "exploration"
-				? role === "oni"
+				? role === "oni" || (options.roaming === true && role === "hider")
 				: false;
 	if (!canMove) return from;
 	if (space === "waiting-room") return clampToWaitingRoom(to);

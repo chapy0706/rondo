@@ -11,13 +11,16 @@
  */
 
 import { canChangePose } from "./poses";
+import { roamingOfRoomInfo, roamingPhase } from "./roaming";
 import {
 	type PhaseNotice,
+	type Role,
 	canMove,
 	canPaintWhileWaiting,
 	canShoot,
 	isSpectator,
 	parseHidingNotice,
+	parseOniNotice,
 	parsePhaseNotice,
 	roleOf,
 	spaceOf,
@@ -59,6 +62,16 @@ const ORDER: readonly Control[] = [
 export interface ControlsView {
 	readonly notice: PhaseNotice | null;
 	readonly hiding: readonly string[] | null;
+	/**
+	 * 動ける隠れ側の規則のルームか（ルーム情報の roaming / ADR 0053）。無ければ従来の規則。隠れ側が
+	 * ペイントと探索の間も動け、襖のボタンを出さない。
+	 */
+	readonly roaming?: boolean;
+	/**
+	 * 増え鬼（ADR 0053）で、途中から鬼になった人（鬼の通知の others の ID。見つかった順）。自分が載って
+	 * いれば、自分も鬼（動けて、撃てる）。従来の規則では、いつも無い。
+	 */
+	readonly onis?: readonly string[];
 }
 
 export const NO_NOTICES: ControlsView = { notice: null, hiding: null };
@@ -89,6 +102,12 @@ export function applyNotice(
 	}
 	const hiding = parseHidingNotice(payload);
 	if (hiding !== null) return { ...view, hiding: hiding.playerIds };
+	const roaming = roamingOfRoomInfo(payload);
+	if (roaming === true) return { ...view, roaming };
+	const oni = parseOniNotice(payload);
+	if (oni?.others !== undefined) {
+		return { ...view, onis: oni.others.map((other) => other.playerId) };
+	}
 	return view;
 }
 
@@ -108,10 +127,19 @@ export interface ControlsContext {
 	readonly nearDoor: boolean;
 }
 
+/**
+ * 自分の役割。フェーズの通知の鬼か、増え鬼で途中から鬼になった人（view.onis）なら鬼（ADR 0053）。
+ * 従来の規則では roleOf と同じ。
+ */
+export function roleIn(view: ControlsView, you: string | null): Role {
+	if (you !== null && view.onis?.includes(you) === true) return "oni";
+	return roleOf(view.notice?.oni ?? null, you);
+}
+
 function derived(view: ControlsView, you: string | null) {
 	const notice = view.notice;
 	if (notice === null) return null;
-	const role = roleOf(notice.oni, you);
+	const role = roleIn(view, you);
 	const phase = notice.phase;
 	return {
 		phase,
@@ -125,7 +153,11 @@ function derived(view: ControlsView, you: string | null) {
 /** 動けるか（移動パッドを出し、手元で動かすか）。フェーズの通知が届いていなければ動かない。 */
 export function canMoveNow(view: ControlsView, you: string | null): boolean {
 	const now = derived(view, you);
-	return now !== null && canMove(now.phase, now.role) && !now.spectator;
+	return (
+		now !== null &&
+		canMove(now.phase, now.role, view.roaming === true) &&
+		!now.spectator
+	);
 }
 
 /** 出す操作部品（ORDER の順）。 */
@@ -136,11 +168,13 @@ export function controlsFor(
 	const now = derived(view, context.you);
 	if (now === null) return ["pending", "look"];
 	const { phase, role, space, spectator, area } = now;
+	const roaming = view.roaming === true;
 	const movable = canMoveNow(view, context.you);
 	const shown = new Set<Control>(["look"]);
 	if (movable) shown.add("move");
 	if (area !== null) shown.add("area");
-	if (movable && context.nearDoor) shown.add("open-door");
+	// 動ける隠れ側の規則では、襖は近づくと開く（ボタンを出さない / ADR 0053）。
+	if (movable && context.nearDoor && !roaming) shown.add("open-door");
 	if (canShoot(phase, role, spectator)) shown.add("shoot");
 	if (
 		phase === "oni-selection" &&
@@ -161,7 +195,12 @@ export function controlsFor(
 	) {
 		shown.add("game-pose");
 	}
-	if (phase === "painting" && role === "hider" && !spectator)
+	// ペイントの板。動ける隠れ側の規則では、探索の間も出す（動きながら塗り直せる / ADR 0053）。
+	if (
+		(roaming ? roamingPhase(phase) : phase === "painting") &&
+		role === "hider" &&
+		!spectator
+	)
 		shown.add("paint");
 	if (canPaintWhileWaiting(phase, role)) shown.add("waiting-paint");
 	return ORDER.filter((control) => shown.has(control));

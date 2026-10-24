@@ -72,6 +72,7 @@ import {
 	type ControlsView,
 	canMoveNow,
 	controlsFor,
+	roleIn,
 } from "./controls";
 import { isHirayaStage } from "./hiraya";
 import {
@@ -93,7 +94,6 @@ import {
 } from "./members";
 import {
 	PAD_DEAD_ZONE,
-	WALK_SPEED,
 	blinkLevel,
 	blinkTargets,
 	shouldReport,
@@ -153,6 +153,24 @@ import {
 	poseNoticeVisible,
 } from "./poses";
 import {
+	NO_ROAMING,
+	type RoamingTracks,
+	type SentLook,
+	applyLook,
+	applyOtherOnis,
+	applyRoamingNotice,
+	lookDue,
+	parseLookNotice,
+	parseRoamingNotice,
+	placeRoaming,
+	roamingHiderSpeed,
+	roamingInPhase,
+	roamingOfRoomInfo,
+	sampleRoaming,
+	spreadingOfRoomInfo,
+	walkSpeedOf,
+} from "./roaming";
+import {
 	type Outcome,
 	type Phase,
 	type PhaseNotice,
@@ -171,7 +189,6 @@ import {
 	parsePhaseNotice,
 	parseRoomInfo,
 	reloadRemainingMs,
-	roleOf,
 	shootEvent,
 	spaceOf,
 	viewOf,
@@ -200,6 +217,8 @@ import { clampPanel, controlSizes } from "./viewLayout";
 
 /** 「見つけた！」を出しておく時間（ミリ秒 / issue-27）。 */
 const FOUND_NOTICE_MS = 1500;
+/** 「あなたも鬼になった」を出しておく時間（ミリ秒 / 増え鬼）。 */
+const CONVERTED_NOTICE_MS = 3000;
 /** 外れの理由（推定）を出しておく時間（ミリ秒 / issue-45 の続き）。 */
 const MISS_NOTICE_MS = 1500;
 /** 撃ってから、結果（隠れている一覧の変化）を開発中の Console に出すまでの時間（ミリ秒）。 */
@@ -278,6 +297,12 @@ function VeryarePlay() {
 	const [explorationSeconds, setExplorationSeconds] = useState<number | null>(
 		null,
 	);
+	/** 動ける隠れ側の規則のルームか（ルーム情報の roaming / ADR 0053）。届くまでは従来の規則。 */
+	const [roaming, setRoaming] = useState(false);
+	/** 増え鬼のルームか（ルーム情報の spreading / ADR 0053）。届くまでは従来の規則。 */
+	const [spreading, setSpreading] = useState(false);
+	/** 増え鬼で途中から鬼になった人（鬼の通知の others の ID。見つかった順）。 */
+	const [otherOnis, setOtherOnis] = useState<readonly string[]>([]);
 	const [waitingColor, setWaitingColor] = useState(DEFAULT_COLOR);
 	/** 探索開始時に届いた、隠れ側の状態（CPU を含む）。 */
 	const [hiders, setHiders] = useState<readonly VeryareHiderState[] | null>(
@@ -406,6 +431,10 @@ function VeryarePlay() {
 	const serverRef = useRef<Point>(WAITING_ROOM_SPAWN);
 	/** 届いた鬼の通知（受け取った時刻つき。ほかの人の画面で補間する / issue-46）。 */
 	const oniTrackRef = useRef<readonly OniSample[]>([]);
+	/** 動く隠れ側（ほかの人）の、届いた通知（動ける隠れ側の規則 / ADR 0053）。描画ループで補間する。 */
+	const roamingRef = useRef<RoamingTracks>(NO_ROAMING);
+	/** 途中から鬼になった人（自分を除く）の、届いた通知（増え鬼 / ADR 0053）。描画ループで補間する。 */
+	const otherOnisRef = useRef<RoamingTracks>(NO_ROAMING);
 	/**
 	 * 待機ルームのほかのメンバー（issue-59）。通知の購読と描画ループで読むので参照に持ち、画面の属性
 	 * （E2E）に出す人数と待機ポーズだけを state にする。
@@ -446,6 +475,25 @@ function VeryarePlay() {
 		const offInfo = on("room-info", (payload) => {
 			const info = parseRoomInfo(payload);
 			if (info !== null) setExplorationSeconds(info.explorationSeconds);
+			const rules = roamingOfRoomInfo(payload);
+			if (rules !== null) setRoaming(rules);
+			const spread = spreadingOfRoomInfo(payload);
+			if (spread !== null) setSpreading(spread);
+		});
+		// 動く隠れ側（ADR 0053）。探索・答え合わせの外では、遅れて届いたものとして捨てる。
+		const offRoaming = on("roaming", (payload) => {
+			const list = parseRoamingNotice(payload);
+			if (list === null) return;
+			roamingRef.current = applyRoamingNotice(roamingRef.current, list, {
+				self: youRef.current,
+				at: performance.now(),
+				phase: phaseRef.current,
+			});
+		});
+		// 探索の間に変わった、隠れ側の見た目（ADR 0053）。
+		const offLook = on("look", (payload) => {
+			const look = parseLookNotice(payload);
+			if (look !== null) setHiders((current) => applyLook(current, look));
 		});
 		const offHiders = on("hiders", (payload) => {
 			const next = parseHidersNotice(payload);
@@ -470,6 +518,19 @@ function VeryarePlay() {
 				z: next.z,
 				facing: next.facing,
 			});
+			// 増え鬼（ADR 0053）: 途中から鬼になった人は、同じ通知の others にまとめて届く。
+			if (next.others !== undefined) {
+				const others = next.others;
+				otherOnisRef.current = applyOtherOnis(otherOnisRef.current, others, {
+					self: youRef.current,
+					at: performance.now(),
+					phase: phaseRef.current,
+				});
+				setOtherOnis((current) => {
+					const ids = others.map((other) => other.playerId);
+					return ids.join("|") === current.join("|") ? current : ids;
+				});
+			}
 		});
 		const offHiding = on("hiding", (payload) => {
 			const next = parseHidingNotice(payload);
@@ -512,6 +573,8 @@ function VeryarePlay() {
 			if (next !== null) setOpenDoors(next);
 		});
 		return () => {
+			offRoaming();
+			offLook();
 			offLikes();
 			offMembers();
 			offStage();
@@ -533,12 +596,27 @@ function VeryarePlay() {
 		membersRef.current = next;
 		setMemberView(membersSummary(next));
 	}, [phase]);
+	// 探索・答え合わせを離れたら、動く隠れ側と、途中から鬼になった人の通知を捨てる（次の対戦に持ち越さない
+	// / ADR 0053）。
+	useEffect(() => {
+		roamingRef.current = roamingInPhase(roamingRef.current, phase);
+		otherOnisRef.current = roamingInPhase(otherOnisRef.current, phase);
+		if (phase !== "exploration" && phase !== "reveal") setOtherOnis([]);
+	}, [phase]);
 	/** 参加者の名前（頭上の名前に使う / issue-59）。 */
 	const names = useMemo(
 		() => new Map(players.map((player) => [player.playerId, player.name])),
 		[players],
 	);
-	const role = roleOf(notice?.oni ?? null, you);
+	// 届いた通知から読んだ、操作部品の条件に使う値（controls.ts）。役割も、ここから決める（増え鬼で、途中から
+	// 鬼になった人は鬼 / ADR 0053）。
+	const controlsView: ControlsView = {
+		notice,
+		hiding,
+		roaming,
+		onis: otherOnis,
+	};
+	const role = roleIn(controlsView, you);
 	const space = spaceOf(phase, role);
 	const spectator = isSpectator(phase, role, hiding, you);
 	// 音（issue-63）。鳴らす条件は sound.ts にまとめる。
@@ -565,13 +643,13 @@ function VeryarePlay() {
 	// 鬼の視界の報告（issue-32）。探索中の鬼だけが、0.5 秒ごとに送る。
 	const sightActive = canReportSight({ phase, role, spectator });
 	// 観戦者は移動できない（サーバー側でも、準備移動の後の隠れ側の移動は無視される）。
-	const controlsView: ControlsView = { notice, hiding };
 	const movable = canMoveNow(controlsView, you);
 	// 襖を開けるボタン（issue-29c）。閉じた襖の境から 1.5 m 以内のとき、いちばん近い襖を
 	// 開ける報告を送る。表示は襖の通知を待って変える（クライアントは襖の状態を変えない）。
 	// 位置は描画ループの参照なので、残り時間の更新（250 ms ごと）に合わせて見直す。
+	// 動ける隠れ側の規則では、襖は近づくと、サーバーが開ける（ボタンを使わない / ADR 0053）。
 	const door =
-		grid === null
+		grid === null || roaming
 			? null
 			: doorToOpen({
 					grid,
@@ -591,7 +669,14 @@ function VeryarePlay() {
 	const shown = (control: Control) => controls.includes(control);
 	// ほかの人の画面の鬼は、描画のたびに補間する（oniTrack.ts）。鬼本人の画面では、通知の位置の
 	// 鬼は描かず、自分の体を鬼の体にして、手元の位置と向きで動かす（issue-46）。
-	const othersOni = oniVisible && role !== "oni";
+	// 増え鬼で途中から鬼になった人の画面でも、最初の鬼は、ほかの人の鬼として描く（ADR 0053）。
+	const othersOni = oniVisible && notice?.oni !== you;
+	// 増え鬼で、自分が鬼になったとき（「あなたも鬼になった」を出す）。
+	const converted = you !== null && otherOnis.includes(you);
+	const [convertedAt, setConvertedAt] = useState<number | null>(null);
+	useEffect(() => {
+		if (converted) setConvertedAt(performance.now());
+	}, [converted]);
 	// 鬼が見えなくなったら（探索の前・終わった後）、持っている通知を捨てる（次の対戦に持ち越さない）。
 	useEffect(() => {
 		if (!oniVisible) oniTrackRef.current = [];
@@ -603,7 +688,8 @@ function VeryarePlay() {
 	const sceneHiders: readonly SceneHider[] =
 		(phase === "exploration" || phase === "reveal") && hiders !== null
 			? hiders
-					.filter((h) => h.playerId !== you)
+					// 増え鬼で途中から鬼になった人は、鬼の体で描く（隠れ側の体を残さない / ADR 0053）。
+					.filter((h) => h.playerId !== you && !otherOnis.includes(h.playerId))
 					.map((h) => ({
 						id: h.playerId,
 						x: h.x,
@@ -764,6 +850,7 @@ function VeryarePlay() {
 		spectator,
 		submitted: paintSubmitted,
 		remainingMs,
+		roaming,
 	});
 	const showPaintPanel = shown("paint");
 	// ゲーム用のポーズ（issue-57）。準備移動とペイントフェーズの隠れ側が、確定の電文を送る前まで選べる。
@@ -772,7 +859,13 @@ function VeryarePlay() {
 	// 選んだポーズの表示名を POSE_NOTICE_MS だけ出す。
 	const gamePoseOpen =
 		bodyPosable &&
-		canChangePose({ phase, role, spectator, submitted: paintSubmitted });
+		canChangePose({
+			phase,
+			role,
+			spectator,
+			submitted: paintSubmitted,
+			roaming,
+		});
 	const gamePoseShown = shown("game-pose");
 	const poseNoticeShown = poseNoticeVisible(poseNoticeAt, now);
 	const onNextGamePose = () => {
@@ -794,6 +887,8 @@ function VeryarePlay() {
 		window.setTimeout(() => setNow(performance.now()), POSE_NOTICE_MS);
 	};
 	useEffect(() => {
+		// 動ける隠れ側の規則では、確定せず、変わるたびに見た目を送る（下の効果 / ADR 0053）。
+		if (roaming) return;
 		// 確定は一度だけ（送ったあとに、残りの違う送り直しが届いても、送らない / paintSubmit.test.ts）。
 		if (
 			!submitPaintNow(submittedRef.current || paintSubmitted, {
@@ -811,6 +906,7 @@ function VeryarePlay() {
 		// ペイントとポーズは、同じ確定の電文で一度だけ送る（issue-56）。
 		send(paintEvent(draft.strokes, poseChosen ? pose : null));
 	}, [
+		roaming,
 		phase,
 		remainingMs,
 		paintSubmitted,
@@ -820,17 +916,46 @@ function VeryarePlay() {
 		pose,
 		poseChosen,
 	]);
+	// 動ける隠れ側の規則（ADR 0053）: ペイントと探索の間、塗り直しとポーズの変更を、変わったときだけ、
+	// 間をあけて送る（間の内なら、間が明けたときに送る）。
+	const sentLookRef = useRef<SentLook | null>(null);
+	const lookOpen = roaming && paintEditable;
+	useEffect(() => {
+		if (!lookOpen) return;
+		const look = { strokes: draft.strokes, pose: poseChosen ? pose : null };
+		let timer: number | undefined;
+		const check = () => {
+			const due = lookDue({
+				sent: sentLookRef.current,
+				...look,
+				now: performance.now(),
+			});
+			if (due.kind === "wait") {
+				timer = window.setTimeout(check, due.waitMs);
+				return;
+			}
+			if (due.kind === "none") return;
+			send(paintEvent(look.strokes, look.pose));
+			sentLookRef.current = { ...look, at: performance.now() };
+		};
+		check();
+		return () => window.clearTimeout(timer);
+	}, [lookOpen, draft.strokes, pose, poseChosen, send]);
 	// 自分の体に映すペイント。探索の開始に届いた自分のペイント（サーバーが確定したもの）を先に、
 	// 無ければ描いている途中のもの。
 	const serverSelfPaint =
 		hiders?.find((h) => h.playerId === you)?.paint ?? null;
+	const draftPaint: VeryarePaint | null =
+		draft.strokes.length > 0
+			? { kind: "strokes", strokes: draft.strokes }
+			: null;
+	// 動ける隠れ側の規則では、手元で塗り直したもの（いちばん新しい）を先に映す（ADR 0053）。
 	const selfPaint: VeryarePaint | null =
 		role !== "hider"
 			? null
-			: (serverSelfPaint ??
-				(draft.strokes.length > 0
-					? { kind: "strokes", strokes: draft.strokes }
-					: null));
+			: roaming
+				? (draftPaint ?? serverSelfPaint)
+				: (serverSelfPaint ?? draftPaint);
 	// ここの色。平屋の glb を表示しているときは、足もとの床の見た目の色（ペイント画面の間だけ求める）。
 	// 表示していなければ、サーバーの代表色の表（palette.ts）。
 	const sceneHere = showPaintPanel
@@ -923,10 +1048,12 @@ function VeryarePlay() {
 		pose,
 		poseChosen,
 		avatarPose: avatarPoseOf(poseChoice, space),
-		avatarFixed: avatarPoseFixed(phase, role),
+		avatarFixed: avatarPoseFixed(phase, role, roaming),
 		names,
 		bodyPosable,
 		setBodyPosable,
+		roaming,
+		spreading,
 	});
 	latest.current = {
 		selfPaint,
@@ -960,10 +1087,12 @@ function VeryarePlay() {
 		pose,
 		poseChosen,
 		avatarPose: avatarPoseOf(poseChoice, space),
-		avatarFixed: avatarPoseFixed(phase, role),
+		avatarFixed: avatarPoseFixed(phase, role, roaming),
 		names,
 		bodyPosable,
 		setBodyPosable,
+		roaming,
+		spreading,
 	};
 
 	const canvasRef = useRef<HTMLCanvasElement | null>(null);
@@ -983,6 +1112,8 @@ function VeryarePlay() {
 			if (disposed) return;
 			// カメラの定数。開発中だけ、URL の指定（?camPitchMax=0.45 など）で変えられる。
 			const camera = cameraSettings(HIRAYA_DEV, window.location.search);
+			// 動ける規則の隠れ側の歩く速さ（ADR 0053）。開発中だけ、URL の ?hiderSpeed=2.5 で変えられる。
+			const hiderSpeed = roamingHiderSpeed(HIRAYA_DEV, window.location.search);
 			// 動きの見張り（issue-57 の後半）。テスト用の口か、開発用の合図のときだけ作る（本番の既定では
 			// 作らない）。開発用の合図のときは、止まりを Console に出す。
 			const watch = motionWatchEnabled({
@@ -1073,6 +1204,13 @@ function VeryarePlay() {
 				last = time;
 				const current = latest.current;
 				const move = testMove ?? current.move;
+				// 歩く速さ（動ける隠れ側の規則の、ペイントと探索の間の隠れ側は遅い / ADR 0053）。
+				const speed = walkSpeedOf({
+					phase: current.phase,
+					role: current.role,
+					roaming: current.roaming,
+					hiderSpeed,
+				});
 
 				yaw -= current.look.x * TURN_SPEED * dt;
 				// 視点の自動追従（yaw だけを動かす）。移動より先に回し、このコマの移動と体の向きは、
@@ -1088,7 +1226,7 @@ function VeryarePlay() {
 					{ yaw, rate: followRate },
 					{
 						move,
-						speed: Math.hypot(move.x, move.y) * WALK_SPEED,
+						speed: Math.hypot(move.x, move.y) * speed,
 						secondsSinceLook: (time - lookTouchedAt) / 1000,
 						enabled:
 							current.autoCamera &&
@@ -1107,11 +1245,12 @@ function VeryarePlay() {
 						space: current.space,
 						grid: current.grid,
 						open: current.openDoors,
+						roaming: current.roaming,
 					};
 					positionRef.current = mirrorMove({
 						...rule,
 						from: positionRef.current,
-						to: walkTarget(positionRef.current, move, yaw, WALK_SPEED, dt),
+						to: walkTarget(positionRef.current, move, yaw, speed, dt),
 					});
 					// 位置と向きはクライアントが報告し、サーバーが制限する（変わったときだけ
 					// 間引いて送る）。向きは観戦者へ送る鬼の向きに使う（issue-28）。
@@ -1170,6 +1309,15 @@ function VeryarePlay() {
 						: null,
 				);
 				scene.setSelfOni(current.selfOni ? bodyFacing : null);
+				// 増え鬼で途中から鬼になった人（自分を除く / ADR 0053）。補間した位置で描く。
+				scene.setOtherOnis(
+					current.spreading
+						? [...otherOnisRef.current.keys()].flatMap((id) => {
+								const at = sampleRoaming(otherOnisRef.current, id, time);
+								return at === null ? [] : [{ id, ...at }];
+							})
+						: [],
+				);
 				// 自分の体の向きとポーズ（issue-56）。ポーズを変えたときは、シーンがなめらかに寄せる。
 				scene.setAvatarFacing(bodyFacing);
 				// 選んだポーズ（押していなければ null）。待機ルームでは待機ポーズ、ステージではゲーム用の
@@ -1184,7 +1332,12 @@ function VeryarePlay() {
 				const posable = scene.bodyPosable();
 				if (posable !== current.bodyPosable) current.setBodyPosable(posable);
 				scene.setAim(current.aim);
-				scene.setHiders(current.sceneHiders);
+				// 動く隠れ側（ADR 0053）は、届いた通知を補間した位置で描く。従来の規則では、置いたまま。
+				scene.setHiders(
+					current.roaming
+						? placeRoaming(current.sceneHiders, roamingRef.current, time)
+						: current.sceneHiders,
+				);
 				scene.setView(current.view);
 				scene.setBlink(
 					current.blink.others,
@@ -1268,6 +1421,11 @@ function VeryarePlay() {
 			: null;
 	const [sheetOpen, setSheetOpen] = useState(true);
 	/**
+	 * 動ける隠れ側の規則のペイントの板（ADR 0053）は、既定で上に出す（下の移動パッドで動きながら塗れる
+	 * ように）。閉じたときの「開く」ボタンも、左上に出す。
+	 */
+	const sheetOnTop = roaming && sheet === "paint";
+	/**
 	 * 動かしたシートの左上の位置（3D の画面の中の px）。null なら、既定の左下。見出しのつまみを引いて
 	 * 動かす（塗りたい所を、シートが隠さないように）。位置は clampPanel で画面の内側に収める。
 	 */
@@ -1329,7 +1487,8 @@ function VeryarePlay() {
 		<PaintPanel
 			editable={paintEditable}
 			submitted={paintSubmitted}
-			locked={remainingMs <= PAINT_LOCK_MS}
+			// 動ける隠れ側の規則では、締め切りが無い（探索の間も塗り直せる / ADR 0053）。
+			locked={!roaming && remainingMs <= PAINT_LOCK_MS}
 			strokeCount={draft.strokes.length}
 			color={brushColor}
 			here={here}
@@ -1433,6 +1592,9 @@ function VeryarePlay() {
 			data-space={space}
 			data-controls={controls.join(" ")}
 			data-open-doors={openDoors.size}
+			data-roaming={roaming}
+			data-spreading={spreading}
+			data-onis={otherOnis.join(" ")}
 			data-blinking={blink.others.length + (blink.self ? 1 : 0)}
 		>
 			{/* 状態の行（1〜2 行、最大約 64 px）: フェーズ・残り時間・探索の時間と、ひとこと。 */}
@@ -1486,10 +1648,12 @@ function VeryarePlay() {
 						{phase === "oni-selection" ? " ・鬼になりたい人は中央の円へ" : ""}
 						{(phase === "painting" || phase === "exploration") &&
 						role === "hider"
-							? " ・その場から動けません"
+							? roaming
+								? " ・動いて、塗り直せます"
+								: " ・その場から動けません"
 							: ""}
 						{phase === "exploration" && hiding !== null
-							? ` ・隠れている ${hiding.length}人`
+							? `${spreading ? ` ・鬼 ${1 + otherOnis.length}人` : ""} ・隠れている ${hiding.length}人`
 							: ""}
 					</p>
 				)}
@@ -1544,6 +1708,16 @@ function VeryarePlay() {
 						className="pointer-events-none absolute inset-0 flex items-center justify-center"
 					>
 						<span className="font-bold text-2xl text-fg/80">＋</span>
+					</div>
+				) : null}
+				{convertedAt !== null && now - convertedAt < CONVERTED_NOTICE_MS ? (
+					<div className="pointer-events-none absolute inset-x-0 top-1/4 text-center">
+						<p
+							className="font-bold text-2xl text-red-400"
+							data-testid="veryare-converted"
+						>
+							あなたも鬼になった
+						</p>
 					</div>
 				) : null}
 				{showFound ? (
@@ -1710,7 +1884,7 @@ function VeryarePlay() {
 					sheetOpen ? (
 						<div
 							ref={sheetRef}
-							className={`absolute flex max-h-[calc(50%-1rem)] flex-col rounded-xl bg-ink/85 ring-1 ring-line ring-inset ${sheetPlace === null ? "bottom-2 left-2" : ""}`}
+							className={`absolute flex max-h-[calc(50%-1rem)] flex-col rounded-xl bg-ink/85 ring-1 ring-line ring-inset ${sheetPlace === null ? (sheetOnTop ? "top-2 left-2" : "bottom-2 left-2") : ""}`}
 							style={
 								sheetPlace === null
 									? { right: padSize + 16 }
@@ -1744,7 +1918,7 @@ function VeryarePlay() {
 										{sheet === "paint" ? "ペイント" : "答え合わせ"}
 									</span>
 								</button>
-								{sheet === "paint" ? (
+								{sheet === "paint" && !roaming ? (
 									<PaintConfirmButton
 										editable={paintEditable}
 										strokeCount={draft.strokes.length}
@@ -1771,7 +1945,7 @@ function VeryarePlay() {
 							type="button"
 							data-testid="veryare-sheet-open"
 							onClick={() => setSheetOpen(true)}
-							className={`absolute bottom-2 left-2 ${OVERLAY_BUTTON}`}
+							className={`absolute left-2 ${sheetOnTop ? "top-2" : "bottom-2"} ${OVERLAY_BUTTON}`}
 						>
 							{sheet === "paint" ? "ペイントを開く" : "答え合わせを開く"}
 						</button>

@@ -9,6 +9,9 @@
  * - pnpm --filter @rondo/e2e e2e:layout（@layout）: すべての画面（待機ルーム、準備移動、ペイント、探索、
  *   答え合わせ、結果）。大きさごとに、結果画面まで進む（約 2 分）
  *
+ * - @layout の動ける隠れ側の規則（ADR 0053）: ペイントと探索の隠れ側（移動パッドと、上に出すペイントの板。
+ *   板を閉じた画面も）と、探索の鬼
+ *
  * 2 人（A が鬼、B が隠れ側）で、フェーズの時間は本番の既定のまま。素材なし（カプセル）で測る。
  * 襖を開けるボタンは、鬼が襖の前に立ったときだけ出るので、ここでは出ない（目視で確かめる）。
  */
@@ -17,6 +20,7 @@ import {
 	type Tab,
 	expectArea,
 	expectPhase,
+	roamingRoomWithTwo,
 	roomWithTwo,
 	test,
 	touchArea,
@@ -61,6 +65,30 @@ async function walkScreens(
 	await checkLayout(b.page, info, size, "結果（隠れ側）");
 }
 
+/**
+ * 動ける隠れ側の規則（ADR 0053）。ペイントと探索の隠れ側に、移動パッドと、上に出すペイントの板が、
+ * 重ならずに収まるか。板を閉じたときの画面も測る。
+ */
+async function walkRoamingScreens(
+	open: () => Promise<Tab>,
+	size: LayoutSize,
+): Promise<void> {
+	const info = test.info();
+	const { a, b, roomId } = await roamingRoomWithTwo(open);
+	await expectArea(a, "green");
+	touchArea(a, roomId);
+	await expectPhase(b, "painting", 90_000);
+	await b.page.getByTestId("veryare-paint").waitFor();
+	await b.page.getByTestId("veryare-move-pad").waitFor();
+	await checkLayout(b.page, info, size, "ペイント（動ける隠れ側）");
+	await expectPhase(b, "exploration", 90_000);
+	await b.page.getByTestId("veryare-move-pad").waitFor();
+	await checkLayout(b.page, info, size, "探索（動ける隠れ側・板を開く）");
+	await b.page.getByTestId("veryare-sheet-close").click();
+	await checkLayout(b.page, info, size, "探索（動ける隠れ側・板を閉じる）");
+	await checkLayout(a.page, info, size, "探索（動ける隠れ側の鬼）");
+}
+
 for (const size of LAYOUT_SIZES) {
 	test.describe(`${size.name}（${size.width}×${size.height}）`, () => {
 		test.use({ viewport: { width: size.width, height: size.height } });
@@ -75,6 +103,13 @@ for (const size of LAYOUT_SIZES) {
 		}) => {
 			test.setTimeout(240_000);
 			await walkScreens(openTab, size, true);
+		});
+
+		test("動ける隠れ側の規則の、ペイントと探索の画面が、スクロールなしで収まる @layout", async ({
+			openTab,
+		}) => {
+			test.setTimeout(240_000);
+			await walkRoamingScreens(openTab, size);
 		});
 	});
 }

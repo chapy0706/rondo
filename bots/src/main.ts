@@ -4,13 +4,19 @@
  *   node src/main.ts [--seed N] [--only シナリオ名の一部]
  *
  * - 接続先: 環境変数 RONDO_BOTS_URL（既定 ws://localhost:3300/ws）
- * - シナリオ: 既存のシナリオと、広い屋敷（stage 3 / issue-65。サーバーは RONDO_WIDE_DEV=1 で動かす）
+ * - シナリオ: 既存のシナリオと、広い屋敷（stage 3 / issue-65。サーバーは RONDO_WIDE_DEV=1 で動かす）と、
+ *   動ける隠れ側の規則（roaming: 1 / ADR 0053）と、増え鬼（spreading: 1）
  * - 終了コード: 全シナリオが成功なら 0、1つでも失敗なら 1
  */
 
 import { formatTable } from "./expect.ts";
 import { runScenario } from "./runner.ts";
-import { allScenarios, expiryScenarios } from "./scenarios.ts";
+import {
+	allScenarios,
+	expiryScenarios,
+	roamingScenarios,
+	spreadingScenarios,
+} from "./scenarios.ts";
 
 const url = process.env.RONDO_BOTS_URL ?? "ws://localhost:3300/ws";
 const args = process.argv.slice(2);
@@ -21,9 +27,12 @@ const option = (name: string): string | undefined => {
 const seed = Number(option("--seed") ?? Date.now() % 1_000_000);
 const only = option("--only");
 
-const chosen = [...allScenarios, ...expiryScenarios].filter(
-	(s) => only === undefined || s.name.includes(only),
-);
+const chosen = [
+	...allScenarios,
+	...roamingScenarios,
+	...spreadingScenarios,
+	...expiryScenarios,
+].filter((s) => only === undefined || s.name.includes(only));
 if (chosen.length === 0) {
 	console.error(`当てはまるシナリオがない: ${only}`);
 	process.exit(1);

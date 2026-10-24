@@ -16,6 +16,7 @@ import type {
 } from "@rondo/contracts";
 import { VERYARE_MODEL_POSES } from "@rondo/contracts";
 import { parsePaint } from "./paint";
+import { parseRoamingHiders } from "./roaming";
 
 export type Phase =
 	| "oni-selection"
@@ -164,7 +165,7 @@ export function parseOniNotice(payload: unknown): VeryareOniNotice | null {
 	if (typeof facing !== "number") return null;
 	if (!POSES.includes(pose as VeryarePose)) return null;
 	if (!Array.isArray(openDoors) || !openDoors.every(isEdge)) return null;
-	return {
+	const notice: VeryareOniNotice = {
 		type: "oni",
 		playerId,
 		x,
@@ -173,6 +174,10 @@ export function parseOniNotice(payload: unknown): VeryareOniNotice | null {
 		pose: pose as VeryarePose,
 		openDoors,
 	};
+	// 増え鬼（ADR 0053）のルームだけ、途中から鬼になった人が載る。形が違えば、通知ごと捨てる。
+	if (!("others" in payload)) return notice;
+	const others = parseRoamingHiders(payload.others);
+	return others === null ? null : { ...notice, others };
 }
 
 /** まだ隠れている隠れ側の一覧（issue-28）を検証して読む。 */
@@ -287,16 +292,17 @@ export function spaceOf(phase: Phase, role: Role): Space {
 
 /**
  * 移動入力を受け付けるか（サーバー側でも同じく無視される）。準備移動の後（ペイント・探索）は
- * 隠れ側は動けない。答え合わせ・終了後は誰も動けない。
+ * 隠れ側は動けない（動ける隠れ側の規則 roaming では動ける / ADR 0053）。答え合わせ・終了後は誰も
+ * 動けない。
  */
-export function canMove(phase: Phase, role: Role): boolean {
+export function canMove(phase: Phase, role: Role, roaming = false): boolean {
 	switch (phase) {
 		case "reveal":
 		case "ended":
 			return false;
 		case "painting":
 		case "exploration":
-			return role !== "hider";
+			return role !== "hider" || roaming;
 		case "oni-selection":
 		case "preparation":
 			return true;

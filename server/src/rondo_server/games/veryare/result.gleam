@@ -34,9 +34,17 @@ fn standings(game: Game(id), outcome: Outcome) -> List(Standing(id)) {
         Standing(player: id, rank: 1, score: 0, details: [#("結果", "不成立")])
       })
     _, Some(oni) -> {
-      let hiders = list.filter(game.players, fn(id) { id != oni })
+      // 増え鬼で途中から鬼になった人は、鬼の側に並ぶ（ADR 0053。従来の規則では、いつも空）。
+      let hiders =
+        list.filter(game.players, fn(id) {
+          id != oni && !list.contains(game.extra_oni, id)
+        })
       let oni_won = outcome == OniWins
       let oni_row = row(oni, oni_won, [#("役割", "鬼")], [])
+      let extra_rows =
+        list.map(game.extra_oni, fn(id) {
+          row(id, oni_won, [#("役割", "鬼")], [#("状態", "途中から鬼")])
+        })
       let hider_rows =
         list.map(hiders, fn(id) {
           let status = case set.contains(game.still_hiding, id) {
@@ -50,8 +58,8 @@ fn standings(game: Game(id), outcome: Outcome) -> List(Standing(id)) {
           ])
         })
       case oni_won {
-        True -> [oni_row, ..hider_rows]
-        False -> list.append(hider_rows, [oni_row])
+        True -> list.flatten([[oni_row], extra_rows, hider_rows])
+        False -> list.flatten([hider_rows, [oni_row], extra_rows])
       }
     }
     // 鬼が決まらずに勝敗が付くことは状態機械に無い。念のため誰も並べない。
