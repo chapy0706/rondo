@@ -1,0 +1,195 @@
+{
+	"defaultRoaming": 0,
+	"defaultSpreading": 0,
+	"lookIntervalMs": 1000,
+	"autoDoorReach": 0.8,
+	"roamingNotice": {
+		"valid": [
+			{
+				"type": "roaming",
+				"hiders": []
+			},
+			{
+				"type": "roaming",
+				"hiders": [
+					{
+						"playerId": "p-2",
+						"x": 4.25,
+						"z": 10.5,
+						"facing": 1.55
+					},
+					{
+						"playerId": "p-3",
+						"x": -1,
+						"z": 0.5,
+						"facing": null
+					}
+				]
+			}
+		],
+		"invalid": [
+			{
+				"type": "roaming"
+			},
+			{
+				"type": "roaming",
+				"hiders": [
+					{
+						"playerId": "p-2",
+						"x": 1,
+						"z": 2
+					}
+				]
+			},
+			{
+				"type": "roaming",
+				"hiders": [
+					{
+						"playerId": "p-2",
+						"x": "1",
+						"z": 2,
+						"facing": null
+					}
+				]
+			},
+			{
+				"type": "members",
+				"hiders": []
+			}
+		]
+	},
+	"lookNotice": {
+		"valid": [
+			{
+				"type": "look",
+				"playerId": "p-2",
+				"pose": null,
+				"paint": null
+			},
+			{
+				"type": "look",
+				"playerId": "p-3",
+				"pose": "maleCrouch",
+				"paint": {
+					"kind": "strokes",
+					"strokes": [
+						{
+							"part": "torso",
+							"color": "#a07850",
+							"size": 0.04,
+							"points": [
+								{
+									"u": 0.25,
+									"v": 0.5
+								}
+							]
+						}
+					]
+				}
+			}
+		],
+		"invalid": [
+			{
+				"type": "look",
+				"pose": null,
+				"paint": null
+			},
+			{
+				"type": "look",
+				"playerId": "p-2",
+				"pose": "flying",
+				"paint": null
+			},
+			{
+				"type": "look",
+				"playerId": "p-2",
+				"pose": null,
+				"paint": {
+					"kind": "uniform",
+					"color": "#112233"
+				}
+			},
+			{
+				"type": "hiders",
+				"playerId": "p-2",
+				"pose": null,
+				"paint": null
+			}
+		]
+	},
+	"oniNotice": {
+		"valid": [
+			{
+				"type": "oni",
+				"playerId": "p-1",
+				"x": 4.5,
+				"z": 10.5,
+				"facing": 1.57,
+				"pose": "standing",
+				"openDoors": []
+			},
+			{
+				"type": "oni",
+				"playerId": "p-1",
+				"x": 4.5,
+				"z": 10.5,
+				"facing": 1.57,
+				"pose": "standing",
+				"openDoors": [
+					{
+						"a": {
+							"x": 1,
+							"z": 1
+						},
+						"b": {
+							"x": 2,
+							"z": 1
+						}
+					}
+				],
+				"others": [
+					{
+						"playerId": "p-2",
+						"x": 2.25,
+						"z": 3.5,
+						"facing": -0.5
+					},
+					{
+						"playerId": "p-3",
+						"x": 6,
+						"z": 1.5,
+						"facing": null
+					}
+				]
+			}
+		],
+		"invalid": [
+			{
+				"type": "oni",
+				"playerId": "p-1",
+				"x": 4.5,
+				"z": 10.5,
+				"facing": 1.57,
+				"pose": "standing",
+				"openDoors": [],
+				"others": "p-2"
+			},
+			{
+				"type": "oni",
+				"playerId": "p-1",
+				"x": 4.5,
+				"z": 10.5,
+				"facing": 1.57,
+				"pose": "standing",
+				"openDoors": [],
+				"others": [
+					{
+						"playerId": "p-2",
+						"x": 2.25,
+						"z": 3.5
+					}
+				]
+			}
+		]
+	}
+}

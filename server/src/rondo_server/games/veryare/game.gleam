@@ -30,6 +30,18 @@
 ///
 /// 人間の鬼の射撃（issue-27 / ADR 0022）は shoot で受ける。判定はここ（サーバー）が行い、
 /// 命中したら found を通る。勝敗の判定は増やさない。
+///
+/// 動ける隠れ側の規則（roaming / ADR 0053）: ルームの設定で選んだときだけ、まだ隠れている人間の
+/// 隠れ側が、ペイントと探索の間も動け、見た目（ペイントとポーズ）を何度でも変えられる（間は
+/// look_interval_ms）。探索の間は、鬼と隠れ側が襖の境から auto_door_reach 以内に入ると、その襖が
+/// 開く（開けっぱなし）。開ける報告（open_door）は使わない。従来の規則（roaming が False）の動きは
+/// 変えない。隠れ CPU は、どちらの規則でも動かない。
+///
+/// 増え鬼（spreading / ADR 0053 の最小版）: ルームの設定で選んだときだけ、見つかった人間の隠れ側が、
+/// 見つかった場所で鬼になる（extra_oni。すぐ動け、撃てる。撃つ間隔は鬼ごと）。隠れ CPU は鬼にならない。
+/// 勝敗は従来と同じ（隠れ側が 0 人で鬼の勝ち。時間切れで 1 人以上残れば隠れ側の勝ち）。最初の鬼（oni）は
+/// これまでどおり 1 人で、フェーズの通知・鬼 CPU・見逃しポイントは最初の鬼を使う。途中から鬼になった人の
+/// 離脱は、その人を鬼から外すだけ（最初の鬼の離脱は、従来どおり隠れ側の勝ち）。
 import gleam/dict.{type Dict}
 import gleam/float
 import gleam/int
@@ -101,7 +113,16 @@ const waiting_ring_seats = 5
 pub const waiting_pose_interval_ms = 300
 
 /// メンバーの通知に載せる向きの刻み（ラジアン / issue-59）。これ未満の揺れでは送らない。
+/// 動く隠れ側の通知（ADR 0053）も同じ刻みを使う。
 const facing_step = 0.05
+
+/// 動ける隠れ側の規則（ADR 0053）で、探索の間、鬼と隠れ側が近づくと襖が開く距離（メートル）。襖の
+/// 境からこの距離以内。実際に遊んで調整する前提の値。
+pub const auto_door_reach = 0.8
+
+/// 動ける隠れ側の規則（ADR 0053）で、同じ人の見た目（ペイントとポーズ）の更新をあける間（ミリ秒）。
+/// これより短い間の更新は捨てる。クライアントは、これより少し長い間で送る。
+pub const look_interval_ms = 1000
 
 // --- 型 ------------------------------------------------------------------
 
@@ -153,6 +174,13 @@ pub type WaitingMember(id) {
     facing: Option(Float),
     pose: Option(String),
   )
+}
+
+/// 動く隠れ側 1 人（ADR 0053）。動く隠れ側の通知に載せる値で、位置は小数第 2 位、向きは 0.05 rad
+/// 単位に丸めてある（待機ルームのメンバーと同じ丸め。丸めた値で、変わったかを比べる）。増え鬼で途中から
+/// 鬼になった人の位置と向き（extra_onis）にも、同じ形を使う。
+pub type RoamingHider(id) {
+  RoamingHider(player: id, x: Float, z: Float, facing: Option(Float))
 }
 
 /// 各フェーズの長さ（ミリ秒）。探索だけがルームごとの設定値。
@@ -256,6 +284,24 @@ pub type Game(id) {
     sighted: Set(id),
     /// いいね（issue-32）。隠れ側 → 送った人。1人が同じ隠れ側に送れるのは1回まで。勝敗には使わない。
     likes: Dict(id, Set(id)),
+    /// 動ける隠れ側の規則か（ADR 0053。ルームの設定）。False なら従来の規則。
+    roaming: Bool,
+    /// 見た目の更新を最後に受け付けた時刻（ミリ秒。呼び出し側の時計 / ADR 0053）。間をあけるのに使う。
+    look_at: Dict(id, Int),
+    /// 最後に送った動く隠れ側の一覧（ADR 0053）。これと同じなら送らない。判定には使わない。
+    roaming_sent: List(RoamingHider(id)),
+    /// 動く隠れ側の通知を送るタイマーを張っているか（ADR 0053）。張っている間は重ねて張らない。
+    roaming_scheduled: Bool,
+    /// 増え鬼か（ADR 0053。ルームの設定）。False なら従来（見つかった人は観戦に回る）。
+    spreading: Bool,
+    /// 途中から鬼になった人（見つかった順 / 増え鬼）。従来の規則では、いつも空。
+    extra_oni: List(id),
+    /// 途中から鬼になった人の、最後に受け付けた射撃の時刻（ミリ秒）。最初の鬼は last_shot を使う。
+    extra_shots: Dict(id, Int),
+    /// 最後に送った、途中から鬼になった人の一覧（位置と向き / 増え鬼）。これと同じなら送らない。
+    onis_sent: List(RoamingHider(id)),
+    /// 途中から鬼になった人の通知を送るタイマーを張っているか（増え鬼）。
+    onis_scheduled: Bool,
   )
 }
 
@@ -355,7 +401,31 @@ fn start_on(
     missed_params: missed.default,
     sighted: set.new(),
     likes: dict.new(),
+    roaming: False,
+    look_at: dict.new(),
+    roaming_sent: [],
+    roaming_scheduled: False,
+    spreading: False,
+    extra_oni: [],
+    extra_shots: dict.new(),
+    onis_sent: [],
+    onis_scheduled: False,
   )
+}
+
+/// 増え鬼にする（ADR 0053。ルームの設定で選んだときだけ）。鬼選出の前に呼ぶ。
+pub fn with_spreading(game: Game(id)) -> Game(id) {
+  Game(..game, spreading: True)
+}
+
+/// 鬼か（最初の鬼か、増え鬼で途中から鬼になった人）。
+pub fn is_oni(game: Game(id), player: id) -> Bool {
+  game.oni == Some(player) || list.contains(game.extra_oni, player)
+}
+
+/// 動ける隠れ側の規則にする（ADR 0053。ルームの設定で選んだときだけ）。鬼選出の前に呼ぶ。
+pub fn with_roaming(game: Game(id)) -> Game(id) {
+  Game(..game, roaming: True)
 }
 
 // --- 問い合わせ -----------------------------------------------------------
@@ -438,6 +508,53 @@ pub fn confirm(
           None -> game.poses
         },
       )
+  }
+}
+
+/// 隠れ側の見た目（ペイントとポーズ）の電文を受ける。従来の規則では confirm（最初の 1 回だけ）。
+/// 動ける隠れ側の規則（ADR 0053）では、ペイントと探索の間に、まだ隠れている人間の隠れ側が送った
+/// 更新を、何度でも受け付ける（同じ人の更新は look_interval_ms あける。now は呼び出し側の時計の
+/// ミリ秒）。None の項目は前のまま残す。両方 None は無視する。
+pub fn look(
+  game: Game(id),
+  player: id,
+  strokes: Option(List(paint.Stroke)),
+  chosen: Option(String),
+  now: Int,
+) -> Game(id) {
+  case game.roaming {
+    False -> confirm(game, player, strokes, chosen)
+    True -> {
+      let rested = case dict.get(game.look_at, player) {
+        Ok(at) -> now - at >= look_interval_ms
+        Error(Nil) -> True
+      }
+      let phase_ok = case game.phase {
+        Painting | Exploration -> True
+        _ -> False
+      }
+      let accepted =
+        phase_ok
+        && roaming_hider(game, player)
+        && rested
+        && { option.is_some(strokes) || option.is_some(chosen) }
+      case accepted {
+        False -> game
+        True ->
+          Game(
+            ..game,
+            paints: case strokes {
+              Some(list) -> dict.insert(game.paints, player, list)
+              None -> game.paints
+            },
+            poses: case chosen {
+              Some(name) -> dict.insert(game.poses, player, name)
+              None -> game.poses
+            },
+            look_at: dict.insert(game.look_at, player, now),
+          )
+      }
+    }
   }
 }
 
@@ -524,6 +641,7 @@ pub fn move(game: Game(id), player: id, x: Float, z: Float) -> Game(id) {
       let next = moved_to(game, current, x, z)
       let game =
         Game(..game, positions: dict.insert(game.positions, player, next))
+        |> open_nearby_doors(next)
       case game.phase, in_oni_area(next) {
         OniSelection, True -> touch_area(game, player)
         _, _ -> game
@@ -630,6 +748,81 @@ pub fn members_were_sent(
 /// メンバーの通知のタイマーを張ったか・外れたかを控える。
 pub fn members_scheduled(game: Game(id), scheduled: Bool) -> Game(id) {
   Game(..game, members_scheduled: scheduled)
+}
+
+// --- 動く隠れ側（ADR 0053） ---------------------------------------------------------
+
+/// 動く隠れ側（参加順）。動ける隠れ側の規則の探索の間だけ、まだ隠れている人間の隠れ側を載せる。
+/// 隠れ CPU は載せない（動かない。探索の開始の一括配信で届いている）。位置は小数第 2 位、向きは
+/// 0.05 rad 単位に丸める。ペイントの間は載せない（互いの隠れ場所を見せない / ADR 0025・0026）。
+pub fn roaming_hiders(game: Game(id)) -> List(RoamingHider(id)) {
+  case game.roaming, game.phase {
+    True, Exploration ->
+      list.filter_map(game.players, fn(id) {
+        case roaming_hider(game, id), dict.get(game.positions, id) {
+          True, Ok(Position(Stage, x, z)) ->
+            Ok(RoamingHider(
+              player: id,
+              x: round_to(x, 0.01),
+              z: round_to(z, 0.01),
+              facing: dict.get(game.facings, id)
+                |> option.from_result
+                |> option.map(round_to(_, facing_step)),
+            ))
+          _, _ -> Error(Nil)
+        }
+      })
+    _, _ -> []
+  }
+}
+
+/// 途中から鬼になった人（見つかった順 / 増え鬼）。探索・答え合わせの間、いまの位置と向き（丸めは、動く
+/// 隠れ側と同じ）。従来の規則では、いつも空。
+pub fn extra_onis(game: Game(id)) -> List(RoamingHider(id)) {
+  case game.phase {
+    Exploration | Reveal(_) ->
+      list.filter_map(game.extra_oni, fn(id) {
+        case dict.get(game.positions, id) {
+          Ok(Position(Stage, x, z)) ->
+            Ok(RoamingHider(
+              player: id,
+              x: round_to(x, 0.01),
+              z: round_to(z, 0.01),
+              facing: dict.get(game.facings, id)
+                |> option.from_result
+                |> option.map(round_to(_, facing_step)),
+            ))
+          _ -> Error(Nil)
+        }
+      })
+    _ -> []
+  }
+}
+
+/// 途中から鬼になった人の通知を送ったことを控える。
+pub fn onis_were_sent(
+  game: Game(id),
+  onis: List(RoamingHider(id)),
+) -> Game(id) {
+  Game(..game, onis_sent: onis, onis_scheduled: False)
+}
+
+/// 途中から鬼になった人の通知のタイマーを張ったか・外れたかを控える。
+pub fn onis_scheduled(game: Game(id), scheduled: Bool) -> Game(id) {
+  Game(..game, onis_scheduled: scheduled)
+}
+
+/// 動く隠れ側の通知を送ったことを控える（同じ内容を、次から送らない）。
+pub fn roaming_were_sent(
+  game: Game(id),
+  hiders: List(RoamingHider(id)),
+) -> Game(id) {
+  Game(..game, roaming_sent: hiders, roaming_scheduled: False)
+}
+
+/// 動く隠れ側の通知のタイマーを張ったか・外れたかを控える。
+pub fn roaming_scheduled(game: Game(id), scheduled: Bool) -> Game(id) {
+  Game(..game, roaming_scheduled: scheduled)
 }
 
 fn is_waiting_human(game: Game(id), player: id) -> Bool {
@@ -748,10 +941,19 @@ fn result_or(value: Result(a, Nil), default: a) -> a {
   }
 }
 
-/// 発見。探索フェーズ中の、まだ隠れている隠れ側だけが対象。
+/// 発見。探索フェーズ中の、まだ隠れている隠れ側だけが対象。増え鬼では、見つかった人間の隠れ側が、
+/// 見つかった場所で鬼になる（隠れ CPU は鬼にならない）。最後の 1 人でも鬼になる（結果で鬼の側に並ぶ）。
 pub fn found(game: Game(id), player: id) -> Game(id) {
   case game.phase, set.contains(game.still_hiding, player) {
-    Exploration, True -> remove_hider(game, player)
+    Exploration, True -> {
+      let converted = case
+        game.spreading && !list.contains(game.cpus.hiders, player)
+      {
+        True -> Game(..game, extra_oni: list.append(game.extra_oni, [player]))
+        False -> game
+      }
+      remove_hider(converted, player)
+    }
     _, _ -> game
   }
 }
@@ -766,9 +968,9 @@ pub fn shoot(
   target: Option(id),
   now_ms: Int,
 ) -> Game(id) {
-  case game.phase, game.oni == Some(shooter), reloaded(game, now_ms) {
+  case game.phase, is_oni(game, shooter), reloaded(game, shooter, now_ms) {
     Exploration, True, True -> {
-      let game = Game(..game, last_shot: Some(now_ms))
+      let game = shot_at(game, shooter, now_ms)
       case target {
         Some(id) ->
           case hits(game, shooter, id) {
@@ -823,7 +1025,13 @@ pub fn open_door(game: Game(id), player: id, edge: Edge) -> Game(id) {
       grid.distance_to_edge(game.grid, edge, #(x, z)) <=. door_reach
     _ -> False
   }
-  case phase_ok && near && set.contains(grid.fusuma(game.grid), edge) {
+  // 動ける隠れ側の規則では、襖は近づくと開く（open_nearby_doors）。開ける報告は使わない。
+  case
+    !game.roaming
+    && phase_ok
+    && near
+    && set.contains(grid.fusuma(game.grid), edge)
+  {
     True ->
       Game(
         ..game,
@@ -833,10 +1041,24 @@ pub fn open_door(game: Game(id), player: id, edge: Edge) -> Game(id) {
   }
 }
 
-fn reloaded(game: Game(id), now_ms: Int) -> Bool {
-  case game.last_shot {
+/// 撃つ間隔が明けたか。間隔は鬼ごと（最初の鬼は last_shot、途中から鬼になった人は extra_shots）。
+fn reloaded(game: Game(id), shooter: id, now_ms: Int) -> Bool {
+  let last = case game.oni == Some(shooter) {
+    True -> game.last_shot
+    False -> option.from_result(dict.get(game.extra_shots, shooter))
+  }
+  case last {
     None -> True
     Some(last) -> now_ms - last >= game.durations.reload_ms
+  }
+}
+
+/// 射撃を受け付けた時刻を、その鬼の間隔として控える。
+fn shot_at(game: Game(id), shooter: id, now_ms: Int) -> Game(id) {
+  case game.oni == Some(shooter) {
+    True -> Game(..game, last_shot: Some(now_ms))
+    False ->
+      Game(..game, extra_shots: dict.insert(game.extra_shots, shooter, now_ms))
   }
 }
 
@@ -886,7 +1108,16 @@ pub fn leave(game: Game(id), player: id) -> Game(id) {
         waiting_pose_at: dict.delete(game.waiting_pose_at, player),
       )
     _, Some(oni) if oni == player -> reveal(game, HidersWin)
-    _, _ -> remove_hider(game, player)
+    _, _ ->
+      case list.contains(game.extra_oni, player) {
+        // 増え鬼で途中から鬼になった人の離脱は、鬼から外すだけ（隠れ側の数は変わらない）。
+        True ->
+          Game(
+            ..game,
+            extra_oni: list.filter(game.extra_oni, fn(id) { id != player }),
+          )
+        False -> remove_hider(game, player)
+      }
   }
 }
 
@@ -1161,18 +1392,49 @@ pub fn tick(game: Game(id)) -> Game(id) {
           positions: dict.insert(game.positions, oni, Position(Stage, x, z)),
           open_doors: set.union(game.open_doors, opened),
         )
+        |> open_nearby_doors(Position(Stage, x, z))
       list.fold(found_ids, moved, found)
     }
     _, _, _, _ -> game
   }
 }
 
-/// 動けるか。準備移動の後（ペイント・探索）は鬼だけ。答え合わせ・終了後は誰も動けない。
+/// 動けるか。準備移動の後（ペイント・探索）は鬼だけ（動ける隠れ側の規則では、まだ隠れている人間の
+/// 隠れ側も）。答え合わせ・終了後は誰も動けない。
 fn can_move(game: Game(id), player: id) -> Bool {
   case game.phase {
     Ended(_) | Reveal(_) -> False
-    Painting | Exploration -> game.oni == Some(player)
+    Painting | Exploration ->
+      is_oni(game, player) || roaming_hider(game, player)
     OniSelection | Preparation -> True
+  }
+}
+
+/// 動ける隠れ側の規則（ADR 0053）で、動けて見た目を変えられる隠れ側か。まだ隠れている人間だけ
+/// （隠れ CPU は動かない）。
+fn roaming_hider(game: Game(id), player: id) -> Bool {
+  game.roaming
+  && set.contains(game.still_hiding, player)
+  && !list.contains(game.cpus.hiders, player)
+}
+
+/// 動ける隠れ側の規則（ADR 0053）の探索の間、position から auto_door_reach 以内にある閉じた襖を
+/// 開ける（組の辺すべて。開けっぱなし）。従来の規則・ほかのフェーズ・待機ルームでは何もしない。
+fn open_nearby_doors(game: Game(id), position: Position) -> Game(id) {
+  case game.roaming, game.phase, position {
+    True, Exploration, Position(Stage, x, z) -> {
+      let opened =
+        grid.fusuma(game.grid)
+        |> set.filter(fn(edge) {
+          !set.contains(game.open_doors, edge)
+          && grid.distance_to_edge(game.grid, edge, #(x, z)) <=. auto_door_reach
+        })
+        |> set.fold(game.open_doors, fn(open, edge) {
+          set.union(open, grid.door_group(game.grid, edge))
+        })
+      Game(..game, open_doors: opened)
+    }
+    _, _, _ -> game
   }
 }
 

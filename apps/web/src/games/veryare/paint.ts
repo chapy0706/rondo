@@ -336,8 +336,17 @@ export function canEditPaint(options: {
 	readonly spectator: boolean;
 	readonly submitted: boolean;
 	readonly remainingMs: number;
+	/** 動ける隠れ側の規則（ADR 0053）。ペイントと探索の間、何度でも塗り直せる（確定も締め切りも無い）。 */
+	readonly roaming?: boolean;
 }): boolean {
 	const { phase, role, spectator, submitted, remainingMs } = options;
+	if (options.roaming === true) {
+		return (
+			(phase === "painting" || phase === "exploration") &&
+			role === "hider" &&
+			!spectator
+		);
+	}
 	return (
 		phase === "painting" &&
 		role === "hider" &&

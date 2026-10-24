@@ -29,6 +29,7 @@ import {
 	checkGameEnded,
 	checkMembers,
 	checkMembersStopped,
+	checkNoRoaming,
 	checkRoomName,
 	checkTargeted,
 } from "./expect.ts";
@@ -234,6 +235,17 @@ export async function runScenario(
 				);
 			}
 		}
+		// 従来の規則のルームでは、動ける隠れ側の通知が、どのボットにも届かないこと（ADR 0053）。
+		if (scenario.settings?.roaming !== 1) {
+			for (const [name, bot] of bots) {
+				problems.push(
+					...checkNoRoaming(
+						name,
+						bot.received.map((r) => r.message),
+					),
+				);
+			}
+		}
 		if (scenario.targeted === true) {
 			problems.push(
 				...checkTargeted(
@@ -399,6 +411,57 @@ function act(
 			bot.send({ type: "game-event", gameType: GAME_TYPE, roomId, payload });
 			break;
 		}
+		case "expect-door": {
+			const plan = planOf(bot, context);
+			const open = latestOpenDoors(bot);
+			if (plan === null) break;
+			const actual =
+				open?.some((edge) => sameEdge(edge, plan.door.a, plan.door.b)) === true;
+			if (actual !== action.open) {
+				context.problems.push(
+					`${action.check}: 選んだ襖は${action.open ? "開いている" : "閉じている"}はず（開いている辺: ${open?.length ?? "届いていない"}）`,
+				);
+			}
+			break;
+		}
+		case "expect-roaming": {
+			const stage = stageOf(bot);
+			const plan = planOf(bot, context);
+			const id = idOf(action.target);
+			if (stage === null || plan === null) break;
+			const want = centerOf(stage, plan[action.at]);
+			const got = id === null ? null : latestRoaming(bot, id);
+			const near =
+				got !== null && Math.hypot(got.x - want.x, got.z - want.z) < 0.05;
+			if (!near) {
+				context.problems.push(
+					`${action.check}: ${action.target} は (${want.x}, ${want.z}) にいるはず（届いたもの: ${got === null ? "なし" : `(${got.x}, ${got.z})`}）`,
+				);
+			}
+			break;
+		}
+		case "expect-look": {
+			const id = idOf(action.target);
+			const paint = id === null ? undefined : latestLook(bot, id);
+			const colors =
+				paint?.kind === "strokes" ? paint.strokes.map((s) => s.color) : null;
+			if (colors === null || colors.join() !== action.color) {
+				context.problems.push(
+					`${action.check}: ${action.target} の見た目のペイントは ${action.color} のはず（届いたもの: ${colors?.join(", ") ?? "なし"}）`,
+				);
+			}
+			break;
+		}
+		case "expect-onis": {
+			const want = action.onis.map((name) => idOf(name) ?? name);
+			const got = latestOthers(bot);
+			if (got === null || got.join() !== want.join()) {
+				context.problems.push(
+					`${action.check}: 途中から鬼になった人は ${action.onis.join(", ")} のはず（届いたもの: ${got?.join(", ") ?? "なし"}）`,
+				);
+			}
+			break;
+		}
 		case "expect-hiding": {
 			const id = idOf(action.target);
 			const hiding = latestHiding(bot);
@@ -533,6 +596,84 @@ function latestHiding(bot: Bot): readonly string[] | null {
 			latest = payload.playerIds.filter(
 				(id): id is string => typeof id === "string",
 			);
+		}
+	}
+	return latest;
+}
+
+/** いちばん新しい襖の通知の、開いている辺。届いていなければ null。 */
+function latestOpenDoors(bot: Bot): readonly { a: Cell; b: Cell }[] | null {
+	let latest: readonly { a: Cell; b: Cell }[] | null = null;
+	for (const { message } of bot.received) {
+		if (message.type !== "game-state" && message.type !== "game-state-to")
+			continue;
+		const payload = message.payload as { type?: unknown; open?: unknown };
+		if (payload.type === "doors" && Array.isArray(payload.open)) {
+			latest = payload.open as { a: Cell; b: Cell }[];
+		}
+	}
+	return latest;
+}
+
+/** 辺 edge が、a と b の境か（向きは問わない）。 */
+function sameEdge(edge: { a: Cell; b: Cell }, a: Cell, b: Cell): boolean {
+	const same = (p: Cell, q: Cell) => p.x === q.x && p.z === q.z;
+	return (
+		(same(edge.a, a) && same(edge.b, b)) || (same(edge.a, b) && same(edge.b, a))
+	);
+}
+
+/** いちばん新しい動く隠れ側の通知（ADR 0053）での、player の位置。載っていなければ null。 */
+function latestRoaming(bot: Bot, player: string): Point | null {
+	let latest: Point | null = null;
+	for (const { message } of bot.received) {
+		if (message.type !== "game-state" && message.type !== "game-state-to")
+			continue;
+		const payload = message.payload as { type?: unknown; hiders?: unknown };
+		if (payload.type !== "roaming" || !Array.isArray(payload.hiders)) continue;
+		const entry = (
+			payload.hiders as { playerId?: unknown; x?: unknown; z?: unknown }[]
+		).find((h) => h.playerId === player);
+		if (
+			entry !== undefined &&
+			typeof entry.x === "number" &&
+			typeof entry.z === "number"
+		) {
+			latest = { x: entry.x, z: entry.z };
+		}
+	}
+	return latest;
+}
+
+/** いちばん新しい鬼の通知の others（増え鬼の、途中から鬼になった人の ID）。載っていなければ null。 */
+function latestOthers(bot: Bot): readonly string[] | null {
+	let latest: readonly string[] | null = null;
+	for (const { message } of bot.received) {
+		if (message.type !== "game-state" && message.type !== "game-state-to")
+			continue;
+		const payload = message.payload as { type?: unknown; others?: unknown };
+		if (payload.type === "oni" && Array.isArray(payload.others)) {
+			latest = (payload.others as { playerId?: unknown }[]).flatMap((o) =>
+				typeof o.playerId === "string" ? [o.playerId] : [],
+			);
+		}
+	}
+	return latest;
+}
+
+/** いちばん新しい見た目の通知（ADR 0053）での、player のペイント。届いていなければ undefined。 */
+function latestLook(bot: Bot, player: string): VeryarePaint | null | undefined {
+	let latest: VeryarePaint | null | undefined;
+	for (const { message } of bot.received) {
+		if (message.type !== "game-state" && message.type !== "game-state-to")
+			continue;
+		const payload = message.payload as {
+			type?: unknown;
+			playerId?: unknown;
+			paint?: VeryarePaint | null;
+		};
+		if (payload.type === "look" && payload.playerId === player) {
+			latest = payload.paint ?? null;
 		}
 	}
 	return latest;

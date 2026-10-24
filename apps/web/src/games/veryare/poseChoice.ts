@@ -60,7 +60,15 @@ export function avatarPoseOf(
  * 自分の体を、選んだポーズ（なければ idle）の静止した姿勢に固定するか（issue-57）。隠れ側は、ペイント
  * フェーズに入ったら固定する（確定のあとも。動かないのが、隠れる遊びの前提のため）。鬼は固定しない。
  */
-export function avatarPoseFixed(phase: Phase, role: Role): boolean {
+export function avatarPoseFixed(
+	phase: Phase,
+	role: Role,
+	roaming = false,
+): boolean {
+	// 動ける隠れ側の規則（ADR 0053）では、ペイントと探索の間も歩く・走る（止まると選んだポーズ）。
+	if (roaming && (phase === "painting" || phase === "exploration")) {
+		return false;
+	}
 	return (
 		role === "hider" &&
 		(phase === "painting" ||

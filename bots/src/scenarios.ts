@@ -501,6 +501,264 @@ export const wideScenarios: readonly Scenario[] = [
 	},
 ];
 
+/**
+ * 動ける隠れ側の規則（ADR 0053 / roaming: 1）。既存のシナリオの一覧（scenarios.test.ts）を変えないよう、
+ * 別の配列に置く。make bots は、allScenarios の後に流す（main.ts）。マスは plan.ts の pickDoorShot が選ぶ。
+ *
+ * 隠れ側 B は、準備移動で部屋の中（r）へ入る。探索の間に、部屋の襖の前（s）を通って廊下（c）へ出る
+ * （近づくと、サーバーが襖を開ける）。動く隠れ側の通知で、c にいることが鬼に届く。部屋の中（r）へ戻っても、
+ * 襖は開いたまま。探索の間に塗り直すと、見た目の通知が鬼に届く。最後に襖の前（s）へ動き、廊下（c）へ
+ * 歩いた鬼が、開いた襖越しに撃つと当たる（サーバーが持つ、いまの位置で判定する）。
+ */
+export const roamingScenarios: readonly Scenario[] = [
+	{
+		name: "動ける隠れ側の移動・襖・見た目・射撃",
+		bots: ["bot-a", "bot-b"],
+		settings: { roaming: 1 },
+		steps: [
+			{ on: "joined", bot: "bot-a", action: { type: "touch-area" } },
+			{
+				on: { phase: "preparation" },
+				bot: "bot-b",
+				action: { type: "go", to: "r", doors: "open" },
+			},
+			{
+				on: { phase: "exploration" },
+				bot: "bot-a",
+				action: {
+					type: "expect-door",
+					check: "探索の始まりで、襖は閉じている",
+					open: false,
+				},
+				delayMs: 80,
+			},
+			{
+				on: { phase: "exploration" },
+				bot: "bot-b",
+				action: { type: "go", to: "c", doors: "open" },
+				delayMs: 120,
+			},
+			{
+				on: { phase: "exploration" },
+				bot: "bot-a",
+				action: {
+					type: "expect-door",
+					check: "隠れ側が近づくと、襖が開く",
+					open: true,
+				},
+				delayMs: 350,
+			},
+			{
+				on: { phase: "exploration" },
+				bot: "bot-a",
+				action: {
+					type: "expect-roaming",
+					check: "探索の間に動いた隠れ側の位置が、鬼に届く",
+					target: "bot-b",
+					at: "c",
+				},
+				delayMs: 400,
+			},
+			{
+				on: { phase: "exploration" },
+				bot: "bot-b",
+				action: { type: "go", to: "r", doors: "open" },
+				delayMs: 450,
+			},
+			{
+				on: { phase: "exploration" },
+				bot: "bot-b",
+				action: { type: "paint", color: "#123456" },
+				delayMs: 500,
+			},
+			{
+				on: { phase: "exploration" },
+				bot: "bot-a",
+				action: {
+					type: "expect-door",
+					check: "隠れ側が離れても、襖は開いたまま",
+					open: true,
+				},
+				delayMs: 700,
+			},
+			{
+				on: { phase: "exploration" },
+				bot: "bot-a",
+				action: {
+					type: "expect-look",
+					check: "探索の間の塗り直しが、鬼に届く",
+					target: "bot-b",
+					color: "#123456",
+				},
+				delayMs: 720,
+			},
+			{
+				on: { phase: "exploration" },
+				bot: "bot-b",
+				action: { type: "go", to: "s", doors: "open" },
+				delayMs: 750,
+			},
+			{
+				on: { phase: "exploration" },
+				bot: "bot-a",
+				action: { type: "go", to: "c", doors: "closed" },
+				delayMs: 800,
+			},
+			{
+				on: { phase: "exploration" },
+				bot: "bot-a",
+				action: { type: "shoot", target: "bot-b" },
+				delayMs: 900,
+			},
+			{
+				on: { phase: "exploration" },
+				bot: "bot-a",
+				action: {
+					type: "expect-hiding",
+					check: "動いた隠れ側を、いまの位置で撃てる",
+					target: "bot-b",
+					hiding: false,
+				},
+				delayMs: 1050,
+			},
+		],
+		receivers: ["bot-a", "bot-b"],
+		rankings: [oni("bot-a", true), hider("bot-b", false)],
+	},
+];
+
+/**
+ * 増え鬼（ADR 0053 の最小版 / spreading: 1）。既存のシナリオの一覧を変えないよう、別の配列に置く。make bots は、
+ * 動ける隠れ側の後に流す（main.ts）。マスは plan.ts の pickDoorShot が選ぶ。
+ *
+ * 隠れ側 B は部屋の襖の前（s）へ、C は同じ部屋の奥（r）か、玄関のそばへ隠れる。鬼 A は廊下（c）へ歩いて
+ * 襖を開け、B を撃つ。B は、その場で鬼になり、鬼の通知の others に載る。
+ */
+export const spreadingScenarios: readonly Scenario[] = [
+	{
+		// 鬼になった B が、同じ部屋の C を撃つ。隠れ側が 0 人になり、鬼の勝ち（B・C も鬼の側で勝ち）。
+		name: "増え鬼で全員が鬼になり鬼の勝ち",
+		bots: ["bot-a", "bot-b", "bot-c"],
+		settings: { spreading: 1 },
+		steps: [
+			{ on: "joined", bot: "bot-a", action: { type: "touch-area" } },
+			{
+				on: { phase: "preparation" },
+				bot: "bot-b",
+				action: { type: "go", to: "s", doors: "open" },
+			},
+			{
+				on: { phase: "preparation" },
+				bot: "bot-c",
+				action: { type: "go", to: "r", doors: "open" },
+			},
+			{
+				on: { phase: "exploration" },
+				bot: "bot-a",
+				action: { type: "go", to: "c", doors: "closed" },
+				delayMs: 50,
+			},
+			{
+				on: { phase: "exploration" },
+				bot: "bot-a",
+				action: { type: "open-door" },
+				delayMs: 150,
+			},
+			{
+				on: { phase: "exploration" },
+				bot: "bot-a",
+				action: { type: "shoot", target: "bot-b" },
+				delayMs: 300,
+			},
+			{
+				on: { phase: "exploration" },
+				bot: "bot-c",
+				action: {
+					type: "expect-onis",
+					check: "見つかった人が鬼になり、鬼の通知に載る",
+					onis: ["bot-b"],
+				},
+				delayMs: 450,
+			},
+			{
+				on: { phase: "exploration" },
+				bot: "bot-b",
+				action: { type: "shoot", target: "bot-c" },
+				delayMs: 550,
+			},
+			{
+				on: { phase: "exploration" },
+				bot: "bot-a",
+				action: {
+					type: "expect-onis",
+					check: "鬼になった人が撃つと、撃たれた人も鬼になる",
+					onis: ["bot-b", "bot-c"],
+				},
+				delayMs: 700,
+			},
+		],
+		receivers: ["bot-a", "bot-b", "bot-c"],
+		rankings: [
+			oni("bot-a", true),
+			{ bot: "bot-b", rank: 1, score: 1, details: details.convertedWon },
+			{ bot: "bot-c", rank: 1, score: 1, details: details.convertedWon },
+		],
+	},
+	{
+		// B だけが見つかって鬼になり、C は玄関のそばで逃げ切る。時間切れで隠れ側（C）の勝ち。
+		name: "増え鬼の時間切れで逃げ切り",
+		bots: ["bot-a", "bot-b", "bot-c"],
+		settings: { spreading: 1 },
+		steps: [
+			{ on: "joined", bot: "bot-a", action: { type: "touch-area" } },
+			{
+				on: { phase: "preparation" },
+				bot: "bot-b",
+				action: { type: "go", to: "s", doors: "open" },
+			},
+			{
+				on: { phase: "preparation" },
+				bot: "bot-c",
+				action: { type: "hide", index: 0 },
+			},
+			{
+				on: { phase: "exploration" },
+				bot: "bot-a",
+				action: { type: "go", to: "c", doors: "closed" },
+				delayMs: 50,
+			},
+			{
+				on: { phase: "exploration" },
+				bot: "bot-a",
+				action: { type: "open-door" },
+				delayMs: 150,
+			},
+			{
+				on: { phase: "exploration" },
+				bot: "bot-a",
+				action: { type: "shoot", target: "bot-b" },
+				delayMs: 300,
+			},
+			{
+				on: { phase: "exploration" },
+				bot: "bot-c",
+				action: {
+					type: "expect-onis",
+					check: "見つかった人が鬼になり、鬼の通知に載る",
+					onis: ["bot-b"],
+				},
+				delayMs: 450,
+			},
+		],
+		receivers: ["bot-a", "bot-b", "bot-c"],
+		rankings: [
+			hider("bot-c", true),
+			oni("bot-a", false),
+			{ bot: "bot-b", rank: 2, score: 0, details: details.convertedLost },
+		],
+	},
+];
+
 /** make bots で流す、すべてのシナリオ（既存のシナリオの後に、広い屋敷）。 */
 /**
  * 結果のあと、ルームが閉じる（issue-70）。時間切れで結果まで進め、結果のあと、閉じるまで（縮めた 3 分 =

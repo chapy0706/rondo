@@ -5,6 +5,7 @@ import missedFixture from "./fixtures/veryare-missed.json";
 import movement from "./fixtures/veryare-movement.json";
 import paintFixture from "./fixtures/veryare-paint.json";
 import posesFixture from "./fixtures/veryare-poses.json";
+import roamingFixture from "./fixtures/veryare-roaming.json";
 import spectateFixture from "./fixtures/veryare-spectate.json";
 import stageFixture from "./fixtures/veryare-stage.json";
 import {
@@ -12,14 +13,19 @@ import {
 	VERYARE_MODEL_POSES,
 	VERYARE_PAINT_LIMITS,
 	VERYARE_PAINT_PARTS,
+	VERYARE_ROAMING,
+	VERYARE_SPREADING,
 } from "./veryare";
 import {
 	doorsNoticeSamples,
 	likeEventSamples,
 	likesNoticeSamples,
+	lookNoticeSamples,
 	membersNoticeSamples,
+	oniNoticeSamples,
 	openDoorEventSamples,
 	paintEventSamples,
+	roamingNoticeSamples,
 	shootEventSamples,
 	sightEventSamples,
 	spectateNoticeSamples,
@@ -206,5 +212,37 @@ describe("見逃しポイントといいねの見本（issue-32 / ADR 0009）", 
 		expect(missedFixture.sight.invalid.length).toBeGreaterThan(0);
 		expect(missedFixture.like.invalid.length).toBeGreaterThan(0);
 		expect(missedFixture.likesNotice.invalid.length).toBeGreaterThan(0);
+	});
+});
+
+describe("動ける隠れ側の規則の見本（ADR 0053 / ADR 0009）", () => {
+	it("既定の規則・見た目の更新の間・襖が開く距離は、共有の見本と一致する（サーバーも同じ見本で確かめる）", () => {
+		expect(roamingFixture.defaultRoaming).toBe(VERYARE_ROAMING.defaultRoaming);
+		expect(roamingFixture.lookIntervalMs).toBe(VERYARE_ROAMING.lookIntervalMs);
+		expect(roamingFixture.autoDoorReach).toBe(VERYARE_ROAMING.autoDoorReach);
+		expect(roamingFixture.defaultSpreading).toBe(
+			VERYARE_SPREADING.defaultSpreading,
+		);
+	});
+
+	it("鬼の通知の JSON の見本（valid。従来の形と、増え鬼の others つき）は、TS の型で書いた見本と一致する", () => {
+		expect(roamingFixture.oniNotice.valid).toEqual(
+			JSON.parse(JSON.stringify(oniNoticeSamples)),
+		);
+		expect(roamingFixture.oniNotice.invalid.length).toBeGreaterThan(0);
+	});
+
+	it("動く隠れ側の通知と見た目の通知の JSON の見本（valid）は、TS の型で書いた見本と一致する", () => {
+		expect(roamingFixture.roamingNotice.valid).toEqual(
+			JSON.parse(JSON.stringify(roamingNoticeSamples)),
+		);
+		expect(roamingFixture.lookNotice.valid).toEqual(
+			JSON.parse(JSON.stringify(lookNoticeSamples)),
+		);
+	});
+
+	it("拒むべき見本（invalid）がある（Gleam の decoder がすべて拒むことを確かめる）", () => {
+		expect(roamingFixture.roamingNotice.invalid.length).toBeGreaterThan(0);
+		expect(roamingFixture.lookNotice.invalid.length).toBeGreaterThan(0);
 	});
 });

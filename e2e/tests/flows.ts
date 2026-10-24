@@ -110,6 +110,8 @@ export interface LobbySettings {
 	/** 0 = なし、1〜3 = 隠れ側 CPU の数、4 = 鬼 CPU。 */
 	readonly cpu?: number;
 	readonly cpuStrength?: number;
+	/** 0 = 従来、1 = 動ける隠れ側（ADR 0053。ロビーに出すのは NEXT_PUBLIC_VERYARE_ROAMING=1 のときだけ）。 */
+	readonly roaming?: number;
 }
 
 /** ロビー（/lobby/veryare）を開き、settings を選んで「新しいルームを作る」を押す。ルーム ID を返す。 */
@@ -156,6 +158,17 @@ export function touchArea(tab: Tab, roomId: string): void {
 		roomId,
 		payload: { type: "move", x: 0, z: 0 },
 	});
+}
+
+/** A がロビーで動ける隠れ側の規則（ADR 0053）で作り、B がロビーから入った、2人のルーム。 */
+export async function roamingRoomWithTwo(
+	open: () => Promise<Tab>,
+): Promise<{ a: Tab; b: Tab; roomId: string }> {
+	const a = await open();
+	const b = await open();
+	const roomId = await createFromLobby(a, { roaming: 1 });
+	await joinFromLobby(b, roomId);
+	return { a, b, roomId };
 }
 
 /** A が作り、B がロビーから入った、2人のルーム。 */

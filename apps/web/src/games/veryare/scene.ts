@@ -210,6 +210,12 @@ export interface VeryareScene extends TestableScene {
 	 */
 	setOni(oni: SceneOni | null): void;
 	/**
+	 * 増え鬼（ADR 0053）で途中から鬼になった人（自分を除く）。位置と向きは補間済みのものを置き、動き（待機・
+	 * 歩く・走る）は、描画ごとの位置の変化から決める。一覧に無い人の体は消す。ステージを表示している
+	 * ときだけ見せる。
+	 */
+	setOtherOnis(onis: readonly (SceneOni & { readonly id: string })[]): void;
+	/**
 	 * 鬼本人の画面（issue-46）。facing が数なら、自分の体の代わりに鬼の体を、手元の位置とその向きで
 	 * 描く。null なら、ふつうの自分の体。
 	 */
@@ -326,6 +332,11 @@ export interface SceneHider {
 	readonly color: string;
 	/** 探索の開始に届いたペイント（issue-25）。無ければ null。 */
 	readonly paint: VeryarePaint | null;
+	/**
+	 * 動く隠れ側か（動ける隠れ側の規則 / ADR 0053）。動く体は、位置と向きが変わっても作り直さず、
+	 * 歩く・走る・止まると選んだポーズ、を登録所で当てる。無ければ（従来の規則）、置いたまま動かない。
+	 */
+	readonly moving?: boolean;
 }
 
 export type PaintPick =
@@ -571,7 +582,11 @@ export function createScene(
 		avatar.dispose();
 		avatar = next;
 		scene.add(avatar.object);
-		for (const figure of [oniParts, selfOniParts]) {
+		for (const figure of [
+			oniParts,
+			selfOniParts,
+			...otherOniFigures.values(),
+		]) {
 			figure.group.remove(figure.body.object);
 			figure.body.dispose();
 			figure.body = oniBody(figure.group);
@@ -622,6 +637,21 @@ export function createScene(
 	// ほかの人の画面の鬼（通知の間を補間した位置）と、鬼本人の画面の自分の体。
 	const oniParts = oniFigure();
 	const selfOniParts = oniFigure();
+	/** 増え鬼で途中から鬼になった人の体（ADR 0053）。ID ごと。 */
+	interface OtherOniFigure {
+		readonly group: THREE.Group;
+		body: BodyInstance;
+		unregister: () => void;
+	}
+	const otherOniFigures = new Map<string, OtherOniFigure>();
+	const removeOtherOni = (id: string) => {
+		const figure = otherOniFigures.get(id);
+		if (figure === undefined) return;
+		scene.remove(figure.group);
+		figure.unregister();
+		figure.body.dispose();
+		otherOniFigures.delete(id);
+	};
 	const oni = oniParts.group;
 	const selfOni = selfOniParts.group;
 	// 登録所への登録。位置は、自分と鬼本人は手元の位置、ほかの人の画面の鬼は補間した位置（setOni）。
@@ -685,6 +715,17 @@ export function createScene(
 	let hiderKey = "";
 	/** 隠れ側の体（hiderGroup の子と同じ並び）。 */
 	const hiderInstances: BodyInstance[] = [];
+	/** 動く隠れ側の体の、登録所からの取り消し（体を作り直すときに呼ぶ / ADR 0053）。 */
+	const hiderMotions: (() => void)[] = [];
+	/** 動く隠れ側の体へ、いまの位置と向きを当てる（体は作り直さない）。並びは hiderInstances と同じ。 */
+	const placeMovingHiders = (hiders: readonly SceneHider[]) => {
+		hiders.forEach((hider, index) => {
+			const body = hiderInstances[index];
+			if (hider.moving !== true || body === undefined) return;
+			body.object.position.set(hider.x, 0, hider.z);
+			if (hider.facing !== null) body.object.rotation.y = turnOf(hider.facing);
+		});
+	};
 
 	// 待機ルームのほかのメンバー（issue-59）。体と頭上の名前を、メンバーごとのグループに持つ。
 	const memberGroup = new THREE.Group();
@@ -1279,6 +1320,37 @@ export function createScene(
 			oni.position.z = next.z;
 			oni.rotation.y = turnOf(next.facing);
 		},
+		setOtherOnis(onis) {
+			const ids = new Set(onis.map((other) => other.id));
+			for (const id of [...otherOniFigures.keys()]) {
+				if (!ids.has(id)) removeOtherOni(id);
+			}
+			for (const other of onis) {
+				let figure = otherOniFigures.get(other.id);
+				if (figure === undefined) {
+					const parts = oniFigure();
+					parts.group.visible = true;
+					const created: OtherOniFigure = {
+						group: parts.group,
+						body: parts.body,
+						unregister: () => undefined,
+					};
+					created.unregister = motions.add({
+						name: `oni:${other.id}`,
+						body: () => created.body,
+						where: () =>
+							created.group.visible ? created.group.position : null,
+						chosen: () => null,
+						fixed: () => false,
+					});
+					otherOniFigures.set(other.id, created);
+					figure = created;
+				}
+				figure.group.position.x = other.x;
+				figure.group.position.z = other.z;
+				figure.group.rotation.y = turnOf(other.facing);
+			}
+		},
 		setSelfOni(facing) {
 			const asOni = facing !== null;
 			selfOni.visible = asOni;
@@ -1286,14 +1358,20 @@ export function createScene(
 			if (asOni) selfOni.rotation.y = turnOf(facing);
 		},
 		setHiders(hiders) {
+			// 動く隠れ側（ADR 0053）は、位置と向きを鍵に入れない（毎回、下で当てる）。
 			const key = hiders
-				.map(
-					(h) =>
-						`${h.id}:${h.x}:${h.z}:${h.facing}:${h.pose}:${h.color}:${JSON.stringify(h.paint)}`,
+				.map((h) =>
+					h.moving === true
+						? `${h.id}:moving:${h.pose}:${h.color}:${JSON.stringify(h.paint)}`
+						: `${h.id}:${h.x}:${h.z}:${h.facing}:${h.pose}:${h.color}:${JSON.stringify(h.paint)}`,
 				)
 				.join("|");
-			if (key === hiderKey) return;
+			if (key === hiderKey) {
+				placeMovingHiders(hiders);
+				return;
+			}
 			hiderKey = key;
+			for (const unregister of hiderMotions.splice(0)) unregister();
 			for (const child of [...hiderGroup.children]) hiderGroup.remove(child);
 			for (const body of hiderInstances.splice(0)) body.dispose();
 			for (const surface of hiderSurfaces.splice(0)) surface.dispose();
@@ -1312,6 +1390,20 @@ export function createScene(
 				body.object.userData.playerId = hider.id;
 				hiderGroup.add(body.object);
 				hiderInstances.push(body);
+				if (hider.moving === true) {
+					// 動きは、描く位置の変化から登録所が決める（止まると、選んだポーズ）。
+					const chosen = modelPoseOf(hider.pose);
+					hiderMotions.push(
+						motions.add({
+							name: `hider:${hider.id}`,
+							body: () => body,
+							where: () =>
+								body.object.parent === null ? null : body.object.position,
+							chosen: () => chosen,
+							fixed: () => false,
+						}),
+					);
+				}
 			}
 		},
 		setMembers(members) {
@@ -1653,9 +1745,17 @@ export function createScene(
 				oniAppeared = false;
 				oni.position.y = oniFeet;
 			}
-			// 隠れ側（CPU を含む）は動かないので、立っているマスの床の高さに直に置く。
+			// 隠れ側（CPU を含む）は、立っているマスの床の高さに直に置く。
 			for (const child of hiderGroup.children) {
 				child.position.y = floorAt(child.position.x, child.position.z);
+			}
+			// 途中から鬼になった人（増え鬼）も、床の高さに直に置く。ステージの間だけ見せる。
+			for (const figure of otherOniFigures.values()) {
+				figure.group.visible = lastSpace === "stage";
+				figure.group.position.y = floorAt(
+					figure.group.position.x,
+					figure.group.position.z,
+				);
 			}
 			// 待機ルームのほかのメンバー（issue-59）。補間した位置に置く。
 			memberGroup.visible = lastSpace === "waiting-room";
@@ -1707,6 +1807,8 @@ export function createScene(
 				}
 			});
 			avatar.dispose();
+			for (const unregister of hiderMotions.splice(0)) unregister();
+			for (const id of [...otherOniFigures.keys()]) removeOtherOni(id);
 			for (const body of hiderInstances.splice(0)) body.dispose();
 			for (const id of [...memberFigures.keys()]) removeMember(id);
 			for (const id of [...actorFigures.keys()]) removeActor(id);

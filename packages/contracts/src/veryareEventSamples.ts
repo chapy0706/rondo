@@ -11,9 +11,12 @@ import type {
 	VeryareDoorsNotice,
 	VeryareLikeEvent,
 	VeryareLikesNotice,
+	VeryareLookNotice,
 	VeryareMembersNotice,
+	VeryareOniNotice,
 	VeryareOpenDoorEvent,
 	VeryarePaintEvent,
+	VeryareRoamingNotice,
 	VeryareShootEvent,
 	VeryareSightEvent,
 	VeryareSpectateNotice,
@@ -250,3 +253,67 @@ export const likesNoticeSamples = [
 		],
 	},
 ] satisfies VeryareLikesNotice[];
+
+/**
+ * 動ける隠れ側の規則の見本（ADR 0053）。fixtures/veryare-roaming.json の各 valid と一致させる。Gleam 側は
+ * 同じ JSON を読む（server/test/rondo_server/games/veryare/roaming_fixture_test.gleam）。
+ */
+export const roamingNoticeSamples = [
+	{ type: "roaming", hiders: [] },
+	{
+		type: "roaming",
+		hiders: [
+			{ playerId: "p-2", x: 4.25, z: 10.5, facing: 1.55 },
+			{ playerId: "p-3", x: -1, z: 0.5, facing: null },
+		],
+	},
+] satisfies VeryareRoamingNotice[];
+
+export const lookNoticeSamples = [
+	{ type: "look", playerId: "p-2", pose: null, paint: null },
+	{
+		type: "look",
+		playerId: "p-3",
+		pose: "maleCrouch",
+		paint: {
+			kind: "strokes",
+			strokes: [
+				{
+					part: "torso",
+					color: "#a07850",
+					size: 0.04,
+					points: [{ u: 0.25, v: 0.5 }],
+				},
+			],
+		},
+	},
+] satisfies VeryareLookNotice[];
+
+/**
+ * 鬼の通知の見本（ADR 0053）。fixtures/veryare-roaming.json の oniNotice.valid と一致させる。1 つ目は従来の
+ * 形（others なし）、2 つ目は増え鬼の形（途中から鬼になった人を others にまとめる）。
+ */
+export const oniNoticeSamples = [
+	{
+		type: "oni",
+		playerId: "p-1",
+		x: 4.5,
+		z: 10.5,
+		facing: 1.57,
+		pose: "standing",
+		openDoors: [],
+	},
+	{
+		type: "oni",
+		playerId: "p-1",
+		x: 4.5,
+		z: 10.5,
+		facing: 1.57,
+		pose: "standing",
+		openDoors: [{ a: { x: 1, z: 1 }, b: { x: 2, z: 1 } }],
+		others: [
+			{ playerId: "p-2", x: 2.25, z: 3.5, facing: -0.5 },
+			{ playerId: "p-3", x: 6, z: 1.5, facing: null },
+		],
+	},
+] satisfies VeryareOniNotice[];

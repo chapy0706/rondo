@@ -1,4 +1,5 @@
 import type { GameManifest, RoomOption } from "@rondo/contracts";
+import { VERYARE_ROAMING, VERYARE_SPREADING } from "@rondo/contracts";
 
 /**
  * 平屋（issue-44〜46）をロビーの選択肢に出してよいか。素材の配信がつながったので true にした
@@ -15,6 +16,32 @@ export const HIRAYA_DEV = process.env.NEXT_PUBLIC_VERYARE_HIRAYA === "1";
 
 /** 平屋の選択肢を出すか（ロビーの先読みも、このときだけ行う）。 */
 export const HIRAYA_ENABLED = HIRAYA_READY || HIRAYA_DEV;
+
+/**
+ * 動ける隠れ側の規則（ADR 0053。探索中も動けて塗れる・襖は近づくと開く）を、ロビーの選択肢に出して
+ * よいか。既定（従来か、動けるか）は 10/25 に決める。それまでは false のまま、開発用の環境変数
+ * NEXT_PUBLIC_VERYARE_ROAMING=1（make e2e の web も付ける）のときだけ出す。出さない間は、作成の設定に
+ * roaming を載せないので、サーバーの既定（room.gleam の default_roaming）の規則になる。
+ */
+export const ROAMING_READY = false;
+
+/** 開発用の指定（NEXT_PUBLIC_VERYARE_ROAMING=1）。動ける隠れ側の規則の選択肢を出す。 */
+export const ROAMING_DEV = process.env.NEXT_PUBLIC_VERYARE_ROAMING === "1";
+
+/** 動ける隠れ側の規則の選択肢を出すか。 */
+export const ROAMING_ENABLED = ROAMING_READY || ROAMING_DEV;
+
+/**
+ * 増え鬼（ADR 0053 の最小版）を、ロビーの選択肢に出してよいか。動ける隠れ側と同じく、10/25 まで false の
+ * まま、開発用の環境変数 NEXT_PUBLIC_VERYARE_SPREADING=1 のときだけ出す。
+ */
+export const SPREADING_READY = false;
+
+/** 開発用の指定（NEXT_PUBLIC_VERYARE_SPREADING=1）。増え鬼の選択肢を出す。 */
+export const SPREADING_DEV = process.env.NEXT_PUBLIC_VERYARE_SPREADING === "1";
+
+/** 増え鬼の選択肢を出すか。 */
+export const SPREADING_ENABLED = SPREADING_READY || SPREADING_DEV;
 
 /**
  * 屋根と天井の切り替えボタンを出すか。来場者の画面には出さない（屋根は隠したまま）。開発用の
@@ -49,9 +76,42 @@ export function veryareHiddenOptions(
 	return settings.stage === 1 ? ["cpu", "cpuStrength"] : [];
 }
 
-/** ルーム作成の選択肢。hiraya なら、先頭にステージ（ランダム間取り / 平屋）を足す。 */
-export function veryareRoomOptions(hiraya: boolean): RoomOption[] {
-	return hiraya ? [STAGE_OPTION, ...BASE_OPTIONS] : [...BASE_OPTIONS];
+/**
+ * 隠れ側の動きの選択肢（ADR 0053。サーバーの room.gleam の roaming と揃える。0 = 従来、1 = 動ける）。
+ * 既定は契約の VERYARE_ROAMING.defaultRoaming（サーバーの default_roaming と、共有の見本で一致を確かめる）。
+ */
+const ROAMING_OPTION: RoomOption = {
+	key: "roaming",
+	label: "隠れ側の動き",
+	choices: [0, 1],
+	default: VERYARE_ROAMING.defaultRoaming,
+	choiceLabels: { 0: "従来（探索中は動けない）", 1: "探索中も動ける" },
+};
+
+/** ルールの選択肢（ADR 0053。サーバーの room.gleam の spreading と揃える。0 = ベーシック、1 = 増え鬼）。 */
+const SPREADING_OPTION: RoomOption = {
+	key: "spreading",
+	label: "ルール",
+	choices: [0, 1],
+	default: VERYARE_SPREADING.defaultSpreading,
+	choiceLabels: { 0: "ベーシック", 1: "増え鬼" },
+};
+
+/**
+ * ルーム作成の選択肢。hiraya なら、先頭にステージ（ランダム間取り / 平屋）を足す。roaming なら、隠れ側の
+ * 動き、spreading なら、ルール（増え鬼）を、この順で最後に足す（ADR 0053）。
+ */
+export function veryareRoomOptions(
+	hiraya: boolean,
+	roaming = false,
+	spreading = false,
+): RoomOption[] {
+	return [
+		...(hiraya ? [STAGE_OPTION] : []),
+		...BASE_OPTIONS,
+		...(roaming ? [ROAMING_OPTION] : []),
+		...(spreading ? [SPREADING_OPTION] : []),
+	];
 }
 
 /**
@@ -134,5 +194,9 @@ export const veryareManifest: GameManifest = {
 	logo: { src: "/games/veryare/logo.webp", background: "#26315c" },
 	// 起動画面（サーバーを探す / 作る）は veryare 自身が持つ（issue-29）。
 	launchScreen: "custom",
-	roomOptions: veryareRoomOptions(HIRAYA_ENABLED),
+	roomOptions: veryareRoomOptions(
+		HIRAYA_ENABLED,
+		ROAMING_ENABLED,
+		SPREADING_ENABLED,
+	),
 };

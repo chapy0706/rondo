@@ -100,6 +100,10 @@ export interface VeryareStrokePoint {
  * ペイントの確定（ペイントフェーズの終わりに、隠れ側が一度だけ送る / ADR 0025）。選んだポーズ
  * （issue-56）も同じ電文で送る。塗っていなければ paint は null、ポーズを変えていなければ pose は
  * null（省略も null と同じ）。両方 null の電文は、サーバーが捨てる。一覧に無い pose は null として扱う。
+ *
+ * 動ける隠れ側の規則（ADR 0053）では、同じ電文を、見た目の更新として、ペイントと探索の間に何度でも
+ * 送れる（同じ人は VERYARE_ROAMING.lookIntervalMs あける。短い間の更新はサーバーが捨てる）。null の
+ * 項目は前のまま残る。探索の間に受け付けた更新は、見た目の通知（VeryareLookNotice）で全員に届く。
  */
 export interface VeryarePaintEvent {
 	readonly type: "paint";
@@ -161,6 +165,13 @@ export interface VeryareOniNotice {
 	 * 襖をまとめたもの / issue-29b）。境 {a, b} で指す（ADR 0042）。
 	 */
 	readonly openDoors: readonly VeryareEdge[];
+	/**
+	 * 増え鬼（ADR 0053）のルームだけ載る。途中から鬼になった人（見つかった順）の位置と向き（丸めは
+	 * VeryareRoamingHider と同じ）。複数の鬼を、この 1 通にまとめる。従来の規則のルームでは載らない。
+	 * 人が鬼になったとき、その場で送る。途中から鬼になった人が動いたら、変わったときだけ 120 ms の
+	 * 間隔で送る。
+	 */
+	readonly others?: readonly VeryareRoamingHider[];
 }
 
 /**
@@ -344,4 +355,60 @@ export interface VeryareSpectateNotice {
 	readonly type: "spectate";
 	readonly actors: readonly VeryareSpectateActor[];
 	readonly looks?: readonly VeryareSpectateLook[];
+}
+
+/**
+ * 動ける隠れ側の規則（ADR 0053）。ルーム作成の設定 roaming（0 = 従来、1 = 動ける）で選ぶ。動ける規則では、
+ * まだ隠れている人間の隠れ側が、ペイントと探索の間も動け、見た目を変えられる。探索の間は、鬼と隠れ側が
+ * 襖の境から autoDoorReach 以内に近づくと、サーバーがその襖を開ける（開けっぱなし。開ける報告は使わない）。
+ * ルーム情報（room-info）に roaming: true が載る。サーバーの値（room.gleam・game.gleam）と、共有の見本
+ * （fixtures/veryare-roaming.json）で一致を確かめる。
+ */
+export const VERYARE_ROAMING = {
+	/** 作成の設定 roaming を省略したときの規則（0 = 従来、1 = 動ける）。ロビーの既定も、この値。 */
+	defaultRoaming: 0,
+	/** 同じ人の見た目の更新をあける間（ミリ秒）。 */
+	lookIntervalMs: 1000,
+	/** 襖が開く距離（メートル。襖の境から）。 */
+	autoDoorReach: 0.8,
+} as const;
+
+/**
+ * 増え鬼（ADR 0053 の最小版）。ルーム作成の設定 spreading（0 = 従来、1 = 増え鬼）で選ぶ。増え鬼では、
+ * 見つかった人間の隠れ側が、見つかった場所で鬼になる（すぐ動け、撃てる）。隠れ CPU は鬼にならない。
+ * 隠れ側が 0 人で鬼の勝ち、時間切れで 1 人以上残れば隠れ側の勝ち。ルーム情報に spreading: true が載る。
+ */
+export const VERYARE_SPREADING = {
+	/** 作成の設定 spreading を省略したときの規則（0 = 従来、1 = 増え鬼）。ロビーの既定も、この値。 */
+	defaultSpreading: 0,
+} as const;
+
+/** 動く隠れ側 1 人。位置は小数第 2 位、向きは 0.05 rad 単位に丸めた値。向きを報告していなければ null。 */
+export interface VeryareRoamingHider {
+	readonly playerId: PlayerId;
+	readonly x: number;
+	readonly z: number;
+	readonly facing: number | null;
+}
+
+/**
+ * 動く隠れ側の通知（ADR 0053）。動ける規則のルームの探索の間だけ、まだ隠れている人間の隠れ側（参加順。
+ * 隠れ CPU は載せない）を 1 通にまとめ、全員へ送る。変わったときだけ、120 ms の間隔で送る。探索・答え
+ * 合わせの間に入り直した人には、本人宛てで送る。従来の規則のルームでは送らない。
+ */
+export interface VeryareRoamingNotice {
+	readonly type: "roaming";
+	readonly hiders: readonly VeryareRoamingHider[];
+}
+
+/**
+ * 見た目の通知（ADR 0053）。動ける規則のルームの探索の間に、隠れ側の見た目の更新を受け付けたとき、その人の
+ * いまの見た目（ポーズとペイント。無ければ null）を全員へ送る。ペイントの間の更新は送らない（探索の開始の
+ * 一括配信 VeryareHidersNotice に載る）。
+ */
+export interface VeryareLookNotice {
+	readonly type: "look";
+	readonly playerId: PlayerId;
+	readonly pose: VeryareModelPose | null;
+	readonly paint: VeryareStrokesPaint | null;
 }

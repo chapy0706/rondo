@@ -10,6 +10,7 @@ import {
 	latestPhase,
 	membersListed,
 	resentResult,
+	roamingJoinCases,
 } from "./joinMatrix.ts";
 
 const phase = (
@@ -129,6 +130,59 @@ describe("expectedKinds - その時機に、購読者へ届くべき状態の種
 			"stage",
 		]);
 		expect(expectedKinds("reveal")).toEqual(expectedKinds("exploration"));
+	});
+
+	it("動ける隠れ側の規則: 探索・答え合わせだけ、動く隠れ側の通知（roaming）も届く（ADR 0053）", () => {
+		expect(expectedKinds("exploration", { roaming: true })).toEqual(
+			[...expectedKinds("exploration"), "roaming"].sort(),
+		);
+		expect(expectedKinds("reveal", { roaming: true })).toEqual(
+			expectedKinds("exploration", { roaming: true }),
+		);
+		expect(expectedKinds("painting", { roaming: true })).toEqual(
+			expectedKinds("painting"),
+		);
+		expect(expectedKinds("oni-selection", { roaming: true })).toEqual(
+			expectedKinds("oni-selection"),
+		);
+	});
+});
+
+describe("roamingJoinCases - 動ける隠れ側の構成（ADR 0053）", () => {
+	it("CPU なしの組み合わせを、同じ順番・時機で、roaming のルームで回す。名前は重ならない", () => {
+		const roaming = roamingJoinCases();
+		const plain = joinCases().filter((c) => c.cpu === "none");
+		expect(roaming.map((c) => [c.order, c.moment, c.outcome])).toEqual(
+			plain.map((c) => [c.order, c.moment, c.outcome]),
+		);
+		expect(roaming.every((c) => c.roaming === true)).toBe(true);
+		const names = [...joinCases(), ...roaming].map((c) => c.name);
+		expect(new Set(names).size).toBe(names.length);
+		// 従来の組み合わせには、規則を載せない（作成の設定は、これまでと同じ）。
+		expect(joinCases().every((c) => c.roaming === undefined)).toBe(true);
+	});
+
+	it("judgeArrival: 動ける規則のルームで、探索の間に roaming が届かなければ、問題として返す", () => {
+		const arrived = [
+			of("doors"),
+			of("hiders"),
+			of("hiding"),
+			of("oni"),
+			phase("exploration", null, "a"),
+			of("room-info"),
+			of("stage"),
+		];
+		expect(judgeArrival({ arrived, reference: arrived })).toEqual([]);
+		expect(
+			judgeArrival({ arrived, reference: arrived, roaming: true }),
+		).toEqual(["届いていない種類: roaming"]);
+		expect(
+			judgeArrival({
+				arrived: [...arrived, of("roaming")],
+				reference: arrived,
+				roaming: true,
+			}),
+		).toEqual([]);
 	});
 });
 

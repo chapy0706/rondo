@@ -81,7 +81,11 @@ export default defineConfig({
 			url: `http://localhost:${WEB_PORT}/`,
 			reuseExistingServer: true,
 			timeout: 180_000,
-			env: { NEXT_PUBLIC_RONDO_WS_URL: `ws://localhost:${SERVER_PORT}/ws` },
+			env: {
+				NEXT_PUBLIC_RONDO_WS_URL: `ws://localhost:${SERVER_PORT}/ws`,
+				// 動ける隠れ側の規則の選択肢を、ロビーに出す（ADR 0053。既定は従来なので、ほかの試験は変わらない）。
+				NEXT_PUBLIC_VERYARE_ROAMING: "1",
+			},
 		},
 	],
 });

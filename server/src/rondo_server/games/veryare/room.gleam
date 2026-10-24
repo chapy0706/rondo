@@ -36,6 +36,18 @@
 /// なら張り直す。途中参加・再接続の人には、本人宛てで今の様子を送る。待機ポーズの変更
 /// （waiting-pose）は、受けた時刻を付けて状態機械に渡す（受け付けるかは状態機械が決める）。
 ///
+/// 動ける隠れ側の規則（ADR 0053）: 作成時の設定 roaming（0 = 従来、1 = 動ける。省略時は
+/// default_roaming）で選ぶ。動ける規則のルームだけ、探索の間、動く隠れ側（まだ隠れている人間）の位置と
+/// 向きを、1 通にまとめて全員へ送る（変わったときに roaming_interval_ms のタイマーを張り、起きたときに、
+/// 最後に送った内容と違えば送る。待機ルームのメンバーと同じ仕組み）。探索の間に受け付けた見た目の更新は、
+/// その場で全員へ送る（look）。ルーム情報に roaming: true を載せ、画面はこれを見て操作を変える。従来の
+/// 規則のルームでは、どれも作らない。観戦ルームは、いつも従来の規則。
+///
+/// 増え鬼（ADR 0053 の最小版）: 作成時の設定 spreading（0 = 従来、1 = 増え鬼。省略時は default_spreading）
+/// で選ぶ。増え鬼のルームだけ、鬼の通知に、途中から鬼になった人の位置と向き（others）を足し、複数の鬼を
+/// 1 通にまとめる。人が鬼になったときは、その場で鬼の通知を全員へ送る。途中から鬼になった人が動いたら、
+/// roaming と同じ間隔のタイマーで、変わったときだけ鬼の通知を送る。ルーム情報に spreading: true を載せる。
+///
 /// 見逃しポイントといいね（issue-32 / ADR 0036）: 探索の開始に 0.5 秒ごとのタイマーを張り、起きる
 /// たびに、まだ隠れている隠れ側へ見逃しポイントを足す（試合中は誰にも送らず、結果の行にだけ載せる）。
 /// 人間の鬼の視界の報告（sight）は、状態機械に渡す。答え合わせの間のいいね（like）で数が変わったら、
@@ -62,6 +74,7 @@ import rondo_server/games/veryare/oni_cpu.{type Strength}
 import rondo_server/games/veryare/paint
 import rondo_server/games/veryare/palette
 import rondo_server/games/veryare/result as final_result
+import rondo_server/games/veryare/roaming
 import rondo_server/games/veryare/spectate_notice
 import rondo_server/games/veryare/stage
 import rondo_server/games/veryare/stage_notice
@@ -124,6 +137,31 @@ const members_token_base = -1_000_000
 /// とも重ならないよう、これ以下の値を使う。
 const missed_token_base = -2_000_000
 
+/// 動く隠れ側の通知を送る間隔（ミリ秒 / ADR 0053）。
+pub const roaming_interval_ms = 120
+
+/// 動く隠れ側の通知のタイマーの token の上限（ADR 0053）。観戦用の通知の token（-3_000_000 - step）
+/// とも重ならないよう、これ以下の値を使う（on_wake では、これを最初に見分ける）。
+const roaming_token_base = -4_000_000
+
+/// 作成時の設定 roaming を省略したときの規則。0 = 従来、1 = 動ける隠れ側（ADR 0053）。既定を変える
+/// ときは、ここと、画面のロビーの既定（contracts の VERYARE_DEFAULT_ROAMING）を、一緒に変える（共有の
+/// 見本 fixtures/veryare-roaming.json の defaultRoaming で、一致を確かめる）。
+pub const default_roaming = 0
+
+/// 作成時の設定 roaming の選択肢。
+pub const roaming_choices = [0, 1]
+
+/// 作成時の設定 spreading を省略したときの規則。0 = 従来、1 = 増え鬼（ADR 0053）。
+pub const default_spreading = 0
+
+/// 作成時の設定 spreading の選択肢。
+pub const spreading_choices = [0, 1]
+
+/// 途中から鬼になった人の通知のタイマーの token の上限（増え鬼）。動く隠れ側の通知の token
+/// （-4_000_000 - step）とも重ならないよう、これ以下の値を使う（on_wake では、これを最初に見分ける）。
+const onis_token_base = -5_000_000
+
 /// ルームに加える CPU。
 pub type CpuChoice {
   NoCpu
@@ -148,6 +186,59 @@ pub type StageChoice {
 /// ルーム作成時の設定。
 pub type Settings {
   Settings(exploration_seconds: Int, cpu: CpuChoice, strength: Strength)
+}
+
+/// ルーム作成時に選ぶ遊びの規則（ADR 0053）。roaming は、動ける隠れ側と襖の自動開閉（ひとまとまり）。
+/// spreading は増え鬼。
+pub type Rules {
+  Rules(roaming: Bool, spreading: Bool)
+}
+
+/// 従来の規則。
+pub const classic_rules = Rules(roaming: False, spreading: False)
+
+/// create-room の settings（unknown）から、遊びの規則を読む（ADR 0053）。roaming は省略時
+/// default_roaming、spreading は省略時 default_spreading。選択肢にない値は拒む。
+pub fn parse_rules(raw: Option(Dynamic)) -> Result(Rules, Nil) {
+  use roaming <- result.try(choice_of(
+    raw,
+    "roaming",
+    default_roaming,
+    roaming_choices,
+  ))
+  use spreading <- result.try(choice_of(
+    raw,
+    "spreading",
+    default_spreading,
+    spreading_choices,
+  ))
+  Ok(Rules(roaming: roaming == 1, spreading: spreading == 1))
+}
+
+/// 設定の 1 項目（整数）を読む。省略時は default。選択肢にない値・整数でない値は Error。
+fn choice_of(
+  raw: Option(Dynamic),
+  key: String,
+  default: Int,
+  choices: List(Int),
+) -> Result(Int, Nil) {
+  let value = case raw {
+    None -> Ok(default)
+    Some(data) ->
+      decode.run(
+        data,
+        decode.optional_field(key, default, decode.int, decode.success),
+      )
+      |> result.replace_error(Nil)
+  }
+  case value {
+    Ok(chosen) ->
+      case list.contains(choices, chosen) {
+        True -> Ok(chosen)
+        False -> Error(Nil)
+      }
+    Error(Nil) -> Error(Nil)
+  }
 }
 
 /// create-room の settings（unknown）を検証する。省略時は基本値。
@@ -290,21 +381,34 @@ pub fn spec_timed(id: RoomId, settings: Settings, timing: Timing) -> RoomSpec {
   spec_on(id, settings, RandomLayout, timing)
 }
 
-/// ステージを選んだルーム設定（issue-44）。
+/// ステージを選んだルーム設定（issue-44）。規則は従来。
 pub fn spec_on(
   id: RoomId,
   settings: Settings,
   stage: StageChoice,
   timing: Timing,
 ) -> RoomSpec {
+  spec_ruled(id, settings, stage, classic_rules, timing)
+}
+
+/// ステージと遊びの規則（ADR 0053）を選んだルーム設定。作成の入口（catalog）が使う。
+pub fn spec_ruled(
+  id: RoomId,
+  settings: Settings,
+  stage: StageChoice,
+  rules: Rules,
+  timing: Timing,
+) -> RoomSpec {
   RoomSpec(
-    ..spec_with_stage(
+    ..spec_with_rules(
       id,
       settings,
       stage,
+      rules,
       game.durations(exploration_ms: settings.exploration_seconds * 1000)
         |> timing.apply(timing),
       int.random,
+      now_ms,
     ),
     // 結果のあと、ルームを閉じるまでの時間（issue-70）。フェーズ時間と同じく短縮する。
     close_after_ms: timing.finished_close_ms(timing),
@@ -333,11 +437,24 @@ pub fn spec_with_stage(
 }
 
 /// 時計も差し替えられるルーム設定（テスト用）。now は単調に増える時計（ミリ秒）。フェーズの開始時刻を
-/// 覚え、送り直しのフェーズの通知の長さを、残りにするのに使う（ADR 0046）。
+/// 覚え、送り直しのフェーズの通知の長さを、残りにするのに使う（ADR 0046）。規則は従来。
 pub fn spec_with_clock(
   id: RoomId,
   settings: Settings,
   stage: StageChoice,
+  durations: game.Durations,
+  pick: fn(Int) -> Int,
+  now: fn() -> Int,
+) -> RoomSpec {
+  spec_with_rules(id, settings, stage, classic_rules, durations, pick, now)
+}
+
+/// 遊びの規則（ADR 0053）も選べるルーム設定（テスト用の差し替えも、ここで受ける）。
+pub fn spec_with_rules(
+  id: RoomId,
+  settings: Settings,
+  stage: StageChoice,
+  rules: Rules,
   durations: game.Durations,
   pick: fn(Int) -> Int,
   now: fn() -> Int,
@@ -356,12 +473,13 @@ pub fn spec_with_clock(
         settings,
         durations,
         stage,
+        rules,
         cpus_of(settings.cpu, settings.strength),
         pick,
         now,
       )
     }),
-    member_info: Some(room_info(settings.exploration_seconds)),
+    member_info: Some(match_info(settings.exploration_seconds, rules)),
     bots: cpu_players(settings.cpu),
     close_after_ms: expiry.default_close_ms,
   )
@@ -656,6 +774,7 @@ fn start(
   settings: Settings,
   durations: game.Durations,
   stage_choice: StageChoice,
+  rules: Rules,
   cpus: game.Cpus(PlayerId),
   pick: fn(Int) -> Int,
   now: fn() -> Int,
@@ -685,12 +804,20 @@ fn start(
         )
       let info = case exploration_seconds == settings.exploration_seconds {
         True -> None
-        False -> Some(room_info(exploration_seconds))
+        False -> Some(match_info(exploration_seconds, rules))
       }
       #(initial, info)
     }
     // 平屋は CPU を持たない（parse_room が拒む / issue-45 まで）。
     None -> #(game.new_hiraya(players, durations), None)
+  }
+  let initial = case rules.roaming {
+    True -> game.with_roaming(initial)
+    False -> initial
+  }
+  let initial = case rules.spreading {
+    True -> game.with_spreading(initial)
+    False -> initial
   }
   // 探索時間が入室後の案内と違えば（広い屋敷）、ルーム情報を全員へ送り直す（issue-65）。
   let info_effects = case info {
@@ -729,8 +856,14 @@ fn wrap(state: Game(PlayerId), env: Env) -> Driver(PlayerId) {
               case decode.run(payload, paint.event_decoder()) {
                 // ペイントとポーズの確定（issue-25 / issue-56）。受け付けるかは状態機械が決める。
                 // 誰にも送らない（探索の開始の一括配信に載せる）。
+                // 動ける隠れ側の規則では、見た目の更新として何度でも受け、探索の間は全員へ送る（ADR 0053）。
                 Ok(paint.Confirm(strokes:, pose:)) ->
-                  step(state, game.confirm(state, player, strokes, pose), env)
+                  looked(
+                    state,
+                    game.look(state, player, strokes, pose, env.now()),
+                    player,
+                    env,
+                  )
                 Error(_) ->
                   case decode.run(payload, members.waiting_pose_decoder()) {
                     // 待機ポーズの変更（issue-59）。受け付けるか（鬼選出中・人間・間）は状態機械が決める。
@@ -748,18 +881,25 @@ fn wrap(state: Game(PlayerId), env: Env) -> Driver(PlayerId) {
     },
     on_leave: fn(player) { step(state, game.leave(state, player), env) },
     on_wake: fn(token) {
-      case
-        token <= spectate_token_base,
-        token <= missed_token_base,
-        token <= members_token_base,
-        token == tick_token(state)
-      {
-        True, _, _, _ -> spectate_woke(state, token, env)
-        False, True, _, _ -> missed_woke(state, token, env)
-        False, False, True, _ -> members_woke(state, token, env)
-        False, False, False, True -> ticked(state, game.tick(state), env)
-        False, False, False, False ->
-          step(state, game.advance(state, token, env.pick), env)
+      case token <= onis_token_base {
+        True -> onis_woke(state, token, env)
+        False ->
+          case
+            token <= roaming_token_base,
+            token <= spectate_token_base,
+            token <= missed_token_base,
+            token <= members_token_base,
+            token == tick_token(state)
+          {
+            True, _, _, _, _ -> roaming_woke(state, token, env)
+            False, True, _, _, _ -> spectate_woke(state, token, env)
+            False, False, True, _, _ -> missed_woke(state, token, env)
+            False, False, False, True, _ -> members_woke(state, token, env)
+            False, False, False, False, True ->
+              ticked(state, game.tick(state), env)
+            False, False, False, False, False ->
+              step(state, game.advance(state, token, env.pick), env)
+          }
       }
     },
     on_join: fn(player) { joined(state, game.join(state, player), env) },
@@ -799,6 +939,7 @@ fn wrap(state: Game(PlayerId), env: Env) -> Driver(PlayerId) {
 /// | 待機ルームのメンバー | 鬼選出 |
 /// | 鬼の通知 | 探索・答え合わせ（鬼の位置が分かっているとき） |
 /// | 隠れ側の一括配信・まだ隠れている人 | 探索・答え合わせ |
+/// | 動く隠れ側（動ける隠れ側の規則だけ / ADR 0053） | 探索・答え合わせ |
 /// | いいね | 答え合わせ・終了（いいねがあるとき） |
 /// elapsed_ms は、いまのフェーズが始まってからの時間。フェーズの通知の長さは、その時点からの残り
 /// （長さ − 経過。0 未満にしない / ADR 0046）。
@@ -832,6 +973,7 @@ pub fn subscriber_snapshot_with(
     members_resend(state, player),
     oni_resend(state, player),
     hiders_resend(state, player),
+    roaming_resend(state, player),
     likes_resend(state, player),
   ])
 }
@@ -892,6 +1034,21 @@ fn step(
 ) -> #(Driver(PlayerId), List(Effect(PlayerId))) {
   // 待機ルームのメンバーが変わっていたら、通知のタイマーを張る（issue-59）。
   let #(after, members_timer) = schedule_members(after)
+  // 動く隠れ側が変わっていたら、通知のタイマーを張る（ADR 0053）。
+  let #(after, roaming_timer) = schedule_roaming(after)
+  // 増え鬼で、人が鬼になったら、その場で鬼の通知を全員へ送る。途中から鬼になった人が動いたら、
+  // 通知のタイマーを張る（ADR 0053）。
+  let #(after, converted) = case after.extra_oni == before.extra_oni {
+    True -> #(after, [])
+    False ->
+      case oni_payload(after) {
+        Some(payload) -> #(game.onis_were_sent(after, game.extra_onis(after)), [
+          driver.Broadcast(payload),
+        ])
+        None -> #(after, [])
+      }
+  }
+  let #(after, onis_timer) = schedule_onis(after)
   let effects = case after.step == before.step {
     False -> phase_effects(after)
     True ->
@@ -930,6 +1087,9 @@ fn step(
       hiding,
       finish(before, after),
       members_timer,
+      roaming_timer,
+      converted,
+      onis_timer,
       spectate_timer(before, after, env),
     ]),
   )
@@ -1133,6 +1293,142 @@ fn members_resend(
   }
 }
 
+// --- 動く隠れ側（ADR 0053） ---------------------------------------------------------
+
+fn roaming_token(state: Game(PlayerId)) -> Int {
+  roaming_token_base - state.step
+}
+
+/// 動ける隠れ側の規則の探索の間で、最後に送った内容と違い、まだタイマーを張っていなければ張る。
+fn schedule_roaming(
+  state: Game(PlayerId),
+) -> #(Game(PlayerId), List(Effect(PlayerId))) {
+  case
+    state.roaming,
+    state.phase,
+    state.roaming_scheduled,
+    game.roaming_hiders(state) == state.roaming_sent
+  {
+    True, Exploration, False, False -> #(game.roaming_scheduled(state, True), [
+      driver.WakeAfter(roaming_interval_ms, roaming_token(state)),
+    ])
+    _, _, _, _ -> #(state, [])
+  }
+}
+
+/// 動く隠れ側の通知のタイマーが起きた。張った時と同じ step（探索の間）で、最後に送った内容と違えば
+/// 全員へ送る。step が進んでいたら送らない（答え合わせに入ったら、もう動かない）。
+fn roaming_woke(
+  state: Game(PlayerId),
+  token: Int,
+  env: Env,
+) -> #(Driver(PlayerId), List(Effect(PlayerId))) {
+  let ready = game.roaming_scheduled(state, False)
+  let current = game.roaming_hiders(ready)
+  case
+    token == roaming_token(ready)
+    && ready.phase == Exploration
+    && current != ready.roaming_sent
+  {
+    True -> {
+      let sent = game.roaming_were_sent(ready, current)
+      let #(next, effects) = step(sent, sent, env)
+      #(next, [driver.Broadcast(roaming.payload(current)), ..effects])
+    }
+    False -> step(ready, ready, env)
+  }
+}
+
+/// 見た目の電文を受けた後。探索の間に、その人の見た目が変わったら（動ける隠れ側の規則だけが、探索の
+/// 間に変えられる）、いまの見た目を全員へ送る。ペイントの間は送らない（探索の開始の一括配信に載る）。
+fn looked(
+  before: Game(PlayerId),
+  after: Game(PlayerId),
+  player: PlayerId,
+  env: Env,
+) -> #(Driver(PlayerId), List(Effect(PlayerId))) {
+  let #(next, effects) = step(before, after, env)
+  let changed =
+    game.pose_of(before, player) != game.pose_of(after, player)
+    || game.paint_of(before, player) != game.paint_of(after, player)
+  case after.phase, changed {
+    Exploration, True -> #(
+      next,
+      list.append(effects, [
+        driver.Broadcast(roaming.look_payload(
+          player,
+          game.pose_of(after, player),
+          game.paint_of(after, player),
+        )),
+      ]),
+    )
+    _, _ -> #(next, effects)
+  }
+}
+
+fn onis_token(state: Game(PlayerId)) -> Int {
+  onis_token_base - state.step
+}
+
+/// 増え鬼の探索の間で、途中から鬼になった人の位置と向きが、最後に送った内容と違い、まだタイマーを
+/// 張っていなければ張る。
+fn schedule_onis(
+  state: Game(PlayerId),
+) -> #(Game(PlayerId), List(Effect(PlayerId))) {
+  case
+    state.spreading,
+    state.phase,
+    state.onis_scheduled,
+    game.extra_onis(state) == state.onis_sent
+  {
+    True, Exploration, False, False -> #(game.onis_scheduled(state, True), [
+      driver.WakeAfter(roaming_interval_ms, onis_token(state)),
+    ])
+    _, _, _, _ -> #(state, [])
+  }
+}
+
+/// 途中から鬼になった人の通知のタイマーが起きた。張った時と同じ step（探索の間）で、最後に送った内容と
+/// 違えば、鬼の通知（全員の鬼を 1 通にまとめたもの）を全員へ送る。
+fn onis_woke(
+  state: Game(PlayerId),
+  token: Int,
+  env: Env,
+) -> #(Driver(PlayerId), List(Effect(PlayerId))) {
+  let ready = game.onis_scheduled(state, False)
+  let current = game.extra_onis(ready)
+  case
+    token == onis_token(ready)
+    && ready.phase == Exploration
+    && current != ready.onis_sent
+  {
+    True -> {
+      let sent = game.onis_were_sent(ready, current)
+      let #(next, effects) = step(sent, sent, env)
+      let notice = case oni_payload(sent) {
+        Some(payload) -> [driver.Broadcast(payload)]
+        None -> []
+      }
+      #(next, list.append(notice, effects))
+    }
+    False -> step(ready, ready, env)
+  }
+}
+
+/// 探索中・答え合わせ中に入り直した人へ、本人宛てで、いまの動く隠れ側を送る（動ける隠れ側の規則だけ）。
+/// 見た目は、隠れ側の通知の送り直し（hiders_resend）が、いまのものを載せる。
+fn roaming_resend(
+  state: Game(PlayerId),
+  player: PlayerId,
+) -> List(Effect(PlayerId)) {
+  case state.roaming, state.phase {
+    True, Exploration | True, Reveal(_) -> [
+      driver.Deliver([player], roaming.payload(game.roaming_hiders(state))),
+    ]
+    _, _ -> []
+  }
+}
+
 /// 終了（Ended）に入った瞬間に、結果を全員へ送る（issue-42）。終了経路はすべて
 /// ここを通る（答え合わせの満了、不成立）。終了の通知（phase: ended）の後に出す。
 fn finish(
@@ -1304,12 +1600,23 @@ fn number() -> decode.Decoder(Float) {
 
 /// 入室後の案内。探索時間はルーム一覧には出さず、ここで初めて伝える。広い屋敷では、骨格が決まった
 /// ときに、+80 秒した探索時間で送り直す（issue-65）。
-fn room_info(exploration_seconds: Int) -> Dynamic {
-  room_info_with(exploration_seconds, False)
-}
-
 /// ルーム情報。観戦ルームでは spectate: true を足す（issue-67。画面は、これを見て観戦の画面にする）。
 fn room_info_with(exploration_seconds: Int, spectate: Bool) -> Dynamic {
+  info_payload(exploration_seconds, spectate, False, False)
+}
+
+/// 対戦のルームのルーム情報。動ける隠れ側の規則なら roaming: true を、増え鬼なら spreading: true を足す
+/// （ADR 0053。画面は、これを見て操作と表示を変える）。従来の規則では、これまでと同じ形。
+fn match_info(exploration_seconds: Int, rules: Rules) -> Dynamic {
+  info_payload(exploration_seconds, False, rules.roaming, rules.spreading)
+}
+
+fn info_payload(
+  exploration_seconds: Int,
+  spectate: Bool,
+  roaming: Bool,
+  spreading: Bool,
+) -> Dynamic {
   dynamic.properties(
     list.flatten([
       [
@@ -1321,6 +1628,14 @@ fn room_info_with(exploration_seconds: Int, spectate: Bool) -> Dynamic {
       ],
       case spectate {
         True -> [#(dynamic.string("spectate"), dynamic.bool(True))]
+        False -> []
+      },
+      case roaming {
+        True -> [#(dynamic.string("roaming"), dynamic.bool(True))]
+        False -> []
+      },
+      case spreading {
+        True -> [#(dynamic.string("spreading"), dynamic.bool(True))]
         False -> []
       },
     ]),
@@ -1381,7 +1696,8 @@ fn hiders_resend(
 }
 
 /// 探索開始時の、まだ隠れている隠れ側全員の状態（ADR 0025 / 0035）。
-/// 中身は探索の開始の時点の一覧（game.exploration_hiders）から作るので、送り直しても同じ。
+/// 中身は探索の開始の時点の一覧（game.exploration_hiders）から作るので、送り直しても同じ（動ける隠れ側の
+/// 規則では、位置と見た目は、いまのもの / ADR 0053）。
 /// { type: "hiders", hiders: [{ playerId, x, z, facing, pose, paint }] }。
 /// 人間の隠れ側の向きは、まだ持たないので null。ポーズ（issue-56）とペイント（issue-25）は、確定した
 /// ものがあれば載せ、無ければ null。
@@ -1432,6 +1748,8 @@ fn hiders_payload(state: Game(PlayerId)) -> Dynamic {
 /// 鬼 CPU の状態（人間の鬼も issue-28 で同じ形で送る）。
 /// { type: "oni", playerId, x, z, facing, pose, openDoors: [{ a: {x, z}, b: {x, z} }] }。
 /// openDoors は、ゲームの襖の状態（人間・鬼 CPU が開けた襖をまとめたもの / issue-29b）。
+/// 増え鬼のルームだけ、途中から鬼になった人の位置と向き others: [{ playerId, x, z, facing }] を足す
+/// （複数の鬼を 1 通にまとめる / ADR 0053）。従来の規則では、これまでと同じ形。
 fn oni_payload(state: Game(PlayerId)) -> Option(Dynamic) {
   let doors =
     state.open_doors |> set.to_list |> list.map(stage_notice.edge_payload)
@@ -1462,6 +1780,15 @@ fn oni_payload(state: Game(PlayerId)) -> Option(Dynamic) {
           #(dynamic.string("facing"), dynamic.float(facing)),
           #(dynamic.string("pose"), dynamic.string("standing")),
           #(dynamic.string("openDoors"), dynamic.list(doors)),
+          ..case state.spreading {
+            True -> [
+              #(
+                dynamic.string("others"),
+                roaming.hiders_payload(game.extra_onis(state)),
+              ),
+            ]
+            False -> []
+          }
         ]),
       )
     Error(Nil) -> None
