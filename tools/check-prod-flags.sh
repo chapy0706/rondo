@@ -7,6 +7,9 @@
 #
 # 確かめる旗:
 # - NEXT_PUBLIC_RONDO_SPECTATE_DEV（web のビルド変数。1 だと、来場者の画面でも観戦の行を押せる）
+# - NEXT_PUBLIC_VERYARE_ROAMING・NEXT_PUBLIC_VERYARE_SPREADING（web のビルド変数。1 だと、来場者のロビーにも
+#   新しい規則の選択肢が出る。本番で出すときは、旗（manifest.ts の ROAMING_READY・SPREADING_READY）か、URL の
+#   ?rules=1 を使う / ADR 0053）
 #
 # 確かめるファイル: deploy/ の下、apps/web/Dockerfile、本番の compose のファイル（docker-compose.*.prod.yml）。
 # 見つけたら、ファイルと行の番号だけを出す（値は出さない）。
@@ -20,7 +23,7 @@ set -euo pipefail
 repo_root="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 cd "$repo_root"
 
-flags=(NEXT_PUBLIC_RONDO_SPECTATE_DEV)
+flags=(NEXT_PUBLIC_RONDO_SPECTATE_DEV NEXT_PUBLIC_VERYARE_ROAMING NEXT_PUBLIC_VERYARE_SPREADING)
 
 env_file=""
 while [ "$#" -gt 0 ]; do

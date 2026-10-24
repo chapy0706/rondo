@@ -4,6 +4,7 @@
 
 import {
 	type Browser,
+	type Locator,
 	type Page,
 	test as base,
 	expect,
@@ -80,21 +81,22 @@ export async function playNew(tab: Tab): Promise<string> {
 }
 
 /**
- * 選択画面の「ルームに参加する」から、ロビーで指定のルームに入る。一覧には識別子を出さない
- * （issue-58）ので、このタブに届いたルーム一覧（room-list）で識別子からルーム名を引き、その名前の
- * ボタンを押す。
+ * ロビーの一覧で、識別子 roomId のルームの参加ボタン。一覧には識別子を文字として出さない（issue-58）
+ * ので、行の入れ物の属性（data-room-id）で探す。同じ名前のルームが並んでも（表示名の番号の使い回し /
+ * issue-71）、取り違えない。
  */
+export function lobbyRow(page: Page, roomId: string): Locator {
+	return page
+		.locator(`[data-room-id=${JSON.stringify(roomId)}]`)
+		.getByTestId("lobby-room");
+}
+
+/** 選択画面の「ルームに参加する」から、ロビーで指定のルームに入る。 */
 export async function joinFromLobby(tab: Tab, roomId: string): Promise<void> {
 	await chooseVeryare(tab.page);
 	await tab.page.getByRole("link", { name: "ルームに参加する" }).click();
 	await expect(tab.page).toHaveURL(/\/lobby\/veryare$/);
-	await expect.poll(() => roomNameIn(tab, roomId)).not.toBeNull();
-	const name = roomNameIn(tab, roomId) as string;
-	// 一覧の行は、文言ではなく、属性（data-testid と data-room-name）で探す。
-	await tab.page
-		.getByTestId("lobby-room")
-		.and(tab.page.locator(`[data-room-name=${JSON.stringify(name)}]`))
-		.click();
+	await lobbyRow(tab.page, roomId).click();
 	await expect(tab.page.getByTestId("veryare-area")).toBeVisible();
 	await expect.poll(() => tab.link.roomId()).toBe(roomId);
 }
@@ -130,16 +132,6 @@ export async function createFromLobby(
 	await expect(tab.page.getByTestId("veryare-area")).toBeVisible();
 	await expect.poll(() => tab.link.roomId()).not.toBeNull();
 	return tab.link.roomId() as string;
-}
-
-/** このタブに届いた最新のルーム一覧で、識別子 roomId のルームの名前。無ければ null。 */
-function roomNameIn(tab: Tab, roomId: string): string | null {
-	const list = tab.link.received("room-list").at(-1)?.message.rooms;
-	if (!Array.isArray(list)) return null;
-	const room = (list as { roomId?: unknown; name?: unknown }[]).find(
-		(r) => r.roomId === roomId,
-	);
-	return typeof room?.name === "string" ? room.name : null;
 }
 
 /** 鬼希望エリアの円の色（red / green / blue）を待つ。 */

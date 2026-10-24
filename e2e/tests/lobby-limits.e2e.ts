@@ -11,7 +11,7 @@
 
 import { expect } from "@playwright/test";
 import { Bot } from "@rondo/bots/client";
-import { test } from "./flows";
+import { lobbyRow, test } from "./flows";
 
 const SERVER_URL = "ws://localhost:3000/ws";
 
@@ -101,7 +101,6 @@ test("5 人のルームは「満員」で押せず、1 人抜けると、自動�
 		const made = await create(owner, "満員の試験");
 		if (made.type !== "room-joined") throw new Error("ルームを作れない");
 		const roomId = made.roomId;
-		const name = made.roomName ?? "満員の試験";
 		for (let i = 1; i < 5; i++) {
 			const bot = await connect(`full-${i}`);
 			bots.push(bot);
@@ -111,9 +110,7 @@ test("5 人のルームは「満員」で押せず、1 人抜けると、自動�
 
 		const a = await openTab();
 		await a.page.goto("/lobby/veryare");
-		const row = a.page
-			.getByTestId("lobby-room")
-			.and(a.page.locator(`[data-room-name=${JSON.stringify(name)}]`));
+		const row = lobbyRow(a.page, roomId);
 		await expect(row).toHaveAttribute("data-availability", "full");
 		await expect(row).toBeDisabled();
 		await expect(row).toContainText("満員");

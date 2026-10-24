@@ -20,6 +20,20 @@ export function roomListLabel(room: RoomSummary): string {
 }
 
 /**
+ * 一覧に出すルーム名の並び（rooms と同じ順）。同じ名前が 2 つ以上あれば、一覧の順で、先に出る方から
+ * 無印・(2)・(3) を付ける（見分けるための画面だけの表示。サーバーの名前は変えない）。識別子は出さない。
+ */
+export function numberedRoomLabels(rooms: readonly RoomSummary[]): string[] {
+	const seen = new Map<string, number>();
+	return rooms.map((room) => {
+		const label = roomListLabel(room);
+		const count = (seen.get(label) ?? 0) + 1;
+		seen.set(label, count);
+		return count === 1 ? label : `${label}(${count})`;
+	});
+}
+
+/**
  * 入力中の名前に対する案内。上限を超えた・空白や制御文字だけ、のときに文言を返し、
  * それ以外は null（既定の案内のまま）。
  */

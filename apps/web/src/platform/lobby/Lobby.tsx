@@ -25,6 +25,7 @@ import { useEffect, useState } from "react";
 import {
 	hiddenRoomOptions,
 	prefetchForLobby,
+	ruleRoomOptions,
 	spectateRoomOptions,
 } from "../../games/registry";
 import { GameLogo } from "../brand/GameLogo";
@@ -33,7 +34,7 @@ import { ConnectionFailed } from "../session/ConnectionFailed";
 import { LobbyNotice } from "./LobbyNotice";
 import { RoomListItem } from "./RoomListItem";
 import { isOperator, spectateSettingsToSend } from "./operator";
-import { roomNameHint } from "./roomName";
+import { numberedRoomLabels, roomNameHint } from "./roomName";
 import {
 	choiceLabel,
 	chooseOption,
@@ -41,6 +42,7 @@ import {
 	settingsToSend,
 	visibleOptions,
 } from "./roomOptions";
+import { rulesEntryOn, rulesStorage, withRuleOptions } from "./rulesEntry";
 import { spectateAllowed } from "./spectateFlag";
 import { useRealtimeLobby } from "./useRealtimeLobby";
 
@@ -68,7 +70,25 @@ export function Lobby({
 		refresh,
 		reload,
 	} = useRealtimeLobby(gameType);
+	// 同じ名前のルームを見分けるため、一覧の順で (2)・(3) を付けて出す（画面だけ）。
+	const labels = numberedRoomLabels(rooms);
 	const [settings, setSettings] = useState(() => initialSettings(roomOptions));
+	// 新しい規則の選択肢の入口（URL の ?rules=1 / rulesEntry.ts）。URL と端末の記憶は、マウントの後に読む
+	// （サーバーの描画では出さない）。開いたら、足した選択肢の既定を、いまの選び方に足す。
+	const [rulesOn, setRulesOn] = useState(false);
+	useEffect(() => {
+		const on = rulesEntryOn(window.location.search, rulesStorage());
+		setRulesOn(on);
+		if (on) {
+			setSettings((current) => ({
+				...initialSettings(ruleRoomOptions(gameType)),
+				...current,
+			}));
+		}
+	}, [gameType]);
+	const options = rulesOn
+		? withRuleOptions(roomOptions, ruleRoomOptions(gameType))
+		: roomOptions;
 	const [roomName, setRoomName] = useState("");
 	// いまの選び方で出さない選択肢（平屋では CPU など）。何を出さないかは、ゲームの側が決める。
 	const hidden = hiddenRoomOptions(gameType, settings);
@@ -151,11 +171,13 @@ export function Lobby({
 						</p>
 					) : (
 						<ul className="flex flex-col gap-3">
-							{rooms.map((room) => (
-								<li key={room.roomId}>
+							{rooms.map((room, index) => (
+								// 識別子は、画面に文字としては出さず、E2E が行を探す属性としてだけ持つ（issue-58）。
+								<li key={room.roomId} data-room-id={room.roomId}>
 									{/* 満員・プレイ中は、行が自分で押せない形にする（roomAvailability.ts）。 */}
 									<RoomListItem
 										room={room}
+										label={labels[index]}
 										onJoin={() => joinRoom(room.roomId)}
 										disabled={waiting}
 										canSpectate={operator || spectateAllowed()}
@@ -221,7 +243,7 @@ export function Lobby({
 							))
 						: null}
 
-					{(creatingSpectate ? [] : visibleOptions(roomOptions, hidden)).map(
+					{(creatingSpectate ? [] : visibleOptions(options, hidden)).map(
 						(option) => (
 							<label
 								key={option.key}
@@ -259,8 +281,8 @@ export function Lobby({
 											spectateOptions ?? [],
 											spectateSettings,
 										)
-									: roomOptions.length > 0
-										? settingsToSend(roomOptions, settings, hidden)
+									: options.length > 0
+										? settingsToSend(options, settings, hidden)
 										: undefined,
 								roomName,
 							)

@@ -161,14 +161,15 @@ pub fn hider_cpus_do_not_become_oni_test() {
   set.contains(after.still_hiding, "cpu-1") |> should.be_false
 }
 
-/// 途中から鬼になった人の離脱は、鬼から外すだけ（試合は続く）。最初の鬼の離脱は、従来どおり隠れ側の勝ち。
+/// 途中から鬼になった人の離脱は、鬼から外すだけ（試合は続く）。最初の鬼だけが残っていれば、その離脱で
+/// 鬼が 1 人もいなくなり、隠れ側の勝ち。
 pub fn leaving_extra_oni_only_leaves_the_oni_side_test() {
   let g = exploration(True) |> game.found("b")
   let left = game.leave(g, "b")
   left.extra_oni |> should.equal([])
   left.phase |> should.equal(Exploration)
   left.still_hiding |> should.equal(g.still_hiding)
-  game.leave(g, "a").phase |> should.equal(Reveal(HidersWin))
+  game.leave(left, "a").phase |> should.equal(Reveal(HidersWin))
 }
 
 /// 途中から鬼になった人の一覧（位置と向き）は、探索・答え合わせの間だけ。
@@ -180,4 +181,66 @@ pub fn extra_onis_are_listed_with_their_positions_test() {
   entry.player |> should.equal("b")
   entry.facing |> should.equal(Some(1.0))
   game.extra_onis(game.found(exploration(False), "b")) |> should.equal([])
+}
+
+// --- 最初の鬼の離脱（増え鬼） ------------------------------------------------------
+
+/// 増え鬼で、最初の鬼が離脱しても、途中から鬼になった人がいる間は続く。最初に鬼になった人が、最初の鬼を
+/// 引き継ぐ（フェーズの通知の鬼が替わる）。撃つ間隔は、引き継いだ人のもの。
+pub fn first_oni_leaving_hands_over_to_converted_oni_test() {
+  let g = exploration(True) |> game.found("b") |> game.found("c")
+  let left = game.leave(g, "a")
+  left.phase |> should.equal(Exploration)
+  left.oni |> should.equal(Some("b"))
+  left.extra_oni |> should.equal(["c"])
+  game.is_oni(left, "a") |> should.be_false
+  game.is_oni(left, "b") |> should.be_true
+  left.still_hiding |> should.equal(g.still_hiding)
+}
+
+/// 引き継いだ人も、続けて撃てる（間隔は、その人が途中から鬼として撃った時刻から数える）。
+pub fn handed_over_oni_keeps_its_own_reload_test() {
+  let g = exploration(True) |> game.found("b")
+  let #(cx, cz) = position(g, "c")
+  let shot =
+    g
+    |> place("b", cx +. 20.0, cz)
+    |> game.shoot("b", Some("c"), 0)
+  let left = game.leave(shot, "a")
+  left.oni |> should.equal(Some("b"))
+  // 間隔が明けるまでは撃てない。
+  game.shoot(left, "b", Some("c"), 1000) |> should.equal(left)
+}
+
+/// 鬼が 1 人もいなくなったら（最後の鬼の離脱）、隠れ側の勝ち。
+pub fn last_oni_leaving_gives_hiders_the_win_test() {
+  let g = exploration(True) |> game.found("b")
+  let after = g |> game.leave("a") |> game.leave("b")
+  after.phase |> should.equal(Reveal(HidersWin))
+}
+
+/// 従来の規則では、最初の鬼の離脱は、これまでどおり、すぐ隠れ側の勝ち。
+pub fn classic_oni_leaving_still_ends_the_game_test() {
+  let g = exploration(False) |> game.found("b")
+  game.leave(g, "a").phase |> should.equal(Reveal(HidersWin))
+}
+
+/// 離脱した鬼は、結果で鬼の側（状態: 離脱）に並ぶ（隠れ側の行にしない）。
+pub fn departed_onis_stay_on_the_oni_side_in_results_test() {
+  let g =
+    exploration(True)
+    |> game.found("b")
+    |> game.found("c")
+    |> game.leave("a")
+    |> game.leave("c")
+    |> expire
+    |> expire
+  g.phase |> should.equal(Ended(HidersWin))
+  let assert Ok(#(_, rows)) = result.of(g)
+  rows
+  |> list.map(fn(row) { #(row.player, row.rank) })
+  |> should.equal([#("d", 1), #("b", 2), #("a", 2), #("c", 2)])
+  let assert Ok(a_row) = list.find(rows, fn(row) { row.player == "a" })
+  a_row.details
+  |> should.equal([#("役割", "鬼"), #("結果", "負け"), #("状態", "離脱")])
 }

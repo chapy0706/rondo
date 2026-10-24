@@ -98,6 +98,14 @@ const SPREADING_OPTION: RoomOption = {
 };
 
 /**
+ * 新しい規則の選択肢（隠れ側の動きとルール / ADR 0053）。ロビーの入口（URL の ?rules=1 / platform/lobby の
+ * rulesEntry）が、旗に関わらず足す。
+ */
+export function veryareRuleOptions(): RoomOption[] {
+	return [ROAMING_OPTION, SPREADING_OPTION];
+}
+
+/**
  * ルーム作成の選択肢。hiraya なら、先頭にステージ（ランダム間取り / 平屋）を足す。roaming なら、隠れ側の
  * 動き、spreading なら、ルール（増え鬼）を、この順で最後に足す（ADR 0053）。
  */

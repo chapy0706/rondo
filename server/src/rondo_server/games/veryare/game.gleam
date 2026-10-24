@@ -41,7 +41,9 @@
 /// 見つかった場所で鬼になる（extra_oni。すぐ動け、撃てる。撃つ間隔は鬼ごと）。隠れ CPU は鬼にならない。
 /// 勝敗は従来と同じ（隠れ側が 0 人で鬼の勝ち。時間切れで 1 人以上残れば隠れ側の勝ち）。最初の鬼（oni）は
 /// これまでどおり 1 人で、フェーズの通知・鬼 CPU・見逃しポイントは最初の鬼を使う。途中から鬼になった人の
-/// 離脱は、その人を鬼から外すだけ（最初の鬼の離脱は、従来どおり隠れ側の勝ち）。
+/// 離脱は、その人を鬼から外すだけ。最初の鬼の離脱は、途中から鬼になった人がいれば、最初に鬼になった人が
+/// 最初の鬼を引き継いで続け、鬼が 1 人もいなくなったときだけ隠れ側の勝ち（従来の規則では、すぐ隠れ側の
+/// 勝ち）。離脱した鬼は departed_oni に残し、結果で鬼の側に並べる。
 import gleam/dict.{type Dict}
 import gleam/float
 import gleam/int
@@ -302,6 +304,8 @@ pub type Game(id) {
     onis_sent: List(RoamingHider(id)),
     /// 途中から鬼になった人の通知を送るタイマーを張っているか（増え鬼）。
     onis_scheduled: Bool,
+    /// 増え鬼で、離脱した鬼（離脱の順）。結果で鬼の側に並べるためだけに使う。従来の規則では、いつも空。
+    departed_oni: List(id),
   )
 }
 
@@ -410,6 +414,7 @@ fn start_on(
     extra_shots: dict.new(),
     onis_sent: [],
     onis_scheduled: False,
+    departed_oni: [],
   )
 }
 
@@ -1107,7 +1112,20 @@ pub fn leave(game: Game(id), player: id) -> Game(id) {
         waiting_poses: dict.delete(game.waiting_poses, player),
         waiting_pose_at: dict.delete(game.waiting_pose_at, player),
       )
-    _, Some(oni) if oni == player -> reveal(game, HidersWin)
+    _, Some(oni) if oni == player ->
+      case game.spreading, game.extra_oni {
+        // 増え鬼で、ほかに鬼がいれば、最初に鬼になった人が引き継ぐ（撃つ間隔は、その人のもの）。
+        True, [next, ..rest] ->
+          Game(
+            ..game,
+            oni: Some(next),
+            extra_oni: rest,
+            last_shot: option.from_result(dict.get(game.extra_shots, next)),
+            extra_shots: dict.delete(game.extra_shots, next),
+            departed_oni: list.append(game.departed_oni, [player]),
+          )
+        _, _ -> reveal(game, HidersWin)
+      }
     _, _ ->
       case list.contains(game.extra_oni, player) {
         // 増え鬼で途中から鬼になった人の離脱は、鬼から外すだけ（隠れ側の数は変わらない）。
@@ -1115,6 +1133,7 @@ pub fn leave(game: Game(id), player: id) -> Game(id) {
           Game(
             ..game,
             extra_oni: list.filter(game.extra_oni, fn(id) { id != player }),
+            departed_oni: list.append(game.departed_oni, [player]),
           )
         False -> remove_hider(game, player)
       }

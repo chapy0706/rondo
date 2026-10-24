@@ -13,6 +13,7 @@ import {
 	VERYARE_SPECTATE_OPTIONS,
 	veryareHiddenOptions,
 	veryareManifest,
+	veryareRuleOptions,
 } from "./veryare/manifest";
 
 /**
@@ -89,6 +90,19 @@ const roomOptionRules: Record<
 const spectateOptions: Record<string, readonly RoomOption[]> = {
 	[veryareManifest.id]: VERYARE_SPECTATE_OPTIONS,
 };
+
+/** 新しい規則の選択肢（ADR 0053）。持たないゲームは登録しない。 */
+const ruleOptions: Record<string, () => readonly RoomOption[]> = {
+	[veryareManifest.id]: veryareRuleOptions,
+};
+
+/**
+ * ロビーが呼ぶ（URL の ?rules=1 で入口を開いたとき / platform/lobby/rulesEntry）。id のゲームの、新しい規則の
+ * 選択肢。持たなければ空。
+ */
+export function ruleRoomOptions(id: string): readonly RoomOption[] {
+	return ruleOptions[id]?.() ?? [];
+}
 
 /** ロビー（運営の画面）が呼ぶ。id のゲームの観戦ルームの作成の設定。観戦ルームを持たなければ null。 */
 export function spectateRoomOptions(id: string): readonly RoomOption[] | null {

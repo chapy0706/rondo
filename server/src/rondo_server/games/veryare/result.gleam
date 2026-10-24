@@ -37,7 +37,9 @@ fn standings(game: Game(id), outcome: Outcome) -> List(Standing(id)) {
       // 増え鬼で途中から鬼になった人は、鬼の側に並ぶ（ADR 0053。従来の規則では、いつも空）。
       let hiders =
         list.filter(game.players, fn(id) {
-          id != oni && !list.contains(game.extra_oni, id)
+          id != oni
+          && !list.contains(game.extra_oni, id)
+          && !list.contains(game.departed_oni, id)
         })
       let oni_won = outcome == OniWins
       let oni_row = row(oni, oni_won, [#("役割", "鬼")], [])
@@ -45,6 +47,12 @@ fn standings(game: Game(id), outcome: Outcome) -> List(Standing(id)) {
         list.map(game.extra_oni, fn(id) {
           row(id, oni_won, [#("役割", "鬼")], [#("状態", "途中から鬼")])
         })
+      // 離脱した鬼（増え鬼だけ）も、鬼の側に並べる。
+      let departed_rows =
+        list.map(game.departed_oni, fn(id) {
+          row(id, oni_won, [#("役割", "鬼")], [#("状態", "離脱")])
+        })
+      let extra_rows = list.append(extra_rows, departed_rows)
       let hider_rows =
         list.map(hiders, fn(id) {
           let status = case set.contains(game.still_hiding, id) {

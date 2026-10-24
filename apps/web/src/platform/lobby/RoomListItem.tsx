@@ -13,11 +13,14 @@ import { spectateAllowed } from "./spectateFlag";
 
 export function RoomListItem({
 	room,
+	label = roomListLabel(room),
 	disabled,
 	onJoin,
 	canSpectate = spectateAllowed(),
 }: {
 	room: RoomSummary;
+	/** 出す名前（同じ名前の番号つき / numberedRoomLabels）。無ければ名前のまま。 */
+	label?: string | undefined;
 	disabled: boolean;
 	onJoin: () => void;
 	/** 観戦ルームの行を押せるか（旗 / spectateFlag.ts）。 */
@@ -37,9 +40,7 @@ export function RoomListItem({
 			disabled={disabled || !joinable}
 			className="flex w-full items-center justify-between gap-3 rounded-2xl bg-slate-800 px-4 py-3 text-left transition-transform active:scale-[0.98] disabled:opacity-50"
 		>
-			<span className="min-w-0 truncate font-medium text-white">
-				{roomListLabel(room)}
-			</span>
+			<span className="min-w-0 truncate font-medium text-white">{label}</span>
 			<span className="shrink-0 text-slate-400 text-sm">
 				{room.playerCount}/{room.capacity}
 				{` ・${availabilityLabel(availability)}`}
