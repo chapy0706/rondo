@@ -152,13 +152,34 @@ export function touchArea(tab: Tab, roomId: string): void {
 	});
 }
 
-/** A がロビーで動ける隠れ側の規則（ADR 0053）で作り、B がロビーから入った、2人のルーム。 */
+/**
+ * A がロビーで動ける隠れ側の規則（ADR 0053）で作り、B がロビーから入った、2人のルーム。本番と同じ道を通る:
+ * A は、まず選択画面を ?rules=1 で開き（新しい規則の入口。端末に覚える）、そのあと、URL に何も付けずに
+ * ロビーを開いて、選択肢を選ぶ。作成の電文の settings に roaming: 1 が載ったことを確かめる。
+ */
 export async function roamingRoomWithTwo(
 	open: () => Promise<Tab>,
 ): Promise<{ a: Tab; b: Tab; roomId: string }> {
 	const a = await open();
 	const b = await open();
+	// 開発サーバーは、初めて開くページを組み立てるときに、開いているページを読み込み直すことがある（WebKit で、
+	// 選択画面からロビーへの移動が打ち消された）。B のタブで、先にロビーを組み立てておく。
+	await b.page.goto("/lobby/veryare");
+	await a.page.goto("/select?rules=1");
+	await expect(a.page.getByTestId("shelf-current")).toBeVisible();
+	// 入口が端末に覚えてから（ルートの RulesEntryRoot）、ロビーへ移る。開発サーバーの初回の組み立てで、ページが
+	// 読み込み直されることがあるので、読み込みの終わりも待つ。
+	await expect
+		.poll(() =>
+			a.page.evaluate(() => localStorage.getItem("rondo.lobby.rules")),
+		)
+		.toBe("on");
+	await a.page.waitForLoadState("load");
 	const roomId = await createFromLobby(a, { roaming: 1 });
+	const created = a.link.sent("create-room").at(-1)?.message.settings as
+		| Record<string, unknown>
+		| undefined;
+	expect(created?.roaming).toBe(1);
 	await joinFromLobby(b, roomId);
 	return { a, b, roomId };
 }

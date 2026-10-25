@@ -40,6 +40,7 @@ import {
 	useRef,
 	useState,
 } from "react";
+import { setRoomBadge } from "../../platform/host/roomBadge";
 import { SoundSettings } from "../../platform/sound/SoundSettings";
 import {
 	type BrushName,
@@ -170,6 +171,7 @@ import {
 	spreadingOfRoomInfo,
 	walkSpeedOf,
 } from "./roaming";
+import { ruleBadgeOf } from "./ruleBadge";
 import {
 	type Outcome,
 	type Phase,
@@ -282,6 +284,9 @@ export default function Veryare() {
 
 function VeryarePlay() {
 	const { on, send, you, players } = useRealtimeGame(veryareManifest);
+	/** 通知の購読の中で、いまのルームを読むための参照（上部バーの規則の名前を渡す / ADR 0053）。 */
+	const roomIdRef = useRef<string | null>(null);
+	roomIdRef.current = useGameHost().realtime?.roomId ?? null;
 	/** 通知の購読の中で、いまの自分の ID を読むための参照。 */
 	const youRef = useRef(you);
 	youRef.current = you;
@@ -479,6 +484,10 @@ function VeryarePlay() {
 			if (rules !== null) setRoaming(rules);
 			const spread = spreadingOfRoomInfo(payload);
 			if (spread !== null) setSpreading(spread);
+			// 上部バーに、規則の名前を出す（従来の規則は空。基盤の置き場に渡す / ADR 0053）。
+			const badge = ruleBadgeOf(payload);
+			const roomId = roomIdRef.current;
+			if (badge !== null && roomId !== null) setRoomBadge(roomId, badge);
 		});
 		// 動く隠れ側（ADR 0053）。探索・答え合わせの外では、遅れて届いたものとして捨てる。
 		const offRoaming = on("roaming", (payload) => {

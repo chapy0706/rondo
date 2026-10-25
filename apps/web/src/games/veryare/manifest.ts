@@ -85,7 +85,7 @@ const ROAMING_OPTION: RoomOption = {
 	label: "隠れ側の動き",
 	choices: [0, 1],
 	default: VERYARE_ROAMING.defaultRoaming,
-	choiceLabels: { 0: "従来（探索中は動けない）", 1: "探索中も動ける" },
+	choiceLabels: { 0: "その場から動けない（従来）", 1: "動ける（新）" },
 };
 
 /** ルールの選択肢（ADR 0053。サーバーの room.gleam の spreading と揃える。0 = ベーシック、1 = 増え鬼）。 */
@@ -94,7 +94,7 @@ const SPREADING_OPTION: RoomOption = {
 	label: "ルール",
 	choices: [0, 1],
 	default: VERYARE_SPREADING.defaultSpreading,
-	choiceLabels: { 0: "ベーシック", 1: "増え鬼" },
+	choiceLabels: { 0: "ふつう", 1: "増え鬼" },
 };
 
 /**

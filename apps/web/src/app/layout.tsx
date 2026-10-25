@@ -1,5 +1,6 @@
 import type { Metadata, Viewport } from "next";
 import type { ReactNode } from "react";
+import { RulesEntryRoot } from "../platform/lobby/RulesEntryRoot";
 import { SoundRoot } from "../platform/sound/SoundRoot";
 import "./globals.css";
 
@@ -27,6 +28,8 @@ export default function RootLayout({ children }: { children: ReactNode }) {
 				{children}
 				{/* 音の入口（issue-63）。ページをまたいで BGM を続けるため、ここに 1 つ。 */}
 				<SoundRoot />
+				{/* 新しい規則の選択肢の入口（?rules=1 / ADR 0053）。どのページで開いても、端末に覚える。 */}
+				<RulesEntryRoot />
 			</body>
 		</html>
 	);

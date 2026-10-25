@@ -68,6 +68,7 @@ import { useSoundResult } from "../sound/hooks";
 import { GameFrame } from "./GameFrame";
 import { RoomNameLabel } from "./RoomNameLabel";
 import { resultView } from "./resultView";
+import { useRoomBadge } from "./roomBadge";
 
 interface RealtimeSession {
 	readonly realtime: RealtimeHost | null;
@@ -248,6 +249,8 @@ export function PlayHost({ manifest }: { manifest: GameManifest }) {
 	// 替えない（ゲームの画面が、結果と次の試合までの残りを出す）。退出は、いつでもできる。
 	const spectating =
 		realtime !== null && isSpectatorIn(realtime.you, realtime.players);
+	// ルームの規則の名前（上部バー / ADR 0053）。ゲームの側が置き場（roomBadge.ts）に渡したもの。
+	const badge = useRoomBadge(realtime?.roomId ?? null);
 	const shownResult = spectating ? null : result;
 	// 結果画面は無音（BGM を小さくして止める / issue-63）。
 	useSoundResult(shownResult !== null);
@@ -349,6 +352,7 @@ export function PlayHost({ manifest }: { manifest: GameManifest }) {
 					}
 					onBackToSelect={backToSelect}
 					spectating={spectating}
+					badge={badge}
 				>
 					{view === "instead-of-game" && shownResult !== null ? (
 						<ResultScreen

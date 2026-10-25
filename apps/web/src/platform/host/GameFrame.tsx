@@ -40,6 +40,7 @@ export function GameFrame({
 	onLeave,
 	onBackToSelect,
 	spectating = false,
+	badge = "",
 	children,
 }: {
 	manifest: GameManifest;
@@ -50,6 +51,8 @@ export function GameFrame({
 	onBackToSelect: () => void;
 	/** 観戦ルームの観戦者か（issue-67）。上部バーに「観戦中」を出す。 */
 	spectating?: boolean;
+	/** ルームの規則の名前（「動ける」「増え鬼」/ ADR 0053）。空なら出さない。 */
+	badge?: string;
 	children: ReactNode;
 }) {
 	const [menuOpen, setMenuOpen] = useState(false);
@@ -108,6 +111,14 @@ export function GameFrame({
 						</>
 					)}
 				</p>
+				{badge !== "" ? (
+					<span
+						data-testid="play-rules"
+						className="shrink-0 rounded-full px-1.5 py-0.5 text-fg-muted text-xs ring-1 ring-line ring-inset"
+					>
+						{badge}
+					</span>
+				) : null}
 				{spectating ? (
 					<span
 						data-testid="play-spectating"

@@ -41,6 +41,8 @@ const PARTS: readonly { readonly id: string; readonly label: string }[] = [
 	{ id: "veryare-sheet", label: "シート（ペイント・答え合わせ）" },
 	{ id: "veryare-paint-done", label: "塗り終わり" },
 	{ id: "veryare-status", label: "時間の表示" },
+	// 上部バーの規則の名前（ADR 0053。新しい規則のルームだけ出る）。
+	{ id: "play-rules", label: "規則の名前" },
 	{ id: "veryare-area", label: "エリアの円の表示" },
 	{ id: "veryare-view", label: "3D の画面" },
 	{ id: "result-screen", label: "結果の一覧" },

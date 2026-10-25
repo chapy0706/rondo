@@ -1,10 +1,11 @@
 /**
  * 動ける隠れ側の規則（ADR 0053）の代表の 1 本（make e2e）。実接続（Gleam サーバー）で、フェーズの時間は既定のまま。
  *
- * A がロビーで「隠れ側の動き: 探索中も動ける」を選んで作り、B が入る（ロビーの選択肢は、web を
- * NEXT_PUBLIC_VERYARE_ROAMING=1 で起動したときだけ出る / playwright.config.ts）。A が鬼、B が隠れ側。
+ * 本番と同じ道を通る: A は選択画面を ?rules=1 で開いて、新しい規則の入口を開き（端末に覚える）、URL に何も
+ * 付けずにロビーを開いて「隠れ側の動き: 動ける（新）」を選んで作る（作成の電文に roaming: 1 が載る）。B が入る。
+ * A が鬼、B が隠れ側。開発用の環境変数（NEXT_PUBLIC_VERYARE_ROAMING）は使わない（playwright.config.ts）。
  *
- * - 両方の画面がルームの規則を知る（data-roaming）
+ * - 両方の画面がルームの規則を知る（data-roaming）。上部バーに「動ける」が出る
  * - B の画面: ペイントと探索の間に、移動パッドとペイントの板が出る。襖のボタンは出ない
  * - 探索の間に B が動くと、A に動く隠れ側の通知（roaming）で、B のいまの位置が届く
  * - B が襖へ近づくと、サーバーが襖を開け、A の画面の開いている襖が増える。B が離れても、閉じない
@@ -65,6 +66,7 @@ test("動ける隠れ側の規則: 探索の間に動けて塗れ、近づくと
 			"data-roaming",
 			"true",
 		);
+		await expect(tab.page.getByTestId("play-rules")).toHaveText("動ける");
 	}
 
 	touchArea(a, roomId);
