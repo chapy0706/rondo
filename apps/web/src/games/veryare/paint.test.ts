@@ -1,12 +1,18 @@
-import { VERYARE_PAINT_LIMITS, type VeryareStroke } from "@rondo/contracts";
+import {
+	VERYARE_PAINT_LIMITS,
+	VERYARE_PAINT_PARTS,
+	type VeryareStroke,
+} from "@rondo/contracts";
 import { describe, expect, it } from "vitest";
 import movement from "../../../../../packages/contracts/src/fixtures/veryare-movement.json";
 import paintFixture from "../../../../../packages/contracts/src/fixtures/veryare-paint.json";
 import { BODY_HEIGHT, BODY_RADIUS, HEAD_RADIUS } from "./bodySize";
 import {
 	BODY_CYLINDER,
+	BRUSH_LARGE,
 	BRUSH_SIZES,
 	BRUSH_STEPS,
+	FILL_SIZE,
 	PAINT_LOCK_MS,
 	beginStroke,
 	bodyColorAt,
@@ -15,6 +21,8 @@ import {
 	clearPaint,
 	emptyDraft,
 	extendStroke,
+	fillBody,
+	fillStrokes,
 	hereColor,
 	hslToHex,
 	intersectCylinder,
@@ -495,15 +503,17 @@ describe("parsePaint - 届いたペイントを境で検証して読む", () => 
 	});
 });
 
-describe("ブラシの大きさ（大は頭の半径。中・小は、大の 1/2・1/4）", () => {
+describe("ブラシの大きさ（大は約 0.12 の定数。中・小は、頭の半径の 1/2・1/4 のまま）", () => {
 	it("brushSizeOf: 長さ（メートル）を、胴の円柱を回る向きの u の半径にする（小数第3位に丸める）", () => {
 		expect(brushSizeOf(2 * Math.PI * BODY_RADIUS)).toBe(1);
 		expect(brushSizeOf(HEAD_RADIUS)).toBe(0.064);
 	});
 
-	it("大は頭の半径、中は大の 1/2、小は大の 1/4", () => {
-		expect(BRUSH_STEPS).toEqual({ small: 1 / 4, medium: 1 / 2, large: 1 });
-		expect(BRUSH_SIZES).toEqual({ small: 0.016, medium: 0.032, large: 0.064 });
+	it("大は定数 BRUSH_LARGE（0.12。サーバーの上限 0.15 の内側）。中は頭の半径の 1/2、小は 1/4", () => {
+		expect(BRUSH_LARGE).toBe(0.12);
+		expect(BRUSH_LARGE).toBeLessThan(VERYARE_PAINT_LIMITS.maxSize);
+		expect(BRUSH_STEPS).toEqual({ small: 1 / 4, medium: 1 / 2 });
+		expect(BRUSH_SIZES).toEqual({ small: 0.016, medium: 0.032, large: 0.12 });
 	});
 
 	it("大で塗った楕円は、胴の円柱の上で、どの向きにも頭の半径より小さくならない", () => {
@@ -557,5 +567,77 @@ describe("paintColorOf - 塗る色（色はスポイトだけで取る。最初�
 		expect(
 			paintColorOf({ picked: null, sceneHere: null, tableHere: null }),
 		).toBe(FLOOR_COLOR);
+	});
+});
+
+describe("fillStrokes・fillBody - 全身を塗る（いま選んでいる色で、体の表面の全体を、1 回で塗る）", () => {
+	const color = "#336699";
+
+	it("部位ごとに 1 本ずつ（5 部位）。半径は FILL_SIZE（サーバーの上限 0.15 の内側）で、点は合わせて上限 1000 の内側", () => {
+		const strokes = fillStrokes(color);
+		expect(strokes.map((s) => s.part)).toEqual([...VERYARE_PAINT_PARTS]);
+		expect(FILL_SIZE).toBeLessThanOrEqual(VERYARE_PAINT_LIMITS.maxSize);
+		expect(FILL_SIZE).toBeGreaterThanOrEqual(VERYARE_PAINT_LIMITS.minSize);
+		for (const stroke of strokes) {
+			expect(stroke.color).toBe(color);
+			expect(stroke.size).toBe(FILL_SIZE);
+		}
+		const points = strokes.reduce((n, s) => n + s.points.length, 0);
+		expect(points).toBeLessThanOrEqual(VERYARE_PAINT_LIMITS.maxPoints / 4);
+		// 送る形は、共有の見本と同じ検査に通る（u・v は 0〜1、小数第3位）。
+		expect(parsePaint({ kind: "strokes", strokes })).toEqual({
+			kind: "strokes",
+			strokes,
+		});
+	});
+
+	it("どの部位の、どの位置（u・v の 0〜1）も、その色で覆う（継ぎ目と上下の端も）", () => {
+		const strokes = fillStrokes(color);
+		for (const part of VERYARE_PAINT_PARTS) {
+			for (let u = 0; u <= 1.0001; u += 0.02) {
+				for (let v = 0; v <= 1.0001; v += 0.02) {
+					expect(
+						bodyColorAt(strokes, {
+							part,
+							u: Math.min(u, 1),
+							v: Math.min(v, 1),
+						}),
+					).toBe(color);
+				}
+			}
+		}
+	});
+
+	it("塗ったあとに足して、1つ戻すで、全身の塗りをまとめて取り消せる（前に塗ったものは残る）", () => {
+		const before = beginStroke(emptyDraft, {
+			color: "#a07850",
+			size: 0.04,
+			point: { u: 0.1, v: 0.1 },
+		});
+		const filled = fillBody(before, color);
+		expect(filled.strokes).toHaveLength(1 + VERYARE_PAINT_PARTS.length);
+		expect(undoStroke(filled).strokes).toEqual(before.strokes);
+		// 全身を塗ったあとに描いた線は、1 本ずつ戻る。その次の 1つ戻すで、全身の塗りが戻る。
+		const drawn = beginStroke(filled, {
+			color: "#000000",
+			size: 0.04,
+			point: { u: 0.5, v: 0.5 },
+		});
+		expect(undoStroke(drawn).strokes).toEqual(filled.strokes);
+		expect(undoStroke(undoStroke(drawn)).strokes).toEqual(before.strokes);
+	});
+
+	it("上限に入りきらないときは、前の塗りを全身の塗りに置き換える（どのみち全部を覆う。上限を超えない）", () => {
+		let draft = emptyDraft;
+		for (let i = 0; i < VERYARE_PAINT_LIMITS.maxStrokes; i++) {
+			draft = beginStroke(draft, {
+				color: "#a07850",
+				size: 0.04,
+				point: { u: 0.5, v: 0.5 },
+			});
+		}
+		const filled = fillBody(draft, color);
+		expect(filled.strokes).toEqual(fillStrokes(color));
+		expect(undoStroke(filled).strokes).toEqual([]);
 	});
 });

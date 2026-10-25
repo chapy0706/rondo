@@ -2,6 +2,8 @@ import type { VeryareHiderState, VeryareStroke } from "@rondo/contracts";
 import { VERYARE_ROAMING } from "@rondo/contracts";
 import { describe, expect, it } from "vitest";
 import roamingFixture from "../../../../../packages/contracts/src/fixtures/veryare-roaming.json";
+import { initialSettings } from "../../platform/lobby/roomOptions";
+import { playCreateSettings } from "../registry";
 import {
 	type ControlsContext,
 	canMoveNow,
@@ -10,10 +12,13 @@ import {
 	viewOf,
 } from "./controls";
 import {
+	ROAMING_DEFAULT,
 	ROAMING_ENABLED,
 	ROAMING_READY,
 	SPREADING_ENABLED,
 	SPREADING_READY,
+	veryareManifest,
+	veryarePlaySettings,
 	veryareRoomOptions,
 } from "./manifest";
 import { WALK_SPEED } from "./motion";
@@ -384,16 +389,28 @@ describe("動ける隠れ側の規則の、動きと操作", () => {
 		expect(avatarPoseFixed("reveal", "hider", true)).toBe(true);
 	});
 
-	it("ロビー: 旗が立つまでは出さない。出すときは、最後に、既定（契約の値）で足す", () => {
-		expect(ROAMING_READY).toBe(false);
-		expect(ROAMING_ENABLED).toBe(false);
+	it("ロビー: 旗を立てて、全員に出す。既定は動ける（クライアントの既定 ROAMING_DEFAULT）。従来も選べる", () => {
+		expect(ROAMING_READY).toBe(true);
+		expect(ROAMING_ENABLED).toBe(true);
+		expect(ROAMING_DEFAULT).toBe(true);
 		const options = veryareRoomOptions(true, true);
 		expect(options.at(-1)).toMatchObject({
 			key: "roaming",
 			choices: [0, 1],
-			default: VERYARE_ROAMING.defaultRoaming,
+			default: 1,
 		});
 		expect(veryareRoomOptions(true)).toEqual(options.slice(0, -1));
+		// サーバーの既定（契約の写し）は、従来のまま。作成の設定に載せて、動ける規則にする。
+		expect(VERYARE_ROAMING.defaultRoaming).toBe(0);
+		const sent = veryareManifest.roomOptions ?? [];
+		expect(initialSettings(sent).roaming).toBe(1);
+	});
+
+	it("「新しく遊ぶ」の作成の設定: 動ける規則（roaming: 1）を付ける。ほかのゲームは、設定を付けない", () => {
+		expect(veryarePlaySettings()).toEqual({ roaming: 1 });
+		expect(playCreateSettings("veryare")).toEqual({ roaming: 1 });
+		expect(playCreateSettings("tetris")).toBeUndefined();
+		expect(playCreateSettings("czz")).toBeUndefined();
 	});
 });
 
@@ -477,9 +494,12 @@ describe("増え鬼（ADR 0053 の最小版）", () => {
 		expect([...next.keys()]).toEqual(["c"]);
 	});
 
-	it("ロビー: 旗が立つまでは出さない。出すときは、隠れ側の動きの後に、既定（契約の値）で足す", () => {
-		expect(SPREADING_READY).toBe(false);
-		expect(SPREADING_ENABLED).toBe(false);
+	it("ロビー: 旗を立てて、全員に出す。隠れ側の動きの後に、既定（契約の値。ふつう）で足す", () => {
+		expect(SPREADING_READY).toBe(true);
+		expect(SPREADING_ENABLED).toBe(true);
+		expect(initialSettings(veryareManifest.roomOptions ?? []).spreading).toBe(
+			0,
+		);
 		const options = veryareRoomOptions(true, true, true);
 		expect(options.map((o) => o.key).slice(-2)).toEqual([
 			"roaming",

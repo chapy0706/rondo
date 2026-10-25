@@ -39,6 +39,8 @@ const PARTS: readonly { readonly id: string; readonly label: string }[] = [
 	{ id: "veryare-game-pose", label: "ポーズ" },
 	// ペイントの板と答え合わせの切り替えは、左下のシート（中だけスクロールする）。シートを測る。
 	{ id: "veryare-sheet", label: "シート（ペイント・答え合わせ）" },
+	// シートを閉じたときの開くボタン（動ける規則のペイントでは、小さな「塗る」）。
+	{ id: "veryare-sheet-open", label: "シートを開く" },
 	{ id: "veryare-paint-done", label: "塗り終わり" },
 	{ id: "veryare-status", label: "時間の表示" },
 	// 上部バーの規則の名前（ADR 0053。新しい規則のルームだけ出る）。

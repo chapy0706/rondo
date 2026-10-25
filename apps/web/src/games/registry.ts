@@ -13,6 +13,7 @@ import {
 	VERYARE_SPECTATE_OPTIONS,
 	veryareHiddenOptions,
 	veryareManifest,
+	veryarePlaySettings,
 	veryareRuleOptions,
 } from "./veryare/manifest";
 
@@ -85,6 +86,24 @@ const roomOptionRules: Record<
 > = {
 	[veryareManifest.id]: veryareHiddenOptions,
 };
+
+/**
+ * 「新しく遊ぶ」（ロビーを通らずに作る）の作成の設定。何を付けるかは、ゲームの側が決める。登録の無い
+ * ゲームは、設定を付けない（サーバーの既定）。
+ */
+const playSettings: Record<
+	string,
+	() => Readonly<Record<string, number>> | undefined
+> = {
+	[veryareManifest.id]: veryarePlaySettings,
+};
+
+/** 共通の入れ物（PlayHost）が呼ぶ。id のゲームを「新しく遊ぶ」で作るときの作成の設定。無ければ undefined。 */
+export function playCreateSettings(
+	id: string,
+): Readonly<Record<string, number>> | undefined {
+	return playSettings[id]?.();
+}
 
 /** 観戦ルームの作成の設定（issue-67）。持たないゲームは登録しない。 */
 const spectateOptions: Record<string, readonly RoomOption[]> = {

@@ -115,6 +115,7 @@ import {
 	clearPaint,
 	emptyDraft,
 	extendStroke,
+	fillBody,
 	hereColor,
 	paintColorOf,
 	paintEvent,
@@ -1507,6 +1508,7 @@ function VeryarePlay() {
 			eyedropper={eyedropper}
 			onBrush={setBrush}
 			onEyedropper={() => setEyedropper((current) => !current)}
+			onFill={() => setDraft((current) => fillBody(current, brushColor))}
 			onUndo={() => setDraft(undoStroke)}
 			onClear={() => setDraft(clearPaint)}
 			onConfirm={() => setPaintConfirmed(true)}
@@ -1958,7 +1960,12 @@ function VeryarePlay() {
 							onClick={() => setSheetOpen(true)}
 							className={`absolute left-2 ${sheetOnTop ? "top-2" : "bottom-2"} ${OVERLAY_BUTTON}`}
 						>
-							{sheet === "paint" ? "ペイントを開く" : "答え合わせを開く"}
+							{/* 動ける規則では、閉じた板は小さな「塗る」だけ（下の移動パッドで動けるように / ADR 0053）。 */}
+							{sheet === "paint"
+								? sheetOnTop
+									? "塗る"
+									: "ペイントを開く"
+								: "答え合わせを開く"}
 						</button>
 					)
 				) : null}

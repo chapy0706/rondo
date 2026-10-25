@@ -2,16 +2,17 @@
  * シナリオ5（issue-48）: 鬼選出から結果画面まで。フェーズの時間は本番の既定のまま
  * （鬼選出のカウント 10 秒 → 準備 20 秒 → ペイント 20 秒 → 探索 40 秒 → 答え合わせ 20 秒、
  * 合わせて約 110 秒）。探索中の襖の開閉と、答え合わせの襖・点滅（issue-29d）、ペイントの確定と一括配信（issue-25）も確かめる。時間がかかるので @result を付け、`make e2e/result` で分けて動かす。
+ * 従来の規則のルーム（classicRoomWithTwo）で確かめる。
  */
 
 import { expect } from "@playwright/test";
 import {
+	classicRoomWithTwo,
 	expectArea,
 	expectOpenDoors,
 	expectPhase,
 	fusumaCount,
 	receivedPayloads,
-	roomWithTwo,
 	sentPaintEvents,
 	strokesBeforeHiders,
 	test,
@@ -21,7 +22,8 @@ import {
 
 test("シナリオ5: 鬼選出から結果画面まで @result", async ({ openTab }) => {
 	test.setTimeout(240_000);
-	const { a, b, roomId } = await roomWithTwo(openTab);
+	// 従来の規則（ペイントの確定・鬼が襖を開ける・隠れ側は動けない）を、ロビーで選んで作る。
+	const { a, b, roomId } = await classicRoomWithTwo(openTab);
 	await expectArea(a, "green");
 
 	// A が中央の円に触れて、ただ1人の立候補者になる（A が鬼）。

@@ -71,7 +71,11 @@ export async function chooseVeryare(page: Page): Promise<void> {
 	await expect(page.getByRole("link", { name: "新しく遊ぶ" })).toBeVisible();
 }
 
-/** 選択画面の「新しく遊ぶ」から、ルームを作って入る。ルーム ID を返す。 */
+/**
+ * 選択画面の「新しく遊ぶ」から、ルームを作って入る。ルーム ID を返す。veryare では、クライアントの既定の
+ * 規則（動ける隠れ側 / apps/web の manifest.ts の ROAMING_DEFAULT）のルームになる。規則に依存する試験は、
+ * classicRoomWithTwo か roamingRoomWithTwo で、規則を明示する。
+ */
 export async function playNew(tab: Tab): Promise<string> {
 	await chooseVeryare(tab.page);
 	await tab.page.getByRole("link", { name: "新しく遊ぶ" }).click();
@@ -112,8 +116,10 @@ export interface LobbySettings {
 	/** 0 = なし、1〜3 = 隠れ側 CPU の数、4 = 鬼 CPU。 */
 	readonly cpu?: number;
 	readonly cpuStrength?: number;
-	/** 0 = 従来、1 = 動ける隠れ側（ADR 0053。ロビーに出すのは NEXT_PUBLIC_VERYARE_ROAMING=1 のときだけ）。 */
+	/** 0 = 従来、1 = 動ける隠れ側（ADR 0053。ロビーの既定の選択は 1）。 */
 	readonly roaming?: number;
+	/** 0 = ふつう、1 = 増え鬼（ADR 0053。ロビーの既定の選択は 0）。 */
+	readonly spreading?: number;
 }
 
 /** ロビー（/lobby/veryare）を開き、settings を選んで「新しいルームを作る」を押す。ルーム ID を返す。 */
@@ -184,7 +190,29 @@ export async function roamingRoomWithTwo(
 	return { a, b, roomId };
 }
 
-/** A が作り、B がロビーから入った、2人のルーム。 */
+/**
+ * A がロビーで従来の規則（隠れ側の動き: その場から動けない）を選んで作り、B がロビーから入った、2 人のルーム。
+ * 従来の規則に依存する試験（ペイントの確定、探索中の隠れ側が動けない、襖のボタン）が使う。作成の電文の
+ * settings に roaming: 0 が載ったことを確かめる。
+ */
+export async function classicRoomWithTwo(
+	open: () => Promise<Tab>,
+): Promise<{ a: Tab; b: Tab; roomId: string }> {
+	const a = await open();
+	const b = await open();
+	const roomId = await createFromLobby(a, { roaming: 0 });
+	const created = a.link.sent("create-room").at(-1)?.message.settings as
+		| Record<string, unknown>
+		| undefined;
+	expect(created?.roaming).toBe(0);
+	await joinFromLobby(b, roomId);
+	return { a, b, roomId };
+}
+
+/**
+ * A が「新しく遊ぶ」で作り、B がロビーから入った、2人のルーム。規則は、クライアントの既定（動ける隠れ側）。
+ * 規則に依存しない試験（待機ルーム・接続・ステージの通知など）が使う。
+ */
 export async function roomWithTwo(
 	open: () => Promise<Tab>,
 ): Promise<{ a: Tab; b: Tab; roomId: string }> {

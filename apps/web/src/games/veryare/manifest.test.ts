@@ -39,7 +39,10 @@ describe("veryareRoomOptions - ステージの選択肢（issue-46）", () => {
 		expect(HIRAYA_READY).toBe(true);
 		// テストの環境では NEXT_PUBLIC_VERYARE_HIRAYA を付けないが、旗だけで出る。
 		expect(veryareManifest.roomOptions?.[0]?.key).toBe("stage");
-		expect(veryareManifest.roomOptions).toEqual(veryareRoomOptions(true));
+		// 新しい規則（隠れ側の動き・ルール / ADR 0053）も、旗で全員に出す（roaming.test.ts）。
+		expect(veryareManifest.roomOptions).toEqual(
+			veryareRoomOptions(true, true, true),
+		);
 	});
 });
 

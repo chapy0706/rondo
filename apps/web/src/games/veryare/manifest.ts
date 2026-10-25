@@ -1,5 +1,5 @@
 import type { GameManifest, RoomOption } from "@rondo/contracts";
-import { VERYARE_ROAMING, VERYARE_SPREADING } from "@rondo/contracts";
+import { VERYARE_SPREADING } from "@rondo/contracts";
 
 /**
  * 平屋（issue-44〜46）をロビーの選択肢に出してよいか。素材の配信がつながったので true にした
@@ -19,11 +19,17 @@ export const HIRAYA_ENABLED = HIRAYA_READY || HIRAYA_DEV;
 
 /**
  * 動ける隠れ側の規則（ADR 0053。探索中も動けて塗れる・襖は近づくと開く）を、ロビーの選択肢に出して
- * よいか。既定（従来か、動けるか）は 10/25 に決める。それまでは false のまま、開発用の環境変数
- * NEXT_PUBLIC_VERYARE_ROAMING=1（make e2e の web も付ける）のときだけ出す。出さない間は、作成の設定に
- * roaming を載せないので、サーバーの既定（room.gleam の default_roaming）の規則になる。
+ * よいか。2026-10-25 に、全員に出すことにした（既定の選択は ROAMING_DEFAULT）。出すのをやめるときは、
+ * false に戻す（そのときは、作成の設定に roaming を載せず、サーバーの既定 default_roaming の規則になる）。
  */
-export const ROAMING_READY = false;
+export const ROAMING_READY = true;
+
+/**
+ * クライアントの既定の規則が、動ける隠れ側か（2026-10-25）。ロビーの作成フォームの既定の選択と、「新しく
+ * 遊ぶ」（veryarePlaySettings）の作成の設定に効く。サーバーの既定（room.gleam の default_roaming と、
+ * 契約の写し VERYARE_ROAMING.defaultRoaming）は、従来のまま変えない（設定の無い作成は、従来の規則）。
+ */
+export const ROAMING_DEFAULT = true;
 
 /** 開発用の指定（NEXT_PUBLIC_VERYARE_ROAMING=1）。動ける隠れ側の規則の選択肢を出す。 */
 export const ROAMING_DEV = process.env.NEXT_PUBLIC_VERYARE_ROAMING === "1";
@@ -32,10 +38,10 @@ export const ROAMING_DEV = process.env.NEXT_PUBLIC_VERYARE_ROAMING === "1";
 export const ROAMING_ENABLED = ROAMING_READY || ROAMING_DEV;
 
 /**
- * 増え鬼（ADR 0053 の最小版）を、ロビーの選択肢に出してよいか。動ける隠れ側と同じく、10/25 まで false の
- * まま、開発用の環境変数 NEXT_PUBLIC_VERYARE_SPREADING=1 のときだけ出す。
+ * 増え鬼（ADR 0053 の最小版）を、ロビーの選択肢に出してよいか。2026-10-25 に、全員に出すことにした
+ * （既定の選択は、契約の既定のまま「ふつう」）。
  */
-export const SPREADING_READY = false;
+export const SPREADING_READY = true;
 
 /** 開発用の指定（NEXT_PUBLIC_VERYARE_SPREADING=1）。増え鬼の選択肢を出す。 */
 export const SPREADING_DEV = process.env.NEXT_PUBLIC_VERYARE_SPREADING === "1";
@@ -78,13 +84,14 @@ export function veryareHiddenOptions(
 
 /**
  * 隠れ側の動きの選択肢（ADR 0053。サーバーの room.gleam の roaming と揃える。0 = 従来、1 = 動ける）。
- * 既定は契約の VERYARE_ROAMING.defaultRoaming（サーバーの default_roaming と、共有の見本で一致を確かめる）。
+ * 既定の選択は、クライアントの既定（ROAMING_DEFAULT）。サーバーの既定（契約の VERYARE_ROAMING.defaultRoaming）
+ * とは別に持つ（ロビーは、選んだ値をいつも作成の設定に載せる）。
  */
 const ROAMING_OPTION: RoomOption = {
 	key: "roaming",
 	label: "隠れ側の動き",
 	choices: [0, 1],
-	default: VERYARE_ROAMING.defaultRoaming,
+	default: ROAMING_DEFAULT ? 1 : 0,
 	choiceLabels: { 0: "その場から動けない（従来）", 1: "動ける（新）" },
 };
 
@@ -103,6 +110,16 @@ const SPREADING_OPTION: RoomOption = {
  */
 export function veryareRuleOptions(): RoomOption[] {
 	return [ROAMING_OPTION, SPREADING_OPTION];
+}
+
+/**
+ * 「新しく遊ぶ」（選択画面から、ロビーを通らずに作る / platform/host/PlayHost）の作成の設定。クライアントの
+ * 既定が動ける規則なら roaming: 1 を付ける。従来なら付けない（サーバーの既定の規則になる）。
+ */
+export function veryarePlaySettings():
+	| Readonly<Record<string, number>>
+	| undefined {
+	return ROAMING_DEFAULT ? { roaming: 1 } : undefined;
 }
 
 /**

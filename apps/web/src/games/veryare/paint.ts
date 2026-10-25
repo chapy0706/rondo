@@ -46,15 +46,28 @@ export function brushSizeOf(meters: number): number {
 	return Math.round((meters / (2 * Math.PI * BODY_RADIUS)) * 1000) / 1000;
 }
 
-/** ブラシの大きさの、「大」に対する割合（あとから変えられる）。 */
-export const BRUSH_STEPS = { small: 1 / 4, medium: 1 / 2, large: 1 } as const;
+/** ブラシ「中」「小」の大きさの、頭の半径（bodySize.ts の HEAD_RADIUS）に対する割合（あとから変えられる）。 */
+export const BRUSH_STEPS = { small: 1 / 4, medium: 1 / 2 } as const;
 
-/** ブラシの大きさ（半径。u・v の単位）。「大」は頭の半径（bodySize.ts の HEAD_RADIUS）。 */
+/**
+ * ブラシ「大」の大きさ（半径。u・v の単位。あとから変えられる）。細かく塗るより、全体をたくさん塗れるよう、
+ * 頭の半径（0.064）より大きくした。サーバーの上限（VERYARE_PAINT_LIMITS.maxSize = 0.15）の内側。
+ */
+export const BRUSH_LARGE = 0.12;
+
+/** ブラシの大きさ（半径。u・v の単位）。 */
 export const BRUSH_SIZES = {
 	small: brushSizeOf(HEAD_RADIUS * BRUSH_STEPS.small),
 	medium: brushSizeOf(HEAD_RADIUS * BRUSH_STEPS.medium),
-	large: brushSizeOf(HEAD_RADIUS * BRUSH_STEPS.large),
+	large: BRUSH_LARGE,
 } as const;
+
+/** 全身を塗るときの半径（u・v の単位。サーバーの上限 0.15 の内側）。 */
+export const FILL_SIZE = 0.14;
+
+/** 全身を塗るときの、行（v）の間隔と、行の中の点（u）の間隔。行の間は FILL_SIZE の 2 倍より狭くする。 */
+const FILL_ROW_STEP = 0.2;
+const FILL_U_STEP = 0.25;
 
 /** ペイントフェーズの終わりの、確定（自動で送る）までの時間（ミリ秒）。この間は描けない。 */
 export const PAINT_LOCK_MS = 2000;
@@ -109,9 +122,13 @@ export interface PaintPoint extends VeryareStrokePoint {
 	readonly part?: VeryarePaintPart;
 }
 
-/** 描いている途中のペイント。strokes は送る形のまま（丸めた u・v）。 */
+/**
+ * 描いている途中のペイント。strokes は送る形のまま（丸めた u・v）。fills は、全身を塗ったとき（fillBody）の、
+ * 最初のストロークの番号（1つ戻すで、部位の数の本数をまとめて戻す）。全身を塗っていなければ省く。
+ */
 export interface PaintDraft {
 	readonly strokes: readonly VeryareStroke[];
+	readonly fills?: readonly number[];
 }
 
 export const emptyDraft: PaintDraft = { strokes: [] };
@@ -158,7 +175,7 @@ export function beginStroke(
 		size: start.size,
 		points: [rounded(start.point)],
 	};
-	return { strokes: [...draft.strokes, stroke] };
+	return { ...draft, strokes: [...draft.strokes, stroke] };
 }
 
 /**
@@ -178,6 +195,7 @@ export function extendStroke(draft: PaintDraft, point: PaintPoint): PaintDraft {
 		return draft;
 	}
 	return {
+		...draft,
 		strokes: [
 			...draft.strokes.slice(0, -1),
 			{ ...last, points: [...last.points, next] },
@@ -185,8 +203,78 @@ export function extendStroke(draft: PaintDraft, point: PaintPoint): PaintDraft {
 	};
 }
 
+/** 全身の塗りの番号の一覧を持たせる（空なら省く）。 */
+function withFills(
+	strokes: readonly VeryareStroke[],
+	fills: readonly number[],
+): PaintDraft {
+	return fills.length === 0 ? { strokes } : { strokes, fills };
+}
+
+/**
+ * 1つ戻す。いちばん最後が全身の塗り（fillBody）なら、その部位の数の本数をまとめて戻す。ほかは 1 本ずつ。
+ */
 export function undoStroke(draft: PaintDraft): PaintDraft {
-	return { strokes: draft.strokes.slice(0, -1) };
+	const fills = draft.fills ?? [];
+	const last = fills.at(-1);
+	if (
+		last !== undefined &&
+		last + VERYARE_PAINT_PARTS.length === draft.strokes.length
+	) {
+		return withFills(draft.strokes.slice(0, last), fills.slice(0, -1));
+	}
+	const strokes = draft.strokes.slice(0, -1);
+	return withFills(
+		strokes,
+		fills.filter(
+			(start) => start + VERYARE_PAINT_PARTS.length <= strokes.length,
+		),
+	);
+}
+
+/**
+ * 全身を塗るストローク（部位ごとに 1 本。契約の部位の順）。どの部位も、u・v の 0〜1 の全体を、半径
+ * FILL_SIZE の点で覆う: 行（v）を FILL_ROW_STEP ごとに、行の中を u の FILL_U_STEP ごとに、行ごとに向きを
+ * 変えて、1 本の線でつなぐ（線の間は、映すときに埋める / strokeDabs）。ストロークは部位ごとなので、1 本では
+ * 腕と脚を塗れない。
+ */
+export function fillStrokes(color: string): VeryareStroke[] {
+	const rows = Math.round(1 / FILL_ROW_STEP);
+	const steps = Math.round(1 / FILL_U_STEP);
+	const points: VeryareStrokePoint[] = [];
+	for (let row = 0; row <= rows; row++) {
+		const v = round(row / rows);
+		for (let i = 0; i <= steps; i++) {
+			const k = row % 2 === 0 ? i : steps - i;
+			points.push({ u: round(k / steps), v });
+		}
+	}
+	return VERYARE_PAINT_PARTS.map((part) => ({
+		part,
+		color,
+		size: FILL_SIZE,
+		points,
+	}));
+}
+
+/**
+ * 全身を塗る（いま選んでいる色で、1 回で）。いまの塗りの後に足し、1つ戻すで、まとめて取り消せる。上限
+ * （本数・点の数）に入りきらないときは、前の塗りを置き換える（どのみち全部を覆う）。
+ */
+export function fillBody(draft: PaintDraft, color: string): PaintDraft {
+	const fill = fillStrokes(color);
+	const { maxStrokes, maxPoints } = VERYARE_PAINT_LIMITS;
+	const fillPoints = fill.reduce((n, s) => n + s.points.length, 0);
+	if (
+		draft.strokes.length + fill.length > maxStrokes ||
+		pointCount(draft) + fillPoints > maxPoints
+	) {
+		return { strokes: fill, fills: [0] };
+	}
+	return {
+		strokes: [...draft.strokes, ...fill],
+		fills: [...(draft.fills ?? []), draft.strokes.length],
+	};
 }
 
 export function clearPaint(_draft: PaintDraft): PaintDraft {

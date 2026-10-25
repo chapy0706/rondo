@@ -12,7 +12,9 @@
  * - @layout の動ける隠れ側の規則（ADR 0053）: ペイントと探索の隠れ側（移動パッドと、上に出すペイントの板。
  *   板を閉じた画面も）と、探索の鬼。上に出す板が、頭（3D の画面の上から 45% より下には来ない /
  *   viewLayout.ts の bodyTopOnView）を隠さず、中身がスクロールなしで収まり、スポイトが押しやすい大きさ
- *   （44 px 以上）で、色の選択（パレット）が無いことも確かめる
+ *   （44 px 以上）で、色の選択（パレット）が無いことも確かめる。ペイントの間に板を閉じて、小さな「塗る」
+ *   ボタンだけにした画面も測る（移動パッドが出たまま、ほかの部品と重ならない）
+ * - 待機ルームから結果までの画面（walkScreens）は、従来の規則のルーム（ロビーで従来を選んで作る）で測る
  *
  * 2 人（A が鬼、B が隠れ側）で、フェーズの時間は本番の既定のまま。素材なし（カプセル）で測る。
  * 襖を開けるボタンは、鬼が襖の前に立ったときだけ出るので、ここでは出ない（目視で確かめる）。
@@ -21,23 +23,26 @@
 import { type Page, expect } from "@playwright/test";
 import {
 	type Tab,
+	classicRoomWithTwo,
 	expectArea,
 	expectPhase,
 	roamingRoomWithTwo,
-	roomWithTwo,
 	test,
 	touchArea,
 } from "./flows";
 import { LAYOUT_SIZES, type LayoutSize, checkLayout } from "./layout";
 
-/** 鬼選出から探索まで。待機ルームと探索を測る。full なら、その間と、その後の画面も測る。 */
+/**
+ * 鬼選出から探索まで。待機ルームと探索を測る。full なら、その間と、その後の画面も測る。従来の規則のルーム
+ * （探索中の隠れ側は動けない。ペイントの板は左下）。
+ */
 async function walkScreens(
 	open: () => Promise<Tab>,
 	size: LayoutSize,
 	full: boolean,
 ): Promise<void> {
 	const info = test.info();
-	const { a, b, roomId } = await roomWithTwo(open);
+	const { a, b, roomId } = await classicRoomWithTwo(open);
 	await expectArea(a, "green");
 	await checkLayout(a.page, info, size, "待機ルーム");
 
@@ -136,6 +141,14 @@ async function walkRoamingScreens(
 	await b.page.getByTestId("veryare-move-pad").waitFor();
 	await checkLayout(b.page, info, size, "ペイント（動ける隠れ側）");
 	await expectSheetClearsBody(b.page, size, "ペイント（動ける隠れ側）");
+	// 板を閉じると、小さな「塗る」ボタンだけになる。移動パッドは出たまま。開き直しても、出たまま。
+	await b.page.getByTestId("veryare-sheet-close").click();
+	await expect(b.page.getByTestId("veryare-sheet-open")).toHaveText("塗る");
+	await expect(b.page.getByTestId("veryare-move-pad")).toBeVisible();
+	await checkLayout(b.page, info, size, "ペイント（動ける隠れ側・板を閉じる）");
+	await b.page.getByTestId("veryare-sheet-open").click();
+	await expect(b.page.getByTestId("veryare-paint")).toBeVisible();
+	await expect(b.page.getByTestId("veryare-move-pad")).toBeVisible();
 	await expectPhase(b, "exploration", 90_000);
 	await b.page.getByTestId("veryare-move-pad").waitFor();
 	await checkLayout(b.page, info, size, "探索（動ける隠れ側・板を開く）");

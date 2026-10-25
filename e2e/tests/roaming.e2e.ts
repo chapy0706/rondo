@@ -11,7 +11,14 @@
  * - B が襖へ近づくと、サーバーが襖を開け、A の画面の開いている襖が増える。B が離れても、閉じない
  * - B が塗り直すと、A に見た目の通知（look）が届く
  *
+ * - B の画面: 「全身を塗る」で 5 本（部位ごと）が足され、「1つ戻す」でまとめて消える。板を閉じると、小さな
+ *   「塗る」だけになり、移動パッドは出たまま
+ *
  * B の動きと塗り直しは、サーバーへの電文で代える（テスト用の口を使わない構成のため）。
+ *
+ * もう 1 本: クライアントの既定（2026-10-25）。?rules=1 を付けない来場者が「新しく遊ぶ」で作ったルームも、
+ * 動ける規則になる（作成の電文に roaming: 1。上部バーに「動ける」）。ロビーの作成フォームの既定の選択は、
+ * 「動ける（新）」と「ふつう」で、「その場から動けない（従来）」も選べる。
  */
 
 import { expect } from "@playwright/test";
@@ -19,8 +26,10 @@ import { cellOf, centerOf, findPath, pickDoorShot } from "@rondo/bots/plan";
 import { readStageNotice } from "@rondo/bots/stage";
 import {
 	type Tab,
+	chooseVeryare,
 	expectArea,
 	expectPhase,
+	playNew,
 	receivedPayloads,
 	roamingRoomWithTwo,
 	test,
@@ -74,6 +83,19 @@ test("動ける隠れ側の規則: 探索の間に動けて塗れ、近づくと
 	await expect
 		.poll(() => controlsOf(b))
 		.toEqual(expect.arrayContaining(["move", "paint"]));
+	// 全身を塗る: 部位ごとに 1 本（5 本）。1つ戻すで、まとめて取り消せる。
+	const panel = b.page.getByTestId("veryare-paint");
+	await b.page.getByTestId("veryare-paint-fill").click();
+	await expect(panel).toHaveAttribute("data-strokes", "5");
+	await panel.getByRole("button", { name: "1つ戻す" }).click();
+	await expect(panel).toHaveAttribute("data-strokes", "0");
+	// 板を閉じると、小さな「塗る」だけになり、移動パッドは出たまま。開き直しても、出たまま。
+	await b.page.getByTestId("veryare-sheet-close").click();
+	await expect(b.page.getByTestId("veryare-sheet-open")).toHaveText("塗る");
+	await expect(b.page.getByTestId("veryare-move-pad")).toBeVisible();
+	await b.page.getByTestId("veryare-sheet-open").click();
+	await expect(panel).toBeVisible();
+	await expect(b.page.getByTestId("veryare-move-pad")).toBeVisible();
 
 	await expectPhase(b, "exploration", 90_000);
 	await expectPhase(a, "exploration", 30_000);
@@ -137,4 +159,35 @@ test("動ける隠れ側の規則: 探索の間に動けて塗れ、近づくと
 			receivedPayloads(a, "look").some((look) => look.playerId === id),
 		)
 		.toBe(true);
+});
+
+test("クライアントの既定: 「新しく遊ぶ」のルームは動ける規則。ロビーの既定の選択も動ける（従来も選べる）", async ({
+	openTab,
+}) => {
+	const a = await openTab();
+	// ?rules=1 を付けない来場者（入口の覚えも無い）。
+	await chooseVeryare(a.page);
+	expect(
+		await a.page.evaluate(() => localStorage.getItem("rondo.lobby.rules")),
+	).toBeNull();
+	await playNew(a);
+	const created = a.link.sent("create-room").at(-1)?.message.settings as
+		| Record<string, unknown>
+		| undefined;
+	expect(created?.roaming).toBe(1);
+	await expect(a.page.getByTestId("veryare")).toHaveAttribute(
+		"data-roaming",
+		"true",
+	);
+	await expect(a.page.getByTestId("play-rules")).toHaveText("動ける");
+
+	const b = await openTab();
+	await b.page.goto("/lobby/veryare");
+	const roaming = b.page.getByTestId("lobby-option-roaming");
+	await expect(roaming).toHaveValue("1");
+	await expect(b.page.getByTestId("lobby-option-spreading")).toHaveValue("0");
+	await expect(roaming.locator("option")).toHaveText([
+		"その場から動けない（従来）",
+		"動ける（新）",
+	]);
 });

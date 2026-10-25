@@ -43,6 +43,7 @@ import {
 	isFullscreenGame,
 	isRealtimeMatch,
 	lobbyPathOf,
+	playCreateSettings,
 	registry,
 } from "../../games/registry";
 import { GameLogo } from "../brand/GameLogo";
@@ -92,7 +93,10 @@ interface RealtimeSession {
 	readonly leave: () => void;
 }
 
-/** 開いたゲーム画面に合わせて、部屋を作るか、待つか、そのまま開くかを決めて動く。 */
+/**
+ * 開いたゲーム画面に合わせて、部屋を作るか、待つか、そのまま開くかを決めて動く。作るときの設定は、ゲームの
+ * 側が決める（registry の playCreateSettings。veryare は、動ける規則）。
+ */
 function enterRoom(gameType: string): void {
 	const session = getRealtimeSession();
 	switch (playEntry(session.state, gameType)) {
@@ -101,10 +105,10 @@ function enterRoom(gameType: string): void {
 			break;
 		case "leave-and-create":
 			session.leave();
-			session.create(gameType);
+			session.create(gameType, playCreateSettings(gameType));
 			break;
 		case "create":
-			session.create(gameType);
+			session.create(gameType, playCreateSettings(gameType));
 			break;
 	}
 }

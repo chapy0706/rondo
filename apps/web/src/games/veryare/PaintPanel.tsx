@@ -1,8 +1,8 @@
 "use client";
 
 /**
- * ペイント画面の道具（issue-25）。スポイト、選んでいる色の見本、ブラシの大きさ、1つ戻す、全部消す、
- * 塗り終わり。色はスポイトだけで取る（最初の色は、足もとの面の色 / paint.ts の paintColorOf）。判断は
+ * ペイント画面の道具（issue-25）。スポイト、選んでいる色の見本、ブラシの大きさ、全身を塗る、1つ戻す、
+ * 全部消す、塗り終わり。色はスポイトだけで取る（最初の色は、足もとの面の色 / paint.ts の paintColorOf）。判断は
  * 持たず、Veryare.tsx の状態を見せて変えるだけ。体に描く操作は 3D の画面（canvas）のタップで行う。
  */
 
@@ -20,7 +20,7 @@ const BRUSH_LABELS: Record<BrushName, string> = {
 const BUTTON =
 	"min-h-11 rounded-xl bg-surface px-3 font-semibold text-fg text-sm ring-1 ring-line ring-inset disabled:opacity-50 aria-pressed:ring-4 aria-pressed:ring-fg";
 
-/** ブラシの大きさと、1つ戻す・全部消す・ポーズ（板を小さくするため、スポイトより低い）。 */
+/** ブラシの大きさと、全身を塗る・1つ戻す・全部消す・ポーズ（板を小さくするため、スポイトより低い）。 */
 const SMALL_BUTTON =
 	"min-h-9 rounded-lg bg-surface px-2.5 font-semibold text-fg text-xs ring-1 ring-line ring-inset disabled:opacity-50 aria-pressed:ring-4 aria-pressed:ring-fg";
 
@@ -56,6 +56,8 @@ export function PaintPanel(props: {
 	readonly eyedropper: boolean;
 	readonly onBrush: (brush: BrushName) => void;
 	readonly onEyedropper: () => void;
+	/** 全身を塗る（いま選んでいる色で、体の表面の全体を 1 回で / paint.ts の fillBody）。 */
+	readonly onFill: () => void;
 	readonly onUndo: () => void;
 	readonly onClear: () => void;
 	readonly onConfirm: () => void;
@@ -127,6 +129,15 @@ export function PaintPanel(props: {
 				</fieldset>
 			</div>
 			<div className="flex flex-wrap gap-2">
+				<button
+					type="button"
+					disabled={!editable}
+					onClick={props.onFill}
+					data-testid="veryare-paint-fill"
+					className={SMALL_BUTTON}
+				>
+					全身を塗る
+				</button>
 				<button
 					type="button"
 					disabled={!editable || strokeCount === 0}
