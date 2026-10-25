@@ -12,6 +12,13 @@ export const BODY_HEIGHT = 1.6;
 /** 体の太さ（狙いの当たりの円柱と、描き込み面の円柱の半径。メートル）。 */
 export const BODY_RADIUS = 0.2;
 
+/**
+ * 頭の半径（メートル）。素材の体（X Bot）の頭の幅の半分（0.09 m。体の高さ 1.81 m のとき）を、体の高さに
+ * そろえた値（0.09 × 1.6 / 1.81 ≒ 0.08）。ブラシの「大」の大きさ（paint.ts の BRUSH_SIZES）。仮の
+ * カプセルでも、同じ値を使う。
+ */
+export const HEAD_RADIUS = 0.08;
+
 /** 目の高さの、体の高さに対する割合。 */
 export const EYE_HEIGHT_RATIO = 0.8;
 

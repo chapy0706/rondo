@@ -42,12 +42,7 @@ import {
 } from "react";
 import { setRoomBadge } from "../../platform/host/roomBadge";
 import { SoundSettings } from "../../platform/sound/SoundSettings";
-import {
-	type BrushName,
-	type Hsl,
-	PaintConfirmButton,
-	PaintPanel,
-} from "./PaintPanel";
+import { type BrushName, PaintConfirmButton, PaintPanel } from "./PaintPanel";
 import { SpectateView } from "./SpectateView";
 import {
 	type Vec3,
@@ -121,12 +116,12 @@ import {
 	emptyDraft,
 	extendStroke,
 	hereColor,
-	hslToHex,
+	paintColorOf,
 	paintEvent,
 	submitPaintNow,
 	undoStroke,
 } from "./paint";
-import { FLOOR_COLOR, UNPAINTED_COLOR } from "./palette";
+import { UNPAINTED_COLOR } from "./palette";
 import {
 	NO_PHASE_CLOCK,
 	type PhaseClock,
@@ -215,7 +210,7 @@ import {
 	parseStageNotice,
 	reconcile,
 } from "./stage";
-import { clampPanel, controlSizes } from "./viewLayout";
+import { clampPanel, controlSizes, paintSheetMaxHeight } from "./viewLayout";
 
 /** 「見つけた！」を出しておく時間（ミリ秒 / issue-27）。 */
 const FOUND_NOTICE_MS = 1500;
@@ -398,9 +393,8 @@ function VeryarePlay() {
 	const [bodyPosable, setBodyPosable] = useState(false);
 	/** キャラクターの素材の差し替え口（issue-56）。対戦の画面を開いた時点で読み込みを始める。 */
 	const [characterSlot] = useState(() => assets.characterSlot());
-	/** 選んでいる色。null の間は「ここの色」。 */
+	/** スポイトで拾った色。null の間は、足もとの面の色（paintColorOf）。 */
 	const [paintColor, setPaintColor] = useState<string | null>(null);
-	const [hsl, setHsl] = useState<Hsl>({ h: 30, s: 40, l: 50 });
 	const [brush, setBrush] = useState<BrushName>("medium");
 	const [eyedropper, setEyedropper] = useState(false);
 	/** 「塗り終わり」を押したか。 */
@@ -965,17 +959,19 @@ function VeryarePlay() {
 			: roaming
 				? (draftPaint ?? serverSelfPaint)
 				: (serverSelfPaint ?? draftPaint);
-	// ここの色。平屋の glb を表示しているときは、足もとの床の見た目の色（ペイント画面の間だけ求める）。
-	// 表示していなければ、サーバーの代表色の表（palette.ts）。
+	// 足もとの面の色（最初の色）。平屋の glb を表示しているときは、足もとの床の見た目の色（ペイント画面の
+	// 間だけ求める）。表示していなければ、サーバーの代表色の表（palette.ts）。
 	const sceneHere = showPaintPanel
 		? (sceneRef.current?.floorColorAt(
 				positionRef.current.x,
 				positionRef.current.z,
 			) ?? null)
 		: null;
-	const here =
-		sceneHere ?? (grid === null ? null : hereColor(grid, positionRef.current));
-	const brushColor = paintColor ?? here ?? FLOOR_COLOR;
+	const brushColor = paintColorOf({
+		picked: paintColor,
+		sceneHere,
+		tableHere: grid === null ? null : hereColor(grid, positionRef.current),
+	});
 	const pointOnCanvas = (event: ReactPointerEvent<HTMLCanvasElement>) => {
 		const rect = event.currentTarget.getBoundingClientRect();
 		return sceneRef.current?.pickPaint(
@@ -1435,6 +1431,13 @@ function VeryarePlay() {
 	 */
 	const sheetOnTop = roaming && sheet === "paint";
 	/**
+	 * 上に出すペイントの板の高さの上限（頭のてっぺんより上で止め、体を隠さない / viewLayout.ts）。
+	 * 左下に出すシート（従来の規則のペイントの板・答え合わせ）は、これまでどおり半分まで。
+	 */
+	const sheetMaxHeight = sheetOnTop
+		? paintSheetMaxHeight(viewSize.width, viewSize.height)
+		: null;
+	/**
 	 * 動かしたシートの左上の位置（3D の画面の中の px）。null なら、既定の左下。見出しのつまみを引いて
 	 * 動かす（塗りたい所を、シートが隠さないように）。位置は clampPanel で画面の内側に収める。
 	 */
@@ -1500,15 +1503,8 @@ function VeryarePlay() {
 			locked={!roaming && remainingMs <= PAINT_LOCK_MS}
 			strokeCount={draft.strokes.length}
 			color={brushColor}
-			here={here}
 			brush={brush}
 			eyedropper={eyedropper}
-			hsl={hsl}
-			onColor={setPaintColor}
-			onHsl={(next) => {
-				setHsl(next);
-				setPaintColor(hslToHex(next.h, next.s, next.l));
-			}}
 			onBrush={setBrush}
 			onEyedropper={() => setEyedropper((current) => !current)}
 			onUndo={() => setDraft(undoStroke)}
@@ -1894,15 +1890,18 @@ function VeryarePlay() {
 						<div
 							ref={sheetRef}
 							className={`absolute flex max-h-[calc(50%-1rem)] flex-col rounded-xl bg-ink/85 ring-1 ring-line ring-inset ${sheetPlace === null ? (sheetOnTop ? "top-2 left-2" : "bottom-2 left-2") : ""}`}
-							style={
-								sheetPlace === null
+							style={{
+								...(sheetPlace === null
 									? { right: padSize + 16 }
 									: {
 											left: sheetPlace.x,
 											top: sheetPlace.y,
 											width: sheetWidth,
-										}
-							}
+										}),
+								...(sheetMaxHeight === null
+									? {}
+									: { maxHeight: sheetMaxHeight }),
+							}}
 							data-testid="veryare-sheet"
 							data-moved={sheetPlace !== null}
 						>
@@ -1945,7 +1944,10 @@ function VeryarePlay() {
 									×
 								</button>
 							</div>
-							<div className="min-h-0 overflow-y-auto overscroll-contain px-2 pb-2">
+							<div
+								className="min-h-0 overflow-y-auto overscroll-contain px-2 pb-2"
+								data-testid="veryare-sheet-body"
+							>
 								{sheet === "paint" ? paintPanel : revealPanel}
 							</div>
 						</div>

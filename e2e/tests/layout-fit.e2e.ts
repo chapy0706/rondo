@@ -10,13 +10,15 @@
  *   答え合わせ、結果）。大きさごとに、結果画面まで進む（約 2 分）
  *
  * - @layout の動ける隠れ側の規則（ADR 0053）: ペイントと探索の隠れ側（移動パッドと、上に出すペイントの板。
- *   板を閉じた画面も）と、探索の鬼
+ *   板を閉じた画面も）と、探索の鬼。上に出す板が、頭（3D の画面の上から 45% より下には来ない /
+ *   viewLayout.ts の bodyTopOnView）を隠さず、中身がスクロールなしで収まり、スポイトが押しやすい大きさ
+ *   （44 px 以上）で、色の選択（パレット）が無いことも確かめる
  *
  * 2 人（A が鬼、B が隠れ側）で、フェーズの時間は本番の既定のまま。素材なし（カプセル）で測る。
  * 襖を開けるボタンは、鬼が襖の前に立ったときだけ出るので、ここでは出ない（目視で確かめる）。
  */
 
-import type { Page } from "@playwright/test";
+import { type Page, expect } from "@playwright/test";
 import {
 	type Tab,
 	expectArea,
@@ -67,8 +69,59 @@ async function walkScreens(
 }
 
 /**
+ * 上に出すペイントの板が、体を隠さないか。板の下端が、3D の画面の上から 45%（頭のてっぺんの、いちばん
+ * 下の見積もり）より上にあり、板の中身がスクロールなしで収まる。スポイトは 44 px 以上の高さで、色の
+ * 選択（パレット）は無く、選んでいる色の見本が 1 つある。
+ */
+async function expectSheetClearsBody(
+	page: Page,
+	size: LayoutSize,
+	screen: string,
+) {
+	const box = await page.evaluate(() => {
+		const rect = (id: string) =>
+			document
+				.querySelector(`[data-testid="${id}"]`)
+				?.getBoundingClientRect() ?? null;
+		const sheet = rect("veryare-sheet");
+		const view = rect("veryare-view");
+		const body = document.querySelector('[data-testid="veryare-sheet-body"]');
+		const eyedropper = rect("veryare-eyedropper");
+		return {
+			sheetBottom: sheet?.bottom ?? null,
+			viewTop: view?.top ?? null,
+			viewHeight: view?.height ?? null,
+			scroll: body === null ? null : body.scrollHeight - body.clientHeight,
+			eyedropperHeight: eyedropper?.height ?? null,
+			swatches: document.querySelectorAll('[data-testid="veryare-paint-color"]')
+				.length,
+			palette: document.querySelectorAll(
+				'[data-testid="veryare-paint"] [aria-label^="廊下"]',
+			).length,
+		};
+	});
+	console.log(
+		`[layout] ${size.name} ${screen} 板の下端 ${box.sheetBottom} / 3D の画面 ${box.viewTop}+${box.viewHeight} / 中身のスクロール ${box.scroll}`,
+	);
+	if (
+		box.sheetBottom === null ||
+		box.viewTop === null ||
+		box.viewHeight === null
+	) {
+		throw new Error("ペイントの板か 3D の画面が無い");
+	}
+	expect(box.sheetBottom).toBeLessThanOrEqual(
+		box.viewTop + box.viewHeight * 0.45,
+	);
+	expect(box.scroll).toBeLessThanOrEqual(1);
+	expect(box.eyedropperHeight).toBeGreaterThanOrEqual(44);
+	expect(box.swatches).toBe(1);
+	expect(box.palette).toBe(0);
+}
+
+/**
  * 動ける隠れ側の規則（ADR 0053）。ペイントと探索の隠れ側に、移動パッドと、上に出すペイントの板が、
- * 重ならずに収まるか。板を閉じたときの画面も測る。
+ * 重ならずに収まるか（板は体も隠さない）。板を閉じたときの画面も測る。
  */
 async function walkRoamingScreens(
 	open: () => Promise<Tab>,
@@ -82,9 +135,11 @@ async function walkRoamingScreens(
 	await b.page.getByTestId("veryare-paint").waitFor();
 	await b.page.getByTestId("veryare-move-pad").waitFor();
 	await checkLayout(b.page, info, size, "ペイント（動ける隠れ側）");
+	await expectSheetClearsBody(b.page, size, "ペイント（動ける隠れ側）");
 	await expectPhase(b, "exploration", 90_000);
 	await b.page.getByTestId("veryare-move-pad").waitFor();
 	await checkLayout(b.page, info, size, "探索（動ける隠れ側・板を開く）");
+	await expectSheetClearsBody(b.page, size, "探索（動ける隠れ側・板を開く）");
 	await b.page.getByTestId("veryare-sheet-close").click();
 	await checkLayout(b.page, info, size, "探索（動ける隠れ側・板を閉じる）");
 	await checkLayout(a.page, info, size, "探索（動ける隠れ側の鬼）");

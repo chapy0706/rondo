@@ -7,6 +7,8 @@
  * 小さくする）。
  */
 
+import { BODY_HEIGHT } from "./bodySize";
+import { CAMERA_PITCH, cameraPose } from "./camera";
 import { CAMERA_FOV } from "./cameraGuard";
 
 /** これまでの 3D の画面の縦横比（横 / 縦）。横の画角は、この形のときの角度に揃える。 */
@@ -80,4 +82,42 @@ export function clampPanel(
 		x: axis(position.x, panel.width, view.width),
 		y: axis(position.y, panel.height, view.height),
 	};
+}
+
+/** 上に出すペイントの板の、3D の画面の上端からの余白と、頭とのすき間（px）。 */
+export const PAINT_SHEET_GAP = 8;
+
+/**
+ * 3D の画面（幅 width・高さ height。px）で、自分の頭のてっぺんが映る高さ（上端からの px）。開けた所の
+ * 三人称カメラ（camera.ts の cameraPose。距離・見下ろす角度・高さの上限は既定）と、縦の画角
+ * （fovForAspect）で求める。壁際でカメラが近づくと、体は大きく映り、頭はこれより上に来る。
+ */
+export function bodyTopOnView(width: number, height: number): number {
+	const { position, target } = cameraPose(
+		{ x: 0, z: 0, feet: 0 },
+		0,
+		CAMERA_PITCH,
+	);
+	// yaw 0 のカメラは +z の側から -z を向く。縦の面（前 = -z、上 = y）で考える。
+	const forward = { h: position.z - target.z, y: target.y - position.y };
+	const size = Math.hypot(forward.h, forward.y);
+	const f = { h: forward.h / size, y: forward.y / size };
+	const up = { h: -f.y, y: f.h };
+	const head = { h: position.z, y: BODY_HEIGHT - position.y };
+	const depth = head.h * f.h + head.y * f.y;
+	const rise = head.h * up.h + head.y * up.y;
+	const half = Math.tan(toRad(fovForAspect(width / height) / 2));
+	return (height / 2) * (1 - rise / depth / half);
+}
+
+/**
+ * 上に出すペイントの板（動ける隠れ側の規則 / ADR 0053）の高さの上限（px）。頭のてっぺんから、上の余白と、
+ * 頭とのすき間を引く（板が体を隠さない）。大きさが分からない間（0）は null（上限を付けない）。
+ */
+export function paintSheetMaxHeight(
+	width: number,
+	height: number,
+): number | null {
+	if (width <= 0 || height <= 0) return null;
+	return Math.floor(bodyTopOnView(width, height) - 2 * PAINT_SHEET_GAP);
 }

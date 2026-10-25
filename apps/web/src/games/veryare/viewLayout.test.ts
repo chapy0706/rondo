@@ -7,11 +7,14 @@ import {
 } from "./cameraGuard";
 import {
 	FOV_MAX,
+	PAINT_SHEET_GAP,
 	REFERENCE_ASPECT,
 	SIGHT_ASPECT,
+	bodyTopOnView,
 	clampPanel,
 	controlSizes,
 	fovForAspect,
+	paintSheetMaxHeight,
 } from "./viewLayout";
 
 /** 縦の画角 fov（度）と横長 aspect の、横の画角（度）。 */
@@ -117,5 +120,48 @@ describe("clampPanel - 動かしたシート（ペイントの板など）を、
 		expect(
 			clampPanel({ x: 100, y: 100 }, { width: 500, height: 600 }, view),
 		).toEqual({ x: 8, y: 8 });
+	});
+});
+
+describe("bodyTopOnView・paintSheetMaxHeight - 上に出すペイントの板（動ける隠れ側の規則）は、頭より上で止める", () => {
+	/** iPhone の縦画面の、3D の画面のおよその大きさ（上部バーと状態の行を除いた残り。SE は探索の画面で測った値）。 */
+	const VIEWS = [
+		{ width: 375, height: 449 },
+		{ width: 390, height: 560 },
+		{ width: 393, height: 570 },
+		{ width: 430, height: 630 },
+		{ width: 402, height: 760 },
+	];
+
+	it("開けた所の三人称カメラでは、頭のてっぺんは、3D の画面の上から 35〜45% の所（画面の中央より上）", () => {
+		for (const view of VIEWS) {
+			const top = bodyTopOnView(view.width, view.height);
+			expect(top / view.height).toBeGreaterThan(0.35);
+			expect(top / view.height).toBeLessThan(0.45);
+		}
+	});
+
+	it("縦横比が 3:4 の画面（縦の画角 60°）では、頭のてっぺんは上から約 39%", () => {
+		expect(bodyTopOnView(300, 400) / 400).toBeCloseTo(0.389, 2);
+	});
+
+	it("板の高さの上限は、頭のてっぺんから、上の余白とすき間を引いた高さ（整数の px）", () => {
+		for (const view of VIEWS) {
+			const max = paintSheetMaxHeight(view.width, view.height);
+			expect(Number.isInteger(max)).toBe(true);
+			expect(max).toBe(
+				Math.floor(
+					bodyTopOnView(view.width, view.height) - 2 * PAINT_SHEET_GAP,
+				),
+			);
+		}
+	});
+
+	it("iPhone SE の縦画面でも、板の中身（見出し・状態・道具の 2 行。約 150 px）が入る", () => {
+		expect(paintSheetMaxHeight(375, 449)).toBeGreaterThanOrEqual(150);
+	});
+
+	it("大きさが分からない間（0）は、上限を付けない（null）", () => {
+		expect(paintSheetMaxHeight(0, 0)).toBeNull();
 	});
 });

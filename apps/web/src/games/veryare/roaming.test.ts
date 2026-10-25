@@ -304,6 +304,39 @@ describe("動ける隠れ側の規則の、動きと操作", () => {
 		expect(controlsFor(painting, context())).toEqual(["move", "look", "paint"]);
 	});
 
+	it("移動パッド: 動ける規則の隠れ側には、準備移動・ペイント・探索のどの時間にも出す（確定・ポーズ・襖のそば・板の有無で消えない）", () => {
+		const contexts = [
+			context(),
+			context({ paintSubmitted: true }),
+			context({ posable: false }),
+			context({ nearDoor: true }),
+			context({ paintSubmitted: true, posable: false, nearDoor: true }),
+		];
+		for (const name of ["preparation", "painting", "exploration"] as const) {
+			const view = viewOf([
+				roamingInfo,
+				phase(name),
+				{ type: "hiding", playerIds: ["b"] },
+			]);
+			expect(canMoveNow(view, "b")).toBe(true);
+			for (const c of contexts) {
+				expect(controlsFor(view, c)).toContain("move");
+			}
+		}
+		// 従来の規則は、いまのまま（準備移動だけ動ける）。
+		for (const name of ["painting", "exploration"] as const) {
+			const classic = viewOf([
+				classicInfo,
+				phase(name),
+				{ type: "hiding", playerIds: ["b"] },
+			]);
+			expect(controlsFor(classic, context())).not.toContain("move");
+		}
+		expect(
+			controlsFor(viewOf([classicInfo, phase("preparation")]), context()),
+		).toContain("move");
+	});
+
 	it("操作部品: 動ける規則では、襖のそばでも「襖を開ける」を出さない（鬼も）", () => {
 		const view = viewOf([roamingInfo, phase("exploration")]);
 		expect(controlsFor(view, context({ you: "a", nearDoor: true }))).toEqual([

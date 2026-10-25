@@ -4,6 +4,7 @@ import {
 	BODY_RADIUS,
 	EYE_HEIGHT,
 	EYE_HEIGHT_RATIO,
+	HEAD_RADIUS,
 	PLACEHOLDER_CAPSULE,
 } from "./bodySize";
 
@@ -24,5 +25,12 @@ describe("体の大きさ（issue-56。体の高さ 1.6 m を基準にした値�
 			PLACEHOLDER_CAPSULE.length + 2 * PLACEHOLDER_CAPSULE.radius,
 		).toBeCloseTo(BODY_HEIGHT, 9);
 		expect(PLACEHOLDER_CAPSULE.centerY).toBeCloseTo(BODY_HEIGHT / 2, 9);
+	});
+});
+
+describe("頭の半径（ブラシの「大」の大きさ）", () => {
+	it("素材の体（X Bot）の頭の幅の半分を、体の高さ 1.6 m にそろえた値（0.08 m）。体の太さより小さい", () => {
+		expect(HEAD_RADIUS).toBe(0.08);
+		expect(HEAD_RADIUS).toBeLessThan(BODY_RADIUS);
 	});
 });

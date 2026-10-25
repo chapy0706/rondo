@@ -2,12 +2,15 @@ import { VERYARE_PAINT_LIMITS, type VeryareStroke } from "@rondo/contracts";
 import { describe, expect, it } from "vitest";
 import movement from "../../../../../packages/contracts/src/fixtures/veryare-movement.json";
 import paintFixture from "../../../../../packages/contracts/src/fixtures/veryare-paint.json";
+import { BODY_HEIGHT, BODY_RADIUS, HEAD_RADIUS } from "./bodySize";
 import {
 	BODY_CYLINDER,
 	BRUSH_SIZES,
+	BRUSH_STEPS,
 	PAINT_LOCK_MS,
 	beginStroke,
 	bodyColorAt,
+	brushSizeOf,
 	canEditPaint,
 	clearPaint,
 	emptyDraft,
@@ -15,6 +18,7 @@ import {
 	hereColor,
 	hslToHex,
 	intersectCylinder,
+	paintColorOf,
 	paintEvent,
 	parsePaint,
 	pointCount,
@@ -488,5 +492,70 @@ describe("parsePaint - 届いたペイントを境で検証して読む", () => 
 		expect(
 			parsePaint({ kind: "strokes", strokes: [many(maxPoints), one] }),
 		).toBeNull();
+	});
+});
+
+describe("ブラシの大きさ（大は頭の半径。中・小は、大の 1/2・1/4）", () => {
+	it("brushSizeOf: 長さ（メートル）を、胴の円柱を回る向きの u の半径にする（小数第3位に丸める）", () => {
+		expect(brushSizeOf(2 * Math.PI * BODY_RADIUS)).toBe(1);
+		expect(brushSizeOf(HEAD_RADIUS)).toBe(0.064);
+	});
+
+	it("大は頭の半径、中は大の 1/2、小は大の 1/4", () => {
+		expect(BRUSH_STEPS).toEqual({ small: 1 / 4, medium: 1 / 2, large: 1 });
+		expect(BRUSH_SIZES).toEqual({ small: 0.016, medium: 0.032, large: 0.064 });
+	});
+
+	it("大で塗った楕円は、胴の円柱の上で、どの向きにも頭の半径より小さくならない", () => {
+		const around = BRUSH_SIZES.large * 2 * Math.PI * BODY_RADIUS;
+		const up = BRUSH_SIZES.large * BODY_HEIGHT;
+		expect(Math.min(around, up)).toBeGreaterThanOrEqual(HEAD_RADIUS);
+	});
+
+	it("大で胴を一周なぞっても、点の数はサーバーの上限（合計 1000）の 1 割に届かない", () => {
+		let draft = beginStroke(emptyDraft, {
+			color: "#a07850",
+			size: BRUSH_SIZES.large,
+			point: { u: 0, v: 0.5 },
+		});
+		for (let i = 1; i <= 1000; i++) {
+			draft = extendStroke(draft, { u: (i / 1000) % 1, v: 0.5 });
+		}
+		expect(pointCount(draft)).toBeLessThan(VERYARE_PAINT_LIMITS.maxPoints / 10);
+	});
+});
+
+describe("paintColorOf - 塗る色（色はスポイトだけで取る。最初の色は、足もとの面の色）", () => {
+	it("スポイトで拾った色を、いちばん先に使う", () => {
+		expect(
+			paintColorOf({
+				picked: "#123456",
+				sceneHere: "#abcdef",
+				tableHere: FLOOR_COLOR,
+			}),
+		).toBe("#123456");
+	});
+
+	it("拾っていなければ、足もとの面の見た目の色（平屋の glb を出しているとき / surfaceColor.ts）", () => {
+		expect(
+			paintColorOf({
+				picked: null,
+				sceneHere: "#abcdef",
+				tableHere: FLOOR_COLOR,
+			}),
+		).toBe("#abcdef");
+	});
+
+	it("glb を出していなければ、その場の代表色。どちらも無ければ廊下の色", () => {
+		expect(
+			paintColorOf({
+				picked: null,
+				sceneHere: null,
+				tableHere: ROOM_COLORS.washitsu as string,
+			}),
+		).toBe(ROOM_COLORS.washitsu);
+		expect(
+			paintColorOf({ picked: null, sceneHere: null, tableHere: null }),
+		).toBe(FLOOR_COLOR);
 	});
 });

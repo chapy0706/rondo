@@ -25,9 +25,8 @@ import {
 	type VeryareStroke,
 	type VeryareStrokePoint,
 } from "@rondo/contracts";
-import { BODY_HEIGHT, BODY_RADIUS } from "./bodySize";
-import { placeColor } from "./palette";
-import { UNPAINTED_COLOR } from "./palette";
+import { BODY_HEIGHT, BODY_RADIUS, HEAD_RADIUS } from "./bodySize";
+import { FLOOR_COLOR, UNPAINTED_COLOR, placeColor } from "./palette";
 import type { Phase, Point, Role } from "./rules";
 import { type StageGrid, cellAt } from "./stage";
 
@@ -38,8 +37,24 @@ export const BODY_CYLINDER = {
 	yMax: BODY_HEIGHT,
 } as const;
 
-/** ブラシの大きさ（半径。u・v の単位）。 */
-export const BRUSH_SIZES = { small: 0.02, medium: 0.04, large: 0.08 } as const;
+/**
+ * 長さ（メートル）を、ブラシの半径（u・v の単位）にする。胴の円柱を回る向きの長さで割る（小数第3位に
+ * 丸める）。胴の円柱では、縦（v）の 1 は体の高さで、回る向きより長いので、どの向きにも、この長さより
+ * 小さくならない。
+ */
+export function brushSizeOf(meters: number): number {
+	return Math.round((meters / (2 * Math.PI * BODY_RADIUS)) * 1000) / 1000;
+}
+
+/** ブラシの大きさの、「大」に対する割合（あとから変えられる）。 */
+export const BRUSH_STEPS = { small: 1 / 4, medium: 1 / 2, large: 1 } as const;
+
+/** ブラシの大きさ（半径。u・v の単位）。「大」は頭の半径（bodySize.ts の HEAD_RADIUS）。 */
+export const BRUSH_SIZES = {
+	small: brushSizeOf(HEAD_RADIUS * BRUSH_STEPS.small),
+	medium: brushSizeOf(HEAD_RADIUS * BRUSH_STEPS.medium),
+	large: brushSizeOf(HEAD_RADIUS * BRUSH_STEPS.large),
+} as const;
 
 /** ペイントフェーズの終わりの、確定（自動で送る）までの時間（ミリ秒）。この間は描けない。 */
 export const PAINT_LOCK_MS = 2000;
@@ -257,6 +272,19 @@ export function strokeDabs(
 /** ここの色: いまいるマスの代表色（palette.ts の表）。 */
 export function hereColor(grid: StageGrid, position: Point): string {
 	return placeColor(grid, cellAt(grid, position));
+}
+
+/**
+ * 塗る色。色はスポイトだけで取る（picked）。拾う前は、足もとの面の色: 平屋の glb を出していれば
+ * 見た目の色（sceneHere / surfaceColor.ts）、出していなければ、その場の代表色（tableHere / hereColor）、
+ * どちらも無ければ廊下の色。
+ */
+export function paintColorOf(colors: {
+	readonly picked: string | null;
+	readonly sceneHere: string | null;
+	readonly tableHere: string | null;
+}): string {
+	return colors.picked ?? colors.sceneHere ?? colors.tableHere ?? FLOOR_COLOR;
 }
 
 /** 体のスポイト: その部位のその位置に、いちばん上に塗られた色。塗っていなければ未塗装の色。 */
