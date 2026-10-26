@@ -35,9 +35,13 @@ const broken = {
 };
 
 describe("音の設定（端末に覚える / issue-63）", () => {
-	it("既定は、BGM 小さめ・効果音 中くらい・ミュートなし", () => {
+	it("既定は、BGM と効果音が同じ 0.35（効果音を BGM より大きくしない）・ミュートなし", () => {
 		expect(loadSoundSettings(memory())).toEqual(DEFAULT_SOUND_SETTINGS);
-		expect(DEFAULT_SOUND_SETTINGS.bgm).toBeLessThan(DEFAULT_SOUND_SETTINGS.se);
+		expect(DEFAULT_SOUND_SETTINGS.bgm).toBe(0.35);
+		expect(DEFAULT_SOUND_SETTINGS.se).toBe(0.35);
+		expect(DEFAULT_SOUND_SETTINGS.bgm).toBeLessThanOrEqual(
+			DEFAULT_SOUND_SETTINGS.se,
+		);
 		expect(DEFAULT_SOUND_SETTINGS.muted).toBe(false);
 	});
 

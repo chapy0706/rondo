@@ -2,7 +2,9 @@
  * 音の設定（issue-63）: BGM の音量、効果音の音量、全部のミュート。選んだ値は、その端末に覚える
  * （localStorage。ceilingSetting.ts と同じく try/catch で囲み、使えなくても既定で動く）。
  *
- * 既定は、BGM 小さめ、効果音 中くらい（発表会の会場の騒がしさを考えて）。
+ * 既定は、BGM と効果音を、同じ 0.35 にする（発表会の会場の騒がしさを考えて、全体は控えめ）。素材ごとの
+ * 倍率（gain）が効果音の側で大きいので、スライダーの値が同じでも、効果音の方が大きく聞こえる。BGM を
+ * 0.2 にしたときは、会場で BGM が聞こえなかったため、0.35 に上げた（issue-63 の続き / 2026-10-26）。
  */
 
 export const SOUND_SETTINGS_KEY = "rondo.sound.settings";
@@ -16,7 +18,7 @@ export interface SoundSettings {
 }
 
 export const DEFAULT_SOUND_SETTINGS: SoundSettings = {
-	bgm: 0.2,
+	bgm: 0.35,
 	se: 0.35,
 	muted: false,
 };
