@@ -12,7 +12,9 @@
  * - B が塗り直すと、A に見た目の通知（look）が届く
  *
  * - B の画面: 「全身を塗る」で 5 本（部位ごと）が足され、「1つ戻す」でまとめて消える。板を閉じると、小さな
- *   「塗る」だけになり、移動パッドは出たまま
+ *   「塗る」（下の中央）だけになり、移動パッドは出たまま
+ * - B の画面（探索）: 鬼の視点の切り替えは、板を開いている間は板の見出しの中、閉じると左上（「塗る」と
+ *   重ならない）
  *
  * B の動きと塗り直しは、サーバーへの電文で代える（テスト用の口を使わない構成のため）。
  *
@@ -103,6 +105,30 @@ test("動ける隠れ側の規則: 探索の間に動けて塗れ、近づくと
 		.poll(() => controlsOf(b))
 		.toEqual(expect.arrayContaining(["move", "look", "paint"]));
 	expect(await controlsOf(b)).not.toContain("open-door");
+
+	// 鬼の視点の切り替え: 板を開いている間は、板の見出しの中。板を閉じると左上に出て、下の中央の「塗る」
+	// （移動パッドと視点パッドの間）と重ならない。
+	const sheet = b.page.getByTestId("veryare-sheet");
+	await expect(sheet.getByTestId("veryare-oni-view")).toBeVisible();
+	await b.page.getByTestId("veryare-sheet-close").click();
+	const oniView = b.page.getByTestId("veryare-oni-view");
+	await expect(oniView).toBeVisible();
+	const [paintBox, moveBox, lookBox, oniBox] = await Promise.all(
+		[
+			b.page.getByTestId("veryare-sheet-open"),
+			b.page.getByTestId("veryare-move-pad"),
+			b.page.getByTestId("veryare-look-pad"),
+			oniView,
+		].map((locator) => locator.boundingBox()),
+	);
+	if (!paintBox || !moveBox || !lookBox || !oniBox) {
+		throw new Error("部品の位置が取れない");
+	}
+	expect(paintBox.x).toBeGreaterThanOrEqual(moveBox.x + moveBox.width);
+	expect(paintBox.x + paintBox.width).toBeLessThanOrEqual(lookBox.x);
+	expect(oniBox.y + oniBox.height).toBeLessThan(paintBox.y);
+	await b.page.getByTestId("veryare-sheet-open").click();
+	await expect(sheet.getByTestId("veryare-oni-view")).toBeVisible();
 
 	// B のいまの位置（玄関）と ID は、探索の開始の一括配信で分かる。
 	const [hiders] = receivedPayloads(a, "hiders");

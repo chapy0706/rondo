@@ -6,6 +6,7 @@
  * - 横: document.documentElement.scrollWidth と window.innerWidth の差（0 以下なら、横のはみ出しなし）
  * - 表示領域の外にはみ出した部品（data-testid で探す。出ていない部品は数えない）
  * - 部品どうしの重なり（片方が、もう片方の中にある組は除く。3D の画面は、上に重ねる前提なので除く）
+ * - 押す部品（tap）の大きさ（高さと幅が 44 px 以上）
  */
 
 import { type Page, type TestInfo, expect } from "@playwright/test";
@@ -29,19 +30,32 @@ export const LAYOUT_SIZES: readonly LayoutSize[] = [
 	{ name: "16Pro-全高", width: 402, height: 874 },
 ];
 
-/** 測る部品（data-testid と、表に出す名前）。 */
-const PARTS: readonly { readonly id: string; readonly label: string }[] = [
-	{ id: "veryare-move-pad", label: "移動パッド" },
-	{ id: "veryare-look-pad", label: "視点パッド" },
-	{ id: "veryare-shoot", label: "撃つ" },
-	{ id: "veryare-open-door", label: "襖を開ける" },
-	{ id: "veryare-waiting-pose", label: "ポーズ（待機）" },
-	{ id: "veryare-game-pose", label: "ポーズ" },
-	// ペイントの板と答え合わせの切り替えは、左下のシート（中だけスクロールする）。シートを測る。
+/** 測る部品（data-testid と、表に出す名前）。tap は押す部品（44 px 以上を確かめる）。 */
+const PARTS: readonly {
+	readonly id: string;
+	readonly label: string;
+	readonly tap?: boolean;
+}[] = [
+	{ id: "veryare-move-pad", label: "移動パッド", tap: true },
+	{ id: "veryare-look-pad", label: "視点パッド", tap: true },
+	{ id: "veryare-pending", label: "接続中" },
+	{ id: "veryare-shoot", label: "撃つ", tap: true },
+	{ id: "veryare-open-door", label: "襖を開ける", tap: true },
+	{ id: "veryare-waiting-pose", label: "ポーズ（待機）", tap: true },
+	{ id: "veryare-game-pose", label: "ポーズ", tap: true },
+	{ id: "veryare-pose-notice", label: "ポーズの名前" },
+	// 探索の隠れ側の「鬼の視点を見る」（動ける規則で板を開いている間は、板の見出しの中）。
+	{ id: "veryare-oni-view", label: "鬼の視点", tap: true },
+	{ id: "veryare-roof", label: "屋根（開発用）", tap: true },
+	{ id: "veryare-waiting-colors", label: "待つ間の色" },
+	{ id: "veryare-settings", label: "設定", tap: true },
+	// ペイントの板と答え合わせの切り替えは、シート（中だけスクロールする）。シートを測る。
 	{ id: "veryare-sheet", label: "シート（ペイント・答え合わせ）" },
-	// シートを閉じたときの開くボタン（動ける規則のペイントでは、小さな「塗る」）。
-	{ id: "veryare-sheet-open", label: "シートを開く" },
-	{ id: "veryare-paint-done", label: "塗り終わり" },
+	{ id: "veryare-sheet-move", label: "シートのつまみ", tap: true },
+	{ id: "veryare-sheet-close", label: "シートを閉じる", tap: true },
+	// シートを閉じたときの開くボタン（動ける規則のペイントでは、下の中央の小さな「塗る」）。
+	{ id: "veryare-sheet-open", label: "シートを開く", tap: true },
+	{ id: "veryare-paint-done", label: "塗り終わり", tap: true },
 	{ id: "veryare-status", label: "時間の表示" },
 	// 上部バーの規則の名前（ADR 0053。新しい規則のルームだけ出る）。
 	{ id: "play-rules", label: "規則の名前" },
@@ -78,6 +92,8 @@ export interface LayoutMeasure {
 	readonly outside: readonly string[];
 	/** 重なった部品の組。 */
 	readonly overlaps: readonly string[];
+	/** 押す部品のうち、高さか幅が 44 px より小さいもの（名前と大きさ）。 */
+	readonly small: readonly string[];
 	/** 出ていた部品。 */
 	readonly shown: readonly string[];
 }
@@ -124,6 +140,11 @@ export async function measureLayout(page: Page): Promise<LayoutMeasure> {
 					}
 				}
 			}
+			const small = found.flatMap(({ label, tap, r }) =>
+				tap === true && (r.width < 43.5 || r.height < 43.5)
+					? [`${label}（${round(r.width)}×${round(r.height)}）`]
+					: [],
+			);
 			return {
 				innerWidth: vw,
 				innerHeight: vh,
@@ -131,6 +152,7 @@ export async function measureLayout(page: Page): Promise<LayoutMeasure> {
 				overflowX: root.scrollWidth - vw,
 				outside,
 				overlaps,
+				small,
 				shown: found.map((f) => f.label),
 			};
 		},
@@ -154,11 +176,12 @@ export function layoutRow(
 		`横 ${m.overflowX > 0 ? `+${m.overflowX}` : "0"}`,
 		`外: ${list(m.outside)}`,
 		`重なり: ${list(m.overlaps)}`,
+		`44 px 未満: ${list(m.small)}`,
 	].join(" | ");
 }
 
 /**
- * 画面を測り、行を出し、画像と数字をレポートに添付してから、(a)〜(d) を確かめる。確かめは soft
+ * 画面を測り、行を出し、画像と数字をレポートに添付してから、(a)〜(e) を確かめる。確かめは soft
  * （失敗しても、続く画面を測り終えてから、テストを失敗にする）。
  */
 export async function checkLayout(
@@ -182,4 +205,5 @@ export async function checkLayout(
 	expect.soft(m.overflowX, `${screen}: 横のはみ出し`).toBeLessThanOrEqual(0);
 	expect.soft(m.outside, `${screen}: 表示領域の外の部品`).toEqual([]);
 	expect.soft(m.overlaps, `${screen}: 部品の重なり`).toEqual([]);
+	expect.soft(m.small, `${screen}: 44 px 未満の押す部品`).toEqual([]);
 }

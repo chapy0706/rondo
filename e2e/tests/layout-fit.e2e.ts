@@ -13,11 +13,17 @@
  *   板を閉じた画面も）と、探索の鬼。上に出す板が、頭（3D の画面の上から 45% より下には来ない /
  *   viewLayout.ts の bodyTopOnView）を隠さず、中身がスクロールなしで収まり、スポイトが押しやすい大きさ
  *   （44 px 以上）で、色の選択（パレット）が無いことも確かめる。ペイントの間に板を閉じて、小さな「塗る」
- *   ボタンだけにした画面も測る（移動パッドが出たまま、ほかの部品と重ならない）
+ *   ボタン（下の中央）だけにした画面も測る（移動パッドが出たまま、ほかの部品と重ならない）。探索では、
+ *   板を開いた画面（鬼の視点の切り替えは板の見出しの中）、閉じた画面（左上の鬼の視点と、下の中央の
+ *   「塗る」）を測る。鬼の視点に切り替えた画面は、鬼が動いて位置が届くまで切り替えられない（ここでは鬼が
+ *   動かない）ので測らない（切り替えの文字の幅は、hudLayout.ts の決まった幅に収める）
+ * - 測る部品は、3D の画面の上のすべての操作部品（layout.ts の PARTS）。押す部品は 44 px 以上も確かめる
+ * - 素材の体のときだけ出るポーズのボタン（準備移動の左上、ペイントの板の中）は、カプセルでは出ないので、
+ *   ここでは測れない（hudLayout.test.ts で、置き場所が重ならないことを確かめる）
  * - 待機ルームから結果までの画面（walkScreens）は、従来の規則のルーム（ロビーで従来を選んで作る）で測る
  *
  * 2 人（A が鬼、B が隠れ側）で、フェーズの時間は本番の既定のまま。素材なし（カプセル）で測る。
- * 襖を開けるボタンは、鬼が襖の前に立ったときだけ出るので、ここでは出ない（目視で確かめる）。
+ * 襖を開けるボタンは、鬼が襖の前に立ったときだけ出るので、ここでは出ない（hudLayout.test.ts と目視で確かめる）。
  */
 
 import { type Page, expect } from "@playwright/test";
@@ -154,6 +160,10 @@ async function walkRoamingScreens(
 	await checkLayout(b.page, info, size, "探索（動ける隠れ側・板を開く）");
 	await expectSheetClearsBody(b.page, size, "探索（動ける隠れ側・板を開く）");
 	await b.page.getByTestId("veryare-sheet-close").click();
+	// 板を閉じると、左上の鬼の視点の切り替えと、下の中央の「塗る」が出る（重ならない）。
+	const oniView = b.page.getByTestId("veryare-oni-view");
+	await expect(oniView).toBeVisible();
+	await expect(b.page.getByTestId("veryare-sheet-open")).toBeVisible();
 	await checkLayout(b.page, info, size, "探索（動ける隠れ側・板を閉じる）");
 	await checkLayout(a.page, info, size, "探索（動ける隠れ側の鬼）");
 }
