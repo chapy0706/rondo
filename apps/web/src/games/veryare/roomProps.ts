@@ -8,10 +8,15 @@
  *
  * 旗 PROPS_READY（既定 false）の裏に置く。false のときは、何も読まず、何も描かない。開発用の合図
  * （NEXT_PUBLIC_VERYARE_HIRAYA、または URL の ?roof=1）のときだけ、旗に関わらず出せる。
+ * 動ける隠れ側の規則のルーム（ADR 0053）では、旗 ROAMING_PROPS（既定 true）で、ルームの全員に出す
+ * （2026-10-26 に決めた。重いなどで止めるときは、ROAMING_PROPS を false にする 1 行で戻る）。
  */
 
 /** 小物を出す準備ができたか（本番で出すときに true にする）。 */
 export const PROPS_READY = false;
+
+/** 動ける隠れ側の規則のルームで、小物を出すか（false にすると、旗 PROPS_READY と開発用の合図だけに戻る）。 */
+export const ROAMING_PROPS = true;
 
 /** 小物の高さの上限（m）。寝る姿勢の体の高さの上の端（0.33〜0.55 m）。 */
 export const PROP_MAX_HEIGHT = 0.55;
@@ -90,4 +95,16 @@ export function propsEnabled(
 	search: string,
 ): boolean {
 	return ready || dev || new URLSearchParams(search).get("roof") === "1";
+}
+
+/**
+ * このルームで小物を出すか。enabled は propsEnabled の結果（旗 PROPS_READY か開発用の合図）。roaming は、
+ * 動ける隠れ側の規則のルームか（ルーム情報の roaming）。ルームの全員で同じになる（URL の合図を除く）。
+ */
+export function propsForRoom(
+	enabled: boolean,
+	roaming: boolean,
+	roamingProps: boolean = ROAMING_PROPS,
+): boolean {
+	return enabled || (roamingProps && roaming);
 }

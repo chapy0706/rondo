@@ -173,7 +173,7 @@ import {
 	spreadingOfRoomInfo,
 	walkSpeedOf,
 } from "./roaming";
-import { PROPS_READY, propsEnabled } from "./roomProps";
+import { PROPS_READY, propsEnabled, propsForRoom } from "./roomProps";
 import { ruleBadgeOf } from "./ruleBadge";
 import {
 	type Outcome,
@@ -342,16 +342,18 @@ function VeryarePlay() {
 	);
 	/**
 	 * ランダム間取りの和室の小物の差し替え口（room-props / issue-72）。旗 PROPS_READY か、開発用の合図
-	 * （NEXT_PUBLIC_VERYARE_HIRAYA・?roof=1）のときだけ作る（旗が false なら、何も読まない）。URL は
-	 * マウントの後に読む。
+	 * （NEXT_PUBLIC_VERYARE_HIRAYA・?roof=1）か、動ける隠れ側の規則のルーム（旗 ROAMING_PROPS）のときだけ
+	 * 作る（どれでもなければ、何も読まない）。URL はマウントの後に読む。ルーム情報の roaming は、待機ルームの
+	 * 間に届く（届くのがステージへ移った後なら、差し替え口は受け取られず、小物なしのまま）。
 	 */
 	const [propsOn, setPropsOn] = useState(false);
 	useEffect(() => {
 		setPropsOn(propsEnabled(PROPS_READY, HIRAYA_DEV, window.location.search));
 	}, []);
+	const propsHere = propsForRoom(propsOn, roaming);
 	const propSlot = useMemo(
-		() => (randomLayout && propsOn ? assets.roomPropsSlot() : null),
-		[randomLayout, propsOn, assets],
+		() => (randomLayout && propsHere ? assets.roomPropsSlot() : null),
+		[randomLayout, propsHere, assets],
 	);
 	/** 平屋の glb を表示しているか（シーンが決める）と、屋根と天井を表示するか（既定は隠す）。 */
 	const [modelShown, setModelShown] = useState(false);

@@ -5,8 +5,10 @@ import {
 	PROP_MAX_HEIGHT,
 	PROP_MAX_SPAN,
 	PROP_SIZES,
+	ROAMING_PROPS,
 	lowProp,
 	propsEnabled,
+	propsForRoom,
 } from "./roomProps";
 
 describe("旗 PROPS_READY と、開発用の合図（issue-72）", () => {
@@ -36,5 +38,22 @@ describe("第 1 段階の条件（高さ 0.55 m 以下、上から見た長い�
 			expect(lowProp(PROP_SIZES[kind]), kind).toBe(true);
 		expect(lowProp({ width: 0.9, depth: 2.1, height: 0.41 })).toBe(false);
 		expect(lowProp({ width: 1.0, depth: 0.42, height: 0.9 })).toBe(false);
+	});
+});
+
+describe("動ける隠れ側の規則のルームでは、小物を出す（旗 ROAMING_PROPS）", () => {
+	it("旗 ROAMING_PROPS の既定は true。動けるルームなら、URL の合図が無くても出す", () => {
+		expect(ROAMING_PROPS).toBe(true);
+		expect(propsForRoom(false, true)).toBe(true);
+	});
+
+	it("従来の規則のルームでは、これまでどおり、旗 PROPS_READY か開発用の合図のときだけ", () => {
+		expect(propsForRoom(false, false)).toBe(false);
+		expect(propsForRoom(true, false)).toBe(true);
+	});
+
+	it("旗 ROAMING_PROPS を false にすると、動けるルームでも、これまでどおり（1 行で切れる）", () => {
+		expect(propsForRoom(false, true, false)).toBe(false);
+		expect(propsForRoom(true, true, false)).toBe(true);
 	});
 });

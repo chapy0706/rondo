@@ -273,7 +273,7 @@ node tools/build_house.mjs assets-src/house/hiraya.glb assets-src/converted/hous
 
 ## ランダム間取り: 和室の小物のキットを作る（room-props / issue-72）
 
-ランダム間取りの和室に置く、低い小物のキット。元の `hiraya-fbx.glb` から、4 種だけを取り出す。見た目だけで、判定（移動・見通し・射撃）とカメラの守りには入れない（ADR 0054）。旗 `PROPS_READY`（`apps/web/src/games/veryare/roomProps.ts`。既定 false）が立つまでは、開発用の合図（`NEXT_PUBLIC_VERYARE_HIRAYA=1` か `?roof=1`）のときだけ読む。
+ランダム間取りの和室に置く、低い小物のキット。元の `hiraya-fbx.glb` から、4 種だけを取り出す。見た目だけで、判定（移動・見通し・射撃）とカメラの守りには入れない（ADR 0054）。旗 `PROPS_READY`（`apps/web/src/games/veryare/roomProps.ts`。既定 false）が立つまでは、開発用の合図（`NEXT_PUBLIC_VERYARE_HIRAYA=1` か `?roof=1`）のときと、動ける隠れ側の規則のルーム（旗 `ROAMING_PROPS`。既定 true）のときだけ読む。
 
 ```sh
 node tools/room_props.mjs assets-src/house/hiraya-fbx.glb assets-src/delivery/v2/house
