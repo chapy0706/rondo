@@ -47,6 +47,17 @@ export const PROP_SIZES: Readonly<Record<PropKind, PropSize>> = {
 	yunomi: { width: 0.06, depth: 0.06, height: 0.07 },
 };
 
+/**
+ * 小物の正面の軸（キットの座標）。座椅子は、背もたれが -x の側にあり、+x を向いて座る（キットで確かめた /
+ * 2026-10-26）。ほかは向きが見た目に出ないので +z とする。
+ */
+export const PROP_FRONT: Readonly<Record<PropKind, "x" | "z">> = {
+	chabudai: "z",
+	zaisu: "x",
+	tsubo: "z",
+	yunomi: "z",
+};
+
 /** 小物ごとの三角形の数の上限（キットを作るときに meshopt で減らす目安 / tools/room_props.mjs）。 */
 export const PROP_TRIANGLES: Readonly<Record<PropKind, number>> = {
 	chabudai: 700,

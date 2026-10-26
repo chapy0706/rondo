@@ -3,6 +3,7 @@ import type { LoadResult } from "../../infrastructure/assets";
 import {
 	CHARACTER_KEYS,
 	HIRAYA_KEYS,
+	ROOM_PROPS_KEY,
 	STAGE_MATERIALS_KEY,
 	combineCharacter,
 	combineHiraya,
@@ -269,5 +270,38 @@ describe("stageMaterialSlot - ランダム間取りの材質の素材（stage-ma
 		const preload = vi.fn(async (key: string) => ok(key));
 		createVeryareAssets(preload).hirayaSlot();
 		expect(keysOf(preload)).not.toContain(STAGE_MATERIALS_KEY);
+	});
+});
+
+describe("roomPropsSlot - ランダム間取りの和室の小物（room-props / issue-72）", () => {
+	it("差し替え口を作ると、room-props の key だけを読む。読めたら取り出せる", async () => {
+		const preload = vi.fn(async (key: string) => ok(key));
+		const slot = createVeryareAssets(preload).roomPropsSlot();
+		expect(keysOf(preload)).toEqual([ROOM_PROPS_KEY]);
+		expect(ROOM_PROPS_KEY).toBe("room-props");
+		await settle();
+		expect(slot.take()).toBe(ROOM_PROPS_KEY);
+	});
+
+	it("読めなければ、取り出せない（小物なし）。読み込みの結果を記録する", async () => {
+		const trace = vi.fn();
+		const slot = createVeryareAssets(async () => failed, trace).roomPropsSlot();
+		await settle();
+		expect(slot.take()).toBeNull();
+		expect(trace).toHaveBeenCalledWith({
+			kind: "load",
+			key: ROOM_PROPS_KEY,
+			ok: false,
+			reason: "http-error",
+		});
+	});
+
+	it("差し替え口を作るまでは、何も読まない（ほかの差し替え口を作っても、読まない）", () => {
+		const preload = vi.fn(async (key: string) => ok(key));
+		const assets = createVeryareAssets(preload);
+		assets.hirayaSlot();
+		assets.stageMaterialSlot();
+		assets.characterSlot();
+		expect(keysOf(preload)).not.toContain(ROOM_PROPS_KEY);
 	});
 });

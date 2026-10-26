@@ -15,11 +15,12 @@
  * - 置く部屋の数は PROP_MAX_ROOMS まで（三角形の増えを抑える）。部屋の種の小さい順に選ぶ
  * - 部屋の種は、地図の文字列（行）と、部屋の文字から作る（同じ地図なら、全員で同じ）
  *
- * 小物の向き（turn）は、四半回転の数（0 は、小物の +z が部屋の +v を向く。1 は +u、2 は -v、3 は -u）。
+ * 小物の向き（turn）は、小物の正面（roomProps.ts の PROP_FRONT）が向く方向（0 は部屋の +v、1 は +u、2 は -v、
+ * 3 は -u）。世界の座標では、y 軸まわりの回転 yaw（three の rotation.y）にする。
  */
 
 import { isHirayaStage } from "./hiraya";
-import { PROP_SIZES, type PropKind } from "./roomProps";
+import { PROP_FRONT, PROP_SIZES, type PropKind } from "./roomProps";
 import type { Cell, StageGrid } from "./stage";
 
 /** 壁と小物の間（m）。 */
@@ -70,17 +71,27 @@ export interface RoomLayout {
 	readonly props: readonly LocalProp[];
 }
 
+/** 小物の、部屋の座標での半分の大きさ（u と v の向き）。小物の x（幅）が u に沿うかは、正面と向きで決まる。 */
+export function halfExtents(
+	kind: PropKind,
+	turn: LocalProp["turn"],
+): { readonly u: number; readonly v: number } {
+	const size = PROP_SIZES[kind];
+	const frontAlongV = turn % 2 === 0;
+	const widthAlongU = PROP_FRONT[kind] === "z" ? frontAlongV : !frontAlongV;
+	return widthAlongU
+		? { u: size.width / 2, v: size.depth / 2 }
+		: { u: size.depth / 2, v: size.width / 2 };
+}
+
 /** 小物の、上から見た矩形（部屋の座標）。 */
 export function localFootprint(prop: LocalProp): Rect {
-	const size = PROP_SIZES[prop.kind];
-	const side = prop.turn % 2 === 0;
-	const halfU = (side ? size.width : size.depth) / 2;
-	const halfV = (side ? size.depth : size.width) / 2;
+	const half = halfExtents(prop.kind, prop.turn);
 	return {
-		x0: prop.u - halfU,
-		z0: prop.v - halfV,
-		x1: prop.u + halfU,
-		z1: prop.v + halfV,
+		x0: prop.u - half.u,
+		z0: prop.v - half.v,
+		x1: prop.u + half.u,
+		z1: prop.v + half.v,
 	};
 }
 
@@ -155,7 +166,7 @@ function template(
 	const sign = mirrored ? -1 : 1;
 	switch (pattern) {
 		case "A": {
-			const reach = table.width / 2 + CHAIR_GAP + PROP_SIZES.zaisu.depth / 2;
+			const reach = table.width / 2 + CHAIR_GAP + halfExtents("zaisu", 1).u;
 			return [
 				chabudai,
 				{ kind: "zaisu", u: tableAt.u - reach, v: tableAt.v, y: 0, turn: 1 },
@@ -164,24 +175,24 @@ function template(
 			];
 		}
 		case "B": {
-			const pot = PROP_SIZES.tsubo;
-			const chair = PROP_SIZES.zaisu;
+			const pot = halfExtents("tsubo", 0);
+			const chair = halfExtents("zaisu", 0);
 			// 壺は奥の隅（反転で左右を選ぶ）。座椅子は手前の、襖から遠い側の隅（奥を向く）。
-			const potU = PROP_WALL_MARGIN + pot.width / 2;
-			const chairU = PROP_WALL_MARGIN + chair.width / 2;
+			const potU = PROP_WALL_MARGIN + pot.u;
+			const chairU = PROP_WALL_MARGIN + chair.u;
 			const farFromDoor = room.door <= room.width / 2;
 			return [
 				{
 					kind: "tsubo",
 					u: mirrored ? room.width - potU : potU,
-					v: room.depth - PROP_WALL_MARGIN - pot.depth / 2,
+					v: room.depth - PROP_WALL_MARGIN - pot.v,
 					y: 0,
 					turn: 0,
 				},
 				{
 					kind: "zaisu",
 					u: farFromDoor ? room.width - chairU : chairU,
-					v: PROP_WALL_MARGIN + chair.depth / 2,
+					v: PROP_WALL_MARGIN + chair.v,
 					y: 0,
 					turn: 0,
 				},
@@ -341,7 +352,10 @@ export function roomSeed(grid: StageGrid, id: string): number {
 	return hash;
 }
 
-/** 置いた小物（世界の座標。yaw は y 軸まわりの回転で、小物の +z が (sin yaw, cos yaw) を向く）。 */
+/**
+ * 置いた小物（世界の座標）。yaw は y 軸まわりの回転（three の rotation.y。四半回転の倍数）。回転で、小物の
+ * +z は (sin yaw, cos yaw)、+x は (cos yaw, -sin yaw) を向く。
+ */
 export interface PlacedProp {
 	readonly room: string;
 	readonly kind: PropKind;
@@ -351,8 +365,12 @@ export interface PlacedProp {
 	readonly yaw: number;
 }
 
-/** 部屋の座標の向き（四半回転）の、世界の yaw。 */
-function worldYaw(frame: RoomFrame, turn: LocalProp["turn"]): number {
+/** 部屋の座標の向き（正面の向く方向）の、世界の yaw。部屋の座標が裏返し（鏡）でも、正面は向く方向を向く。 */
+function worldYaw(
+	frame: RoomFrame,
+	kind: PropKind,
+	turn: LocalProp["turn"],
+): number {
 	const local = [
 		{ u: 0, v: 1 },
 		{ u: 1, v: 0 },
@@ -361,16 +379,17 @@ function worldYaw(frame: RoomFrame, turn: LocalProp["turn"]): number {
 	][turn] as { u: number; v: number };
 	const x = local.u * frame.u.x + local.v * frame.v.x;
 	const z = local.u * frame.u.z + local.v * frame.v.z;
-	return Math.atan2(x, z);
+	// 正面が +z の小物は +z を、+x の小物は +x を、(x, z) へ向ける。
+	return PROP_FRONT[kind] === "z" ? Math.atan2(x, z) : Math.atan2(-z, x);
 }
 
 /** 置いた小物の、上から見た矩形（世界の座標。yaw は四半回転の倍数）。 */
 export function worldFootprint(prop: PlacedProp): Rect {
 	const size = PROP_SIZES[prop.kind];
-	const quarter = Math.round(prop.yaw / (Math.PI / 2));
-	const side = Math.abs(quarter) % 2 === 0;
-	const halfX = (side ? size.width : size.depth) / 2;
-	const halfZ = (side ? size.depth : size.width) / 2;
+	// 小物の x（幅）が、世界の x に沿うか（yaw が 0 か半回転）。
+	const widthAlongX = Math.abs(Math.cos(prop.yaw)) > 0.5;
+	const halfX = (widthAlongX ? size.width : size.depth) / 2;
+	const halfZ = (widthAlongX ? size.depth : size.width) / 2;
 	return {
 		x0: prop.x - halfX,
 		z0: prop.z - halfZ,
@@ -399,7 +418,7 @@ export function placeRoomProps(grid: StageGrid): PlacedProp[] {
 				x: at.x,
 				z: at.z,
 				y: prop.y,
-				yaw: worldYaw(room.frame, prop.turn),
+				yaw: worldYaw(room.frame, prop.kind, prop.turn),
 			};
 		}),
 	);

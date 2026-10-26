@@ -224,6 +224,23 @@ describe("placeRoomProps - 地図の置き方（契約の見本の 13 種: 10 �
 			expect(triangles(grid)).toBeLessThanOrEqual(PROP_TRIANGLE_BUDGET);
 		});
 
+		it(`見本 ${n}: ちゃぶ台の脇の座椅子は、ちゃぶ台を向く。手前の座椅子は、奥を向く（部屋の向きが裏返しでも）`, () => {
+			const placed = placeRoomProps(grid);
+			for (const room of propRooms(grid)) {
+				const mine = placed.filter((p) => p.room === room.id);
+				const table = mine.find((p) => p.kind === "chabudai");
+				for (const chair of mine.filter((p) => p.kind === "zaisu")) {
+					// 座椅子の正面は、キットの +x（rotation.y = yaw で (cos yaw, -sin yaw) を向く）。
+					const front = { x: Math.cos(chair.yaw), z: -Math.sin(chair.yaw) };
+					const target =
+						table === undefined
+							? { x: room.frame.v.x, z: room.frame.v.z }
+							: { x: table.x - chair.x, z: table.z - chair.z };
+					expect(front.x * target.x + front.z * target.z).toBeGreaterThan(0);
+				}
+			}
+		});
+
 		it(`見本 ${n}: 同じ地図なら同じ置き方（決定的）`, () => {
 			expect(placeRoomProps(grid)).toEqual(placeRoomProps(grid));
 		});

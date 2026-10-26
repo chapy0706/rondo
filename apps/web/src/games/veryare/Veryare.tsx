@@ -173,6 +173,7 @@ import {
 	spreadingOfRoomInfo,
 	walkSpeedOf,
 } from "./roaming";
+import { PROPS_READY, propsEnabled } from "./roomProps";
 import { ruleBadgeOf } from "./ruleBadge";
 import {
 	type Outcome,
@@ -338,6 +339,19 @@ function VeryarePlay() {
 	const materialSlot = useMemo(
 		() => (randomLayout ? assets.stageMaterialSlot() : null),
 		[randomLayout, assets],
+	);
+	/**
+	 * ランダム間取りの和室の小物の差し替え口（room-props / issue-72）。旗 PROPS_READY か、開発用の合図
+	 * （NEXT_PUBLIC_VERYARE_HIRAYA・?roof=1）のときだけ作る（旗が false なら、何も読まない）。URL は
+	 * マウントの後に読む。
+	 */
+	const [propsOn, setPropsOn] = useState(false);
+	useEffect(() => {
+		setPropsOn(propsEnabled(PROPS_READY, HIRAYA_DEV, window.location.search));
+	}, []);
+	const propSlot = useMemo(
+		() => (randomLayout && propsOn ? assets.roomPropsSlot() : null),
+		[randomLayout, propsOn, assets],
 	);
 	/** 平屋の glb を表示しているか（シーンが決める）と、屋根と天井を表示するか（既定は隠す）。 */
 	const [modelShown, setModelShown] = useState(false);
@@ -1049,6 +1063,7 @@ function VeryarePlay() {
 		sceneHiders,
 		stageSlot,
 		materialSlot,
+		propSlot,
 		roofVisible,
 		ceiling,
 		autoCamera,
@@ -1088,6 +1103,7 @@ function VeryarePlay() {
 		sceneHiders,
 		stageSlot,
 		materialSlot,
+		propSlot,
 		roofVisible,
 		ceiling,
 		autoCamera,
@@ -1297,6 +1313,7 @@ function VeryarePlay() {
 				scene.setStage(current.grid, current.openDoors);
 				scene.setStageModel(current.stageSlot);
 				scene.setStageMaterials(current.materialSlot);
+				scene.setRoomProps(current.propSlot);
 				scene.setRoofVisible(current.roofVisible);
 				scene.setCeilingVisible(current.ceiling);
 				// ステージのカメラは領域の外に出さない（ADR 0043）。ペイント画面と待機ルームは対象外。

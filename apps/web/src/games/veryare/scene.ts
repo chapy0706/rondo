@@ -102,6 +102,8 @@ import {
 	nearestSpots,
 	roomLightSpots,
 } from "./roomLights";
+import { type RoomPropKit, parseRoomPropKit, propMeshes } from "./roomPropKit";
+import { placeRoomProps } from "./roomPropLayout";
 import type { View } from "./rules";
 import {
 	type AreaState,
@@ -171,6 +173,11 @@ export interface VeryareScene extends TestableScene {
 	 * ステージへ移ったら lock() する。null なら貼らない（色の箱）。
 	 */
 	setStageMaterials(slot: SwapSlot<THREE.Group> | null): void;
+	/**
+	 * ランダム間取りの和室の小物の差し替え口（room-props / issue-72）。待機ルームにいる間に1回だけ受け取り、
+	 * ステージへ移ったら lock() する。null なら置かない（旗が false のときは、作らない）。小物は見た目だけ。
+	 */
+	setRoomProps(slot: SwapSlot<THREE.Group> | null): void;
 	/** 平屋の glb を表示しているか（屋根の切り替えのボタンを出すかに使う）。 */
 	stageModelShown(): boolean;
 	/** 屋根を表示するか（開発用。既定は隠す / issue-46）。 */
@@ -1028,12 +1035,15 @@ export function createScene(
 	// 天井（色の箱と材質を貼った箱）。狙いの当たりとスポイトの対象（boxGroup・surfaceGroup）に入れない。
 	const boxCeilingGroup = new THREE.Group();
 	const surfaceCeilingGroup = new THREE.Group();
+	// 和室の小物（issue-72）。見た目だけで、狙いの当たり・スポイト・カメラの守りの対象に入れない。
+	const propGroup = new THREE.Group();
 	spaces.stage.add(
 		boxGroup,
 		modelGroup,
 		surfaceGroup,
 		boxCeilingGroup,
 		surfaceCeilingGroup,
+		propGroup,
 	);
 	let ceiling = true;
 	// 部屋の灯り。数は一定で、明るさ 0 で消す（数を変えないので、シェーダーを作り直さない）。
@@ -1053,6 +1063,12 @@ export function createScene(
 	/** 材質の素材を受け取ったか（1回だけ受け取る）と、形が正しく読めた材質。 */
 	let materialsReceived = false;
 	let materials: StageMaterialSet | null = null;
+	/** 小物の差し替え口と、受け取ったか（1回だけ）と、形が正しく読めたキット。 */
+	let propSlot: SwapSlot<THREE.Group> | null = null;
+	let propsReceived = false;
+	let propKit: RoomPropKit | null = null;
+	/** 小物を置いた地図（地図が変わったときだけ置き直す。襖の開け閉めでは置き直さない）。 */
+	let propGrid: StageGrid | null = null;
 	let stageSlot: SwapSlot<HirayaModel> | null = null;
 	let model: HirayaModel | null = null;
 	/** glb の襖の板（襖の状態を持ち、差し替えのときにも当て直す / fusumaView.ts）。 */
@@ -1087,6 +1103,7 @@ export function createScene(
 		boxCeilingGroup.visible = layers.boxes && stageCeilingVisible(ceiling);
 		surfaceCeilingGroup.visible =
 			layers.surfaces && stageCeilingVisible(ceiling);
+		propGroup.visible = !layers.model;
 		if (model?.roof != null) {
 			// 屋根のノードは開発用の切り替え、天井のノードは設定のとおり。
 			model.roof.visible = true;
@@ -1170,6 +1187,21 @@ export function createScene(
 	};
 
 	/** いまの地図と襖の状態で、箱（と、材質があれば材質を貼った箱）を組み直す。 */
+	/** 和室の小物を、いまの地図に置き直す（キットが無い・平屋なら、何も置かない / roomPropLayout.ts）。 */
+	const buildProps = () => {
+		const meshes = [...propGroup.children];
+		propGroup.clear();
+		// 形と材質はキットのもの。写しの InstancedMesh だけを捨てる。
+		for (const mesh of meshes) {
+			if (mesh instanceof THREE.InstancedMesh) mesh.dispose();
+		}
+		propGrid = stageGrid;
+		if (propKit === null || stageGrid === null) return;
+		for (const mesh of propMeshes(propKit, placeRoomProps(stageGrid))) {
+			propGroup.add(mesh);
+		}
+	};
+
 	const buildStage = () => {
 		clearStage();
 		if (stageGrid !== null && stageOpen !== null) {
@@ -1201,12 +1233,16 @@ export function createScene(
 			stageOpen = open;
 			buildStage();
 			placeFusuma();
+			if (grid !== propGrid) buildProps();
 		},
 		setStageModel(slot) {
 			stageSlot = slot;
 		},
 		setStageMaterials(slot) {
 			materialSlot = slot;
+		},
+		setRoomProps(slot) {
+			propSlot = slot;
 		},
 		stageModelShown() {
 			return modelShown();
@@ -1250,6 +1286,13 @@ export function createScene(
 					materials = pickStageMaterials(assetRoot);
 					if (materials !== null) buildStage();
 				}
+				// 和室の小物も、待機ルームにいる間に1回だけ受け取る。形が違えば、小物なし。
+				const propRoot = propsReceived ? null : propSlot?.take();
+				if (propRoot != null) {
+					propsReceived = true;
+					propKit = parseRoomPropKit(propRoot);
+					if (propKit !== null) buildProps();
+				}
 			}
 			if (space !== "waiting-room" && !spectating) {
 				options.bodies?.lock();
@@ -1274,6 +1317,7 @@ export function createScene(
 				}
 				stageSlot?.lock();
 				materialSlot?.lock();
+				propSlot?.lock();
 			}
 			lastSpace = space;
 			const background = space === "stage" ? stageBackground : roomBackground;
