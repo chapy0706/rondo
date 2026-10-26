@@ -12,6 +12,14 @@
 import type { LoadResult } from "../../infrastructure/assets";
 import { HIRAYA_DEV } from "./manifest";
 
+/** 和室の小物の数と重さ（roomPropKit.ts の propStats）。 */
+export interface PropStats {
+	readonly props: number;
+	readonly rooms: number;
+	readonly drawCalls: number;
+	readonly triangles: number;
+}
+
 export type AssetEvent =
 	| { readonly kind: "prefetch-start" }
 	| { readonly kind: "prefetch-skip"; readonly reason: "hiraya-disabled" }
@@ -34,6 +42,8 @@ export type AssetEvent =
 			readonly edges: number;
 	  }
 	| { readonly kind: "furniture"; readonly boxes: number | null }
+	/** 和室の小物（issue-72）。stats が null なら、キットの形が違う（小物なし）。 */
+	| { readonly kind: "props"; readonly stats: PropStats | null }
 	| { readonly kind: "character"; readonly swapped: boolean }
 	| { readonly kind: "materials"; readonly applied: true }
 	| {
@@ -109,6 +119,10 @@ export function traceMessage(event: AssetEvent): string {
 			return event.boxes === null
 				? "家具の箱: 読めない（地図の守りだけ）"
 				: `家具の箱: ${event.boxes} 個（カメラの守りに使う）`;
+		case "props":
+			return event.stats === null
+				? "和室の小物: キットの形が違うので、小物なし"
+				: `和室の小物: ${event.stats.props} 個（${event.stats.rooms} 部屋）、描画の呼び出し ${event.stats.drawCalls}、三角形 +${event.stats.triangles}`;
 		case "stage":
 			return event.display === "model"
 				? "ステージ: 平屋の glb で表示している"

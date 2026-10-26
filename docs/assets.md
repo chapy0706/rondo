@@ -271,6 +271,29 @@ node tools/build_house.mjs assets-src/house/hiraya.glb assets-src/converted/hous
 - 最後に、形のデータを圧縮する（`--geometry`。既定は meshopt / issue-55。上の「形のデータの圧縮」）
 - 各ファイルの大きさ・メッシュ数・三角形数（インスタンスの数を掛けたもの）・テクスチャ数を、`STATS` の行で出す
 
+## ランダム間取り: 和室の小物のキットを作る（room-props / issue-72）
+
+ランダム間取りの和室に置く、低い小物のキット。元の `hiraya-fbx.glb` から、4 種だけを取り出す。見た目だけで、判定（移動・見通し・射撃）とカメラの守りには入れない（ADR 0054）。旗 `PROPS_READY`（`apps/web/src/games/veryare/roomProps.ts`。既定 false）が立つまでは、開発用の合図（`NEXT_PUBLIC_VERYARE_HIRAYA=1` か `?roof=1`）のときだけ読む。
+
+```sh
+node tools/room_props.mjs assets-src/house/hiraya-fbx.glb assets-src/delivery/v2/house
+node tools/make_manifest.mjs assets-src/delivery
+```
+
+| 種類 | 元の根のノード | 幅 × 奥行き × 高さ（m） | 三角形（元 → キット） |
+| --- | --- | --- | --- |
+| `chabudai` | ちゃぶ台-002 W90D90H35 | 0.90 × 0.90 × 0.35 | 604 → 604 |
+| `zaisu` | 座椅子-001（背もたれが -x、+x を向いて座る） | 0.54 × 0.40 × 0.51 | 1,948 → 528 |
+| `tsubo` | 壺-001 | 0.28 × 0.28 × 0.36 | 4,736 → 364 |
+| `yunomi` | 湯呑み(軽)-001（ちゃぶ台の上に置く） | 0.06 × 0.06 × 0.07 | 1,024 → 210 |
+
+- 出力は `room-props-{512,1024}.glb`（中身は同じ。絵は 512）。2026-10-26 の実測で 55,576 バイト
+- 小物ごとに 1 つのノード（名前は `room-prop:<種類>`）。足もとの中心を原点にし、回転は形に焼き込む。ノードの extras に幅・奥行き・高さと三角形の数、scene の extras（`rondoRoomProps`）に一覧を入れる
+- 三角形は meshopt で減らす（上限は `roomProps.ts` の `PROP_TRIANGLES`）。色の絵だけを残し（法線・粗さの絵は外す）、512 の WebP にする。形は meshopt で圧縮する
+- 第 1 段階の条件（高さ 0.55 m 以下、上から見た長い辺 1.0 m 以下）を超える小物があれば、何も書かずに止まる。急須（三角形 約 8,700）と座卓和風（天板 2.1 × 0.9 m。寝た体を上から覆う）は入れない
+- 手元の素材の検査: `apps/web/src/games/veryare/roomPropsFile.test.ts`（素材が無ければ飛ばす）
+- 置き方は `roomPropLayout.ts`（純粋関数）、読み込みと描画は `roomPropKit.ts`（種類 × 材質ごとに 1 つの InstancedMesh）
+
 ## ランダム間取り: 材質の素材を作る（stage-materials）
 
 ランダム間取りの床・壁・襖の箱に、平屋の材質を貼るための素材。元の `hiraya-fbx.glb` から、5 つの材質だけを取り出す。

@@ -102,7 +102,12 @@ import {
 	nearestSpots,
 	roomLightSpots,
 } from "./roomLights";
-import { type RoomPropKit, parseRoomPropKit, propMeshes } from "./roomPropKit";
+import {
+	type RoomPropKit,
+	parseRoomPropKit,
+	propMeshes,
+	propStats,
+} from "./roomPropKit";
 import { placeRoomProps } from "./roomPropLayout";
 import type { View } from "./rules";
 import {
@@ -1197,9 +1202,10 @@ export function createScene(
 		}
 		propGrid = stageGrid;
 		if (propKit === null || stageGrid === null) return;
-		for (const mesh of propMeshes(propKit, placeRoomProps(stageGrid))) {
-			propGroup.add(mesh);
-		}
+		const placed = placeRoomProps(stageGrid);
+		const made = propMeshes(propKit, placed);
+		for (const mesh of made) propGroup.add(mesh);
+		options.trace?.({ kind: "props", stats: propStats(placed, made) });
 	};
 
 	const buildStage = () => {
@@ -1291,7 +1297,8 @@ export function createScene(
 				if (propRoot != null) {
 					propsReceived = true;
 					propKit = parseRoomPropKit(propRoot);
-					if (propKit !== null) buildProps();
+					if (propKit === null) options.trace?.({ kind: "props", stats: null });
+					else buildProps();
 				}
 			}
 			if (space !== "waiting-room" && !spectating) {

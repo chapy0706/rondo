@@ -16,6 +16,7 @@
 
 import * as THREE from "three";
 import { z } from "zod";
+import type { PropStats } from "./assetTrace";
 import { originalName } from "./fusumaView";
 import type { PlacedProp } from "./roomPropLayout";
 import {
@@ -177,4 +178,23 @@ export function propMeshes(
 		}
 	}
 	return meshes;
+}
+
+/** 置いた小物の数と、描く重さ（描画の呼び出しの数と、増える三角形の数。写しの数も掛けて数える）。 */
+export function propStats(
+	placed: readonly PlacedProp[],
+	meshes: readonly THREE.InstancedMesh[],
+): PropStats {
+	const triangles = meshes.reduce((sum, mesh) => {
+		const geometry = mesh.geometry;
+		const count =
+			geometry.getIndex()?.count ?? geometry.getAttribute("position").count;
+		return sum + (count / 3) * mesh.count;
+	}, 0);
+	return {
+		props: placed.length,
+		rooms: new Set(placed.map((prop) => prop.room)).size,
+		drawCalls: meshes.length,
+		triangles: Math.round(triangles),
+	};
 }

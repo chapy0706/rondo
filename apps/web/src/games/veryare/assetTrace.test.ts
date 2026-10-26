@@ -32,6 +32,20 @@ describe("createTracer - 有効なときだけ、1行ずつ出す", () => {
 	});
 });
 
+describe("traceMessage - 和室の小物（issue-72）", () => {
+	it("小物の数・部屋の数・描画の呼び出し・三角形の増えを出す。キットの形が違えば、小物なし", () => {
+		expect(
+			traceMessage({
+				kind: "props",
+				stats: { props: 30, rooms: 12, drawCalls: 5, triangles: 16000 },
+			}),
+		).toBe("和室の小物: 30 個（12 部屋）、描画の呼び出し 5、三角形 +16000");
+		expect(traceMessage({ kind: "props", stats: null })).toBe(
+			"和室の小物: キットの形が違うので、小物なし",
+		);
+	});
+});
+
 describe("traceMessage - 出す文言", () => {
 	it("先読みを始めた・始めなかった理由・失敗", () => {
 		expect(traceMessage({ kind: "prefetch-start" })).toContain(

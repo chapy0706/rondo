@@ -1,6 +1,6 @@
 import * as THREE from "three";
 import { describe, expect, it } from "vitest";
-import { parseRoomPropKit, propMeshes } from "./roomPropKit";
+import { parseRoomPropKit, propMeshes, propStats } from "./roomPropKit";
 import type { PlacedProp } from "./roomPropLayout";
 import {
 	PROP_EXTRAS_KEY,
@@ -160,5 +160,25 @@ describe("propMeshes - 小物を、種類と材質ごとの InstancedMesh にま
 		const kit = parseRoomPropKit(kitRoot());
 		if (kit === null) throw new Error("読めない");
 		expect(propMeshes(kit, [])).toEqual([]);
+	});
+});
+
+describe("propStats - 小物の数と、描く重さ（開発用の記録 / assetTrace.ts）", () => {
+	it("小物の数・部屋の数・描画の呼び出しの数・増える三角形の数（写しの数を掛ける）", () => {
+		const kit = parseRoomPropKit(kitRoot());
+		if (kit === null) throw new Error("読めない");
+		const props = [
+			placed("chabudai", 1, 2),
+			{ ...placed("chabudai", 5, 2), room: "B" },
+			placed("yunomi", 1, 2),
+		];
+		const meshes = propMeshes(kit, props);
+		// 箱の形は 12 個の三角形。ちゃぶ台 2 つと湯呑み 1 つ。
+		expect(propStats(props, meshes)).toEqual({
+			props: 3,
+			rooms: 2,
+			drawCalls: 2,
+			triangles: 36,
+		});
 	});
 });
